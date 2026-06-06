@@ -1,0 +1,20 @@
+version: 2
+
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "daily"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"

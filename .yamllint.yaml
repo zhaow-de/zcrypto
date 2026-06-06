@@ -1,0 +1,28 @@
+extends: relaxed
+
+rules:
+  # Enforce proper indentation
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+
+  # Require proper key-value formatting
+  key-duplicates: enable
+
+  # Ensure proper line structure - disabled to allow long lines
+  line-length: disable
+
+  # Catch empty values and incomplete structures
+  empty-values:
+    forbid-in-block-mappings: true
+    forbid-in-flow-mappings: true
+
+  # Catch trailing spaces and other formatting issues
+  trailing-spaces: enable
+  new-line-at-end-of-file: enable
+
+  # Ensure proper colon spacing
+  colons:
+    max-spaces-before: 0
+    max-spaces-after: 1
