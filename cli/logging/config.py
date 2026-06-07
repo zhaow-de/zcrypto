@@ -3,14 +3,13 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 from cli.logging.formatters import JsonLineFormatter, PlainTextFormatter
 
 _TARGET_LOGGERS = ("zcrypto", "qlib")
 
 
-def configure(path: Optional[Path], level: str) -> None:
+def configure(path: Path | None, level: str) -> None:
     """Set up project + qlib loggers. Idempotent across repeated calls."""
     numeric = logging.getLevelName(level)
     if not isinstance(numeric, int):
@@ -21,7 +20,7 @@ def configure(path: Optional[Path], level: str) -> None:
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(PlainTextFormatter())
     else:
-        handler = logging.FileHandler(Path(path), mode="a", encoding="utf-8")
+        handler = logging.FileHandler(path, mode="a", encoding="utf-8")
         handler.setFormatter(JsonLineFormatter())
     handler.setLevel(numeric)
     handler._zcrypto_owned = True  # type: ignore[attr-defined]
@@ -33,7 +32,7 @@ def configure(path: Optional[Path], level: str) -> None:
                 lg.removeHandler(h)
                 try:
                     h.close()
-                except Exception:
+                except OSError:
                     pass
         lg.addHandler(handler)
         lg.setLevel(numeric)
