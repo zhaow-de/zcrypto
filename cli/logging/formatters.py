@@ -11,7 +11,7 @@ class JsonLineFormatter(logging.Formatter):
     """Emit one JSON object per record (file mode)."""
 
     def format(self, record: logging.LogRecord) -> str:
-        ms = int((record.created - int(record.created)) * 1000)
+        ms = int(record.msecs) % 1000
         ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)) + f".{ms:03d}Z"
         payload: dict = {
             "ts": ts,
@@ -21,6 +21,7 @@ class JsonLineFormatter(logging.Formatter):
             "line": record.lineno,
             "message": record.getMessage(),
         }
+        # Underscore keys are reserved for stdlib/internal bookkeeping and never surface as user extras.
         extra = {k: v for k, v in record.__dict__.items() if k not in _OMIT_EXTRA_KEYS and not k.startswith("_")}
         if extra:
             payload["extra"] = extra

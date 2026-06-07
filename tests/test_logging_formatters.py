@@ -1,8 +1,8 @@
 import json
 import logging
 import re
-
-import pytest
+import sys
+from pathlib import Path
 
 from cli.logging.formatters import JsonLineFormatter, PlainTextFormatter
 
@@ -50,8 +50,6 @@ def test_json_includes_exception_when_present():
     try:
         raise ValueError("boom")
     except ValueError:
-        import sys
-
         rec = _make_record(exc_info=sys.exc_info())
     obj = json.loads(JsonLineFormatter().format(rec))
     assert "exception" in obj
@@ -65,8 +63,6 @@ def test_json_message_uses_args():
 
 
 def test_json_extra_serializes_non_json_native_via_default_str():
-    from pathlib import Path
-
     rec = _make_record(extra={"path": Path("/tmp/x.log")})
     obj = json.loads(JsonLineFormatter().format(rec))
     assert obj["extra"]["path"] == "/tmp/x.log"
