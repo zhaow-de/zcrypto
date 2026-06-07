@@ -23,7 +23,7 @@ Open PRs using the template at `.github/pull_request_template.md`. Because `gh p
 2. `## Spec / Plan` — links to the `docs/specs/…` and `docs/plans/…` that produced the PR (`N/A — <reason>` if there was none).
 3. the flexible middle (below),
 4. `## Checklist`,
-5. the aggregated `Co-Authored-By:` trailer (see below).
+5. the aggregated `Co-Authored-By:` trailer — plus a `Reviewed-by:` line if any commits carry reviewer trailers (see below).
 
 **Flexible middle:** between Spec/Plan and Checklist, add whatever sections fit the change — a *menu, not a mandate*: `## Changes`, `## Test plan`, `## Migration / compatibility`, `## Risks`, `## Screenshots`, `## Out of scope`, `## Follow-ups`. Scale to complexity and mirror the spec — a trivial PR may add none, a large one several.
 
@@ -45,6 +45,21 @@ git log <base>..HEAD --pretty='%(trailers:key=Co-authored-by,valueonly)' \
 (`paste -sd ','` joins with a single delimiter, then `sed` expands each into `; ` — a multi-char `paste -sd '; '` would alternate the two characters and drop the space.)
 
 Regenerate the trailer whenever the PR description changes. This aggregated form is for the PR **description only** — per-commit `Co-Authored-By:` trailers stay as-is (one per commit, full `Name <noreply@anthropic.com>` form) per `commit-messages.md`.
+
+### Reviewer trailer (PR description)
+
+If any of the PR's commits carry `Reviewed-by:` trailers (see `commit-messages.md`), add a `Reviewed-by:` line directly below the co-author one, aggregated the **same way** — distinct models, **names only** (drop the `<email>`), `; `-joined — but from the `Reviewed-by` key and emitted as `Reviewed-by:`, so reviewers are never folded into authorship:
+
+```
+Reviewed-by: Claude Opus 4.7
+```
+
+```bash
+git log <base>..HEAD --pretty='%(trailers:key=Reviewed-by,valueonly)' \
+  | sed '/^$/d' | sed 's/ <[^>]*>//' | awk '!seen[$0]++' | paste -sd , - | sed 's/,/; /g'
+```
+
+Omit the line entirely when there are no reviewer trailers. The PR body is free text, so this line is plain text (not parsed by git's trailer engine) — it just mirrors the co-author aggregation.
 
 ## Target branch
 
