@@ -2,7 +2,7 @@
 name: merge-pr
 description: Use when a reviewed GitHub pull request is ready to merge and the local clone needs cleanup afterward — e.g. "merge PR #60 and clean up", landing an approved Claude-authored PR into develop. Merge-commit only (never squash or rebase). For gh/GitHub repos with a develop integration branch.
 disable-model-invocation: true
-model: claude-haiku
+model: haiku
 allowed-tools: Bash(git status:*), Bash(git checkout:*), Bash(git pull:*), Bash(git branch:*), Bash(git ls-remote:*), Bash(git push:*), Bash(git fetch:*), Bash(gh pr:*), Bash(python3:*)
 ---
 
