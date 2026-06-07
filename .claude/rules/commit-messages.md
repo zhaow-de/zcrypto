@@ -25,10 +25,10 @@ Always reflect the **actual** model and version that did the work (e.g. `Claude 
 
 ## Reviewer trailer
 
-When a review subagent's feedback is acted on (e.g. during subagent-driven development), credit it with a `Reviewed-by:` trailer — same full form as the co-author trailer, distinct token, reflecting the reviewer's **actual** model:
+Credit **every** review subagent that signs off on the iteration's work (e.g. during subagent-driven development) with a `Reviewed-by:` trailer — regardless of whether its feedback prompted a change, matching the standard "I reviewed this and vouch for it" meaning. Use the same full form as the co-author trailer, a distinct token, reflecting the reviewer's **actual** model:
 
 ```
 Reviewed-by: Claude Opus 4.7 <noreply@anthropic.com>
 ```
 
-Put it on the commit its review covers: a review that prompts a fix goes on the **fix commit**; a final approving review that changes nothing goes on the iteration's **closeout commit** (the `iterations-history` one). A reviewer is **not** an author — always use `Reviewed-by:`, never `Co-Authored-By:` — so authorship and review stay separate and the co-author aggregation never counts a reviewer. (`Reviewed-by` is a space-free, valid git trailer, so it never trips the footer-parsing caveat above.) The PR description aggregates distinct reviewers the same way as co-authors — see `pull-requests.md`.
+Collect the iteration's **distinct** reviewer models and put their `Reviewed-by:` trailers on the iteration's **closeout commit** (the `iterations-history` one) — one place, so the mid-iteration commits the reviews covered never need amending. A reviewer is **not** an author — always use `Reviewed-by:`, never `Co-Authored-By:` — so authorship and review stay separate and the co-author aggregation never counts a reviewer. (`Reviewed-by` is a space-free, valid git trailer, so it never trips the footer-parsing caveat above.) The PR description aggregates distinct reviewers the same way as co-authors — see `pull-requests.md`.
