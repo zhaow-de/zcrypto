@@ -23,6 +23,7 @@ def example(
     ),
 ) -> None:
     """Run a small offline Qlib ETH-USD strategy backtest demo."""
+    # Deferred so `zcrypto --version` and help stay fast (importing qlib is ~1s).
     from cli.example.dataset import build_provider
     from cli.example.workflow import run_experiment
 
