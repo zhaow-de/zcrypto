@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 import qlib
 from qlib.constant import REG_US
@@ -25,8 +27,7 @@ _METRICS = ["annualized_return", "information_ratio", "max_drawdown"]
 
 
 def run_experiment(provider_uri: str, exp_uri: str, show_data: bool = False) -> dict:
-    import os
-
+    # MLflow rejects file:// tracking URIs unless this flag is set; needed for offline runs.
     os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
     qlib.init(
         provider_uri=provider_uri,
@@ -132,5 +133,6 @@ def _extract_metrics(recorder) -> dict:
     }
     report = recorder.load_object("portfolio_analysis/report_normal_1day.pkl")
     abs_df = risk_analysis(report["return"] - report["cost"], freq="day")
+    # risk_analysis returns a single-column DataFrame; .iloc[0] takes that scalar.
     metrics["strategy_absolute"] = {m: float(abs_df.loc[m].iloc[0]) for m in _METRICS}
     return metrics
