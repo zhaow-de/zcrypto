@@ -9,9 +9,17 @@ Learning-for-Fun project to experience Microsoft Qlib.
 
 <!-- mdformat-toc start --slug=github --maxlevel=3 --minlevel=2 -->
 
+- [Requirements](#requirements)
 - [Usage](#usage)
 
 <!-- mdformat-toc end -->
+
+## Requirements<a name="requirements"></a>
+
+`zcrypto` runs Qlib workflows (e.g. `zcrypto example`), which import LightGBM and therefore need the OpenMP runtime installed on your system:
+
+- **macOS:** `brew install libomp`
+- **Debian/Ubuntu:** `sudo apt-get install libgomp1`
 
 ## Usage<a name="usage"></a>
 
