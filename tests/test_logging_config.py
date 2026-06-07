@@ -63,6 +63,11 @@ def test_configure_is_idempotent(tmp_path: Path):
         assert len([h for h in logging.getLogger(name).handlers if getattr(h, "_zcrypto_owned", False)]) == 1
 
 
+def test_invalid_level_raises():
+    with pytest.raises(ValueError, match="invalid log level"):
+        configure(None, "BADLEVEL")
+
+
 def test_qlib_internal_level_clamped(monkeypatch):
     calls = []
 
