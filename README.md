@@ -11,6 +11,7 @@ Learning-for-Fun project to experience Microsoft Qlib.
 
 - [Requirements](#requirements)
 - [Usage](#usage)
+  - [Commands](#commands)
 
 <!-- mdformat-toc end -->
 
@@ -33,3 +34,14 @@ zcrypto [OPTIONS]          # or: uv run python -m cli [OPTIONS]
 | `-h`, `--help`    | Show help and exit.                    |
 
 Running with no options prints the help.
+
+### Commands<a name="commands"></a>
+
+| Command   | Description                                              |
+| --------- | -------------------------------------------------------- |
+| `example` | Run a small offline Qlib ETH-USD strategy backtest demo. |
+
+```bash
+zcrypto example                # run the demo backtest
+zcrypto example --show-data    # also print the prepared feature-frame head
+```

@@ -31,5 +31,9 @@ def main(
         raise typer.Exit()
 
 
+from cli.example.command import example
+
+app.command(name="example")(example)
+
 if __name__ == "__main__":
     app()
