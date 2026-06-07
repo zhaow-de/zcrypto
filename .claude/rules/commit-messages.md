@@ -7,7 +7,7 @@ Format: `<type>(<scope>)<!>: <subject>`
 - **type** — one of `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
 - **scope** — the snake_case component name (e.g. `cli`); or `config` / `build` for cross-cutting changes.
 - **subject** — imperative mood, lowercase, no trailing period.
-- **breaking changes** — append `!` after the scope (e.g. `feat(cli)!: ...`) and/or add a `BREAKING CHANGE:` footer.
+- **breaking changes** — append `!` after the scope (e.g. `feat(cli)!: ...`); prefer this form. If you also add a descriptive footer, write the token **hyphenated** as `BREAKING-CHANGE:`, not `BREAKING CHANGE:` with a space — a space-form token is not a valid git trailer, so when it shares the footer block with the `Co-Authored-By:` trailer git drops the whole block and the co-author silently vanishes from the PR aggregation (see `pull-requests.md`). Commitizen bumps MAJOR for either spelling.
 
 Within an iteration, each commit is one slice of the work and uses the plain form `<type>(<scope>): <subject>` — do **not** put an `iteration N` or `iter-N` tag in commit messages (that belongs only in the PR title; see `pull-requests.md`).
 
