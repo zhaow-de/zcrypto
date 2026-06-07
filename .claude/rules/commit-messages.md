@@ -22,3 +22,13 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 Always reflect the **actual** model and version that did the work (e.g. `Claude Opus 4.6`, `Claude Sonnet 4.6`) — never a hardcoded or stale example. Put it as the last line, separated from the body by a blank line.
 
 **Subagent-authored commits:** when a commit is produced by a subagent (e.g. during subagent-driven development), credit the **subagent's own model**, not the orchestrating session's — the trailer names whoever actually wrote the commit. A single branch will then mix trailers (e.g. Sonnet-authored implementation commits alongside Opus-authored spec/plan commits); the PR description aggregates the distinct models into one trailer (see `pull-requests.md`).
+
+## Reviewer trailer
+
+When a review subagent's feedback is acted on (e.g. during subagent-driven development), credit it with a `Reviewed-by:` trailer — same full form as the co-author trailer, distinct token, reflecting the reviewer's **actual** model:
+
+```
+Reviewed-by: Claude Opus 4.7 <noreply@anthropic.com>
+```
+
+Put it on the commit its review covers: a review that prompts a fix goes on the **fix commit**; a final approving review that changes nothing goes on the iteration's **closeout commit** (the `iterations-history` one). A reviewer is **not** an author — always use `Reviewed-by:`, never `Co-Authored-By:` — so authorship and review stay separate and the co-author aggregation never counts a reviewer. (`Reviewed-by` is a space-free, valid git trailer, so it never trips the footer-parsing caveat above.) The PR description aggregates distinct reviewers the same way as co-authors — see `pull-requests.md`.
