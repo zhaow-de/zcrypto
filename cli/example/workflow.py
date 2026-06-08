@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import subprocess
 import tempfile
 
 import pandas as pd
@@ -35,6 +36,10 @@ def run_experiment(provider_uri: str, exp_uri: str, show_data: bool = False) -> 
     # at expm.py:237, turning any absolute file:// URI into a CWD-RELATIVE mkdir. Run the whole qlib
     # session inside a disposable cwd so that scaffolding lands in a throwaway dir, not the caller's tree.
     with tempfile.TemporaryDirectory(prefix="zcrypto-qlib-cwd-") as cwd_tmp, contextlib.chdir(cwd_tmp):
+        # qlib's MLflowRecorder._log_uncommitted_code runs `git diff/status/diff --cached` in CWD
+        # via subprocess.check_output(..., shell=True); without a repo here it would write a usage
+        # message to *our* stderr and emit "Fail to log the uncommitted code" INFO records.
+        subprocess.run(["git", "init", "-q"], check=True)
         qlib.init(
             provider_uri=provider_uri,
             region=REG_US,
