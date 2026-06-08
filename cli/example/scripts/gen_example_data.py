@@ -1,6 +1,6 @@
 """Dev-only one-off: fetch daily crypto OHLCV via yfinance into the bundled CSV.
 
-Run: uv run --with yfinance python scripts/gen_example_data.py
+Run: uv run --with yfinance python cli/example/scripts/gen_example_data.py
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import yfinance as yf
 from cli.example.config import INSTRUMENTS, WINDOW
 
 YAHOO = {code: f"{code[:-3]}-USD" for code in INSTRUMENTS}  # BTCUSD -> BTC-USD
-OUT = Path(__file__).resolve().parents[1] / "cli" / "example" / "data" / "crypto_ohlcv.csv.gz"
+OUT = Path(__file__).resolve().parent.parent / "data" / "crypto_ohlcv.csv.gz"
 
 
 def _fetch(code: str) -> pd.DataFrame:
