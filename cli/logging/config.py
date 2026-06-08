@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import warnings
 from pathlib import Path
 
 from cli.logging.formatters import JsonLineFormatter, PlainTextFormatter
@@ -14,6 +15,14 @@ def configure(path: Path | None, level: str) -> None:
     numeric = logging.getLevelName(level)
     if not isinstance(numeric, int):
         raise ValueError(f"invalid log level: {level!r}")
+
+    # See docs/open-topics/00000-qlib-empty-slice-warnings.md
+    warnings.filterwarnings(
+        "ignore",
+        message="Mean of empty slice",
+        category=RuntimeWarning,
+        module="qlib.utils.index_data",
+    )
 
     handler: logging.Handler
     if path is None:
