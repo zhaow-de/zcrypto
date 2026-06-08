@@ -203,6 +203,6 @@ Cuts a release PR from `develop` to `main`, then pushes the `v<version>` tag and
 
 - If any step fails, stop and report the error to the user.
 - The `--yes` flag on `cz bump` auto-confirms the version bump.
-- Merge the release PR with a **merge commit (do not squash)** so the tagged bump commit stays on `main`.
+- Auto-merge in steps 14 and 17 uses `--merge` — never switch to `--squash` or `--rebase`, which would lose the bump-commit-tagged invariant on `main`.
 - Do not use composite commands — they always force a permission request from the user.
 - You are already in the repo folder — do not `cd` first (redundant, and can cause a composite command).
