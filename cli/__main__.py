@@ -4,6 +4,8 @@ from typing import Optional
 
 import typer
 
+from cli.logging import configure
+
 app = typer.Typer(
     add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -46,13 +48,12 @@ def main(
         "INFO",
         "--log-level",
         callback=_log_level_callback,
+        # Eager so `--log-level TRACE --version` errors at parse time instead of being swallowed by --version's eager exit.
         is_eager=True,
         case_sensitive=False,
         help="Log threshold. One of DEBUG, INFO, WARNING, ERROR.",
     ),
 ) -> None:
-    from cli.logging import configure
-
     configure(log, log_level)
 
     if ctx.invoked_subcommand is None:

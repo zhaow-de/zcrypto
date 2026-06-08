@@ -36,9 +36,9 @@ def test_log_flag_writes_jsonl_to_file(tmp_path: Path):
     log = tmp_path / "z.log"
     result = runner.invoke(app, ["-l", str(log), "example"])
     assert result.exit_code == 0, result.output
-    # stdout must still carry _render's metrics table
-    assert "annualized_return" in result.output
-    assert "Excess vs ETH" in result.output
+    # _render's metrics table goes to stdout (typer.echo); no logs should land there with -l.
+    assert "annualized_return" in result.stdout
+    assert "Excess vs ETH" in result.stdout
     # file must be JSONL with the documented field set
     lines = [ln for ln in log.read_text().splitlines() if ln.strip()]
     assert lines, "log file is empty"
@@ -46,15 +46,16 @@ def test_log_flag_writes_jsonl_to_file(tmp_path: Path):
     for obj in parsed:
         assert set(obj.keys()) >= {"ts", "level", "logger", "file", "line", "message"}
         assert "pid" not in obj and "thread" not in obj
+    # qlib emits INFO records through the qlib.* namespace during init/fit.
     assert any(obj["logger"].startswith("qlib.") for obj in parsed), "no qlib record captured"
 
 
 def test_no_log_flag_emits_plain_text_lines_on_stdout():
     result = runner.invoke(app, ["example"])
     assert result.exit_code == 0, result.output
-    # at least one qlib INFO and the _render metrics table both land on stdout
-    assert " INFO qlib." in result.output
-    assert "annualized_return" in result.output
+    # StreamHandler targets sys.stdout, so both qlib log lines and _render's table land there.
+    assert " INFO qlib." in result.stdout
+    assert "annualized_return" in result.stdout
 
 
 def test_invalid_log_level_errors():
