@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import os
+import tempfile
 
 import pandas as pd
 import qlib
@@ -32,30 +34,34 @@ _METRICS = ["annualized_return", "information_ratio", "max_drawdown"]
 def run_experiment(provider_uri: str, exp_uri: str, show_data: bool = False) -> dict:
     # MLflow rejects file:// tracking URIs unless this flag is set; needed for offline runs.
     os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
-    qlib.init(
-        provider_uri=provider_uri,
-        region=REG_US,
-        exp_manager={
-            "class": "MLflowExpManager",
-            "module_path": "qlib.workflow.expm",
-            "kwargs": {"uri": exp_uri, "default_exp_name": "example"},
-        },
-        logging_config=None,  # prevent qlib from overwriting our configured handlers
-    )
+    # qlib 0.9.7's MLflowExpManager builds its FileLock path via os.path.join(netloc, path.lstrip("/"), ...)
+    # at expm.py:237, turning any absolute file:// URI into a CWD-RELATIVE mkdir. Run the whole qlib
+    # session inside a disposable cwd so that scaffolding lands in a throwaway dir, not the caller's tree.
+    with tempfile.TemporaryDirectory(prefix="zcrypto-qlib-cwd-") as cwd_tmp, contextlib.chdir(cwd_tmp):
+        qlib.init(
+            provider_uri=provider_uri,
+            region=REG_US,
+            exp_manager={
+                "class": "MLflowExpManager",
+                "module_path": "qlib.workflow.expm",
+                "kwargs": {"uri": exp_uri, "default_exp_name": "example"},
+            },
+            logging_config=None,  # prevent qlib from overwriting our configured handlers
+        )
 
-    dataset = init_instance_by_config(_dataset_config())
-    model = init_instance_by_config(_model_config())
+        dataset = init_instance_by_config(_dataset_config())
+        model = init_instance_by_config(_model_config())
 
-    if show_data:
-        logger.info("show_data: feature head", extra={"head": dataset.prepare("train").head().to_dict()})
+        if show_data:
+            logger.info("show_data: feature head", extra={"head": dataset.prepare("train").head().to_dict()})
 
-    port_analysis_config = _port_analysis_config(model, dataset)
-    with R.start(experiment_name="example"):
-        model.fit(dataset)
-        recorder = R.get_recorder()
-        SignalRecord(model, dataset, recorder).generate()
-        PortAnaRecord(recorder, port_analysis_config, "day").generate()
-        return _extract_metrics(recorder)
+        port_analysis_config = _port_analysis_config(model, dataset)
+        with R.start(experiment_name="example"):
+            model.fit(dataset)
+            recorder = R.get_recorder()
+            SignalRecord(model, dataset, recorder).generate()
+            PortAnaRecord(recorder, port_analysis_config, "day").generate()
+            return _extract_metrics(recorder)
 
 
 def _dataset_config() -> dict:

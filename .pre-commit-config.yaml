@@ -36,4 +36,8 @@ repos:
       additional_dependencies:
       - mdformat-gfm
       - mdformat-toc
-      files: ^README\.md$
+      files: |
+        (?x)^(
+            README\.md|
+            docs/open-topics/README\.md
+        )$
