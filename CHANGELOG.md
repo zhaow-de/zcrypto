@@ -1,3 +1,13 @@
+## v0.1.1 (2026-06-08)
+
+### 🐛 Bug Fixes
+
+#### auto-merge release PRs and add local-cleanup step to /release
+
+The `/release` skill now runs end-to-end without pausing for manual review or merge steps. Release PRs and back-merge PRs are merged automatically once GitHub marks them ready; after publishing, the skill fast-forwards both local branches, removes the temporary release and back-merge branches, and prunes stale remote-tracking refs.
+
+*[#11](https://github.com/zhaow-de/zcrypto/pull/11) by @zhaow-de*
+
 ## v0.1.0 (2026-06-08)
 
 ### 🚀 Features
