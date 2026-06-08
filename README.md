@@ -28,10 +28,12 @@ Learning-for-Fun project to experience Microsoft Qlib.
 zcrypto [OPTIONS]          # or: uv run python -m cli [OPTIONS]
 ```
 
-| Option            | Description                            |
-| ----------------- | -------------------------------------- |
-| `-v`, `--version` | Show the application version and exit. |
-| `-h`, `--help`    | Show help and exit.                    |
+| Option                                   | Description                                                             |
+| ---------------------------------------- | ----------------------------------------------------------------------- |
+| `-v`, `--version`                        | Show the application version and exit.                                  |
+| `-l`, `--log <path>`                     | Append JSONL logs to this file. If unset, plain-text logs go to stdout. |
+| `--log-level {DEBUG,INFO,WARNING,ERROR}` | Log threshold (default `INFO`). Applies to `zcrypto.*` and qlib alike.  |
+| `-h`, `--help`                           | Show help and exit.                                                     |
 
 Running with no options prints the help.
 

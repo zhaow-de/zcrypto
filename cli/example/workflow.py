@@ -14,6 +14,9 @@ from qlib.workflow import R
 from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
 
 from cli.example.config import BENCHMARK, TEST, TRAIN, VALID, WINDOW
+from cli.logging import get_logger
+
+logger = get_logger("example.workflow")
 
 FEATURE_EXPRS = [
     "$close/Ref($close, 5) - 1",
@@ -48,13 +51,14 @@ def run_experiment(provider_uri: str, exp_uri: str, show_data: bool = False) -> 
                 "module_path": "qlib.workflow.expm",
                 "kwargs": {"uri": exp_uri, "default_exp_name": "example"},
             },
+            logging_config=None,  # prevent qlib from overwriting our configured handlers
         )
 
         dataset = init_instance_by_config(_dataset_config())
         model = init_instance_by_config(_model_config())
 
         if show_data:
-            print(dataset.prepare("train").head().to_string())
+            logger.info("show_data: feature head", extra={"head": dataset.prepare("train").head().to_dict()})
 
         port_analysis_config = _port_analysis_config(model, dataset)
         with R.start(experiment_name="example"):
