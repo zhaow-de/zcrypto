@@ -110,7 +110,7 @@ Tests live in `tests/` (pytest + Typer's `CliRunner`); coverage is reported to C
 - **pre-commit** is the gate for commits and runs ruff, yamllint, mdformat, and standard hygiene hooks. `mdformat` formats Markdown and regenerates the README table of contents — don't hand-maintain it.
 - **pre-commit may rewrite files** (mdformat reflows Markdown; end-of-file fixer; trailing-whitespace) and abort the commit; re-stage and re-commit (never `--no-verify`).
 - **Versioning** is commitizen-managed (`.cz.toml`). `cz bump` (run by the `/release` skill) is the source of truth for the version and updates both `pyproject.toml` and the README `Version` badge — don't hand-edit either or they'll drift.
-- **Workflow conventions** live in `.claude/rules/`: branch model (`branch-workflow.md`), PR title/body + co-author trailer (`pull-requests.md`), commit messages (`commit-messages.md`), README Usage (`readme-usage.md`), and the iterations-history entry every plan must end with (`iterations-history.md`). Consult them before branching, opening a PR, or releasing.
+- **Workflow conventions** live in `.claude/rules/`: branch model (`branch-workflow.md`), PR title/body + co-author trailer (`pull-requests.md`), commit messages (`commit-messages.md`), README Usage (`readme-usage.md`), spec & plan locations (`spec-plan-locations.md`), the iterations-history entry every plan must end with (`iterations-history.md`), and the open-topics convention for parking follow-up items (`open-topics.md`). Consult them before branching, opening a PR, or releasing.
 
 ## Project state notes
 
