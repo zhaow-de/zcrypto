@@ -120,47 +120,84 @@ Cuts a release PR from `develop` to `main`, then pushes the `v<version>` tag and
     git checkout develop
     ```
 
-14. **Ask the user** whether they want to wait for the PR to be merged so the skill can finish the release automatically. If no: report the PR URL and remind them that after they merge it **with a merge commit (not squash)**, they must run `git push origin v<VERSION>`, then create the GitHub Release with `gh release create v<VERSION> --title "v<VERSION>" --notes "<the new version's CHANGELOG.md section>" --verify-tag`, then back-merge `main` into `develop`. Then stop here.
-
-15. **Poll for PR merge status** (every 30 seconds, max 30 minutes). The PR must be merged **with a merge commit (not squash)** so the tagged bump commit is preserved on `main`:
+14. **Auto-merge the release PR** with a merge commit (preserving the tagged bump commit on `main`). The skill no longer pauses to ask the user — releases run end-to-end. Stop only if something is genuinely worth attention: the PR has conflicts, or it was closed without merging. Otherwise poll every 30 seconds and merge as soon as GitHub reports the PR mergeable and not blocked by branch protection:
     ```bash
     PR_NUMBER=<the PR number from step 12>
 
     while true; do
         pr_state=$(gh pr view "$PR_NUMBER" --json state -q .state)
+        pr_mergeable=$(gh pr view "$PR_NUMBER" --json mergeable -q .mergeable)
+        pr_state_status=$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)
         if [ "$pr_state" = "MERGED" ]; then
             echo "PR merged!"
             break
         elif [ "$pr_state" = "CLOSED" ]; then
-            echo "PR was closed without merging"
+            echo "PR was closed without merging — stop"
             exit 1
+        elif [ "$pr_mergeable" = "CONFLICTING" ]; then
+            echo "PR has conflicts — stop, do not merge"
+            exit 1
+        elif [ "$pr_mergeable" = "MERGEABLE" ] && [ "$pr_state_status" != "BLOCKED" ]; then
+            gh pr merge "$PR_NUMBER" --merge && break
         fi
-        echo "Waiting for PR to be merged... (state: $pr_state)"
+        echo "Waiting for PR to be ready... (state: $pr_state, mergeable: $pr_mergeable, status: $pr_state_status)"
         sleep 30
     done
     ```
 
-16. **Push the release tag** so it points at the bump commit now on `main`. The tag was created in step 9 and persists across the branch switch.
+15. **Push the release tag** so it points at the bump commit now on `main`. The tag was created in step 9 and persists across the branch switch.
     ```bash
     git push origin "v<VERSION>"
     ```
 
-17. **Create the GitHub Release** directly, passing the new version's changelog section (from step 8, also at the top of `CHANGELOG.md`) inline as the description:
+16. **Create the GitHub Release** directly, passing the new version's changelog section (from step 8, also at the top of `CHANGELOG.md`) inline as the description:
     ```bash
     gh release create "v<VERSION>" --title "v<VERSION>" --notes "<new version's CHANGELOG.md section>" --verify-tag
     ```
-    `--verify-tag` aborts if the tag was not pushed in step 16. The command prints the Release URL — keep it for the final report.
+    `--verify-tag` aborts if the tag was not pushed in step 15. The command prints the Release URL — keep it for the final report.
 
-18. **Sync develop** by back-merging main:
+17. **Back-merge `main` → `develop` via a PR.** This repo's `develop` is protected against direct pushes, so the back-merge cannot be a plain `git push`. Open a `main` → `develop` PR and auto-merge it with the same poll-then-merge loop as step 14:
     ```bash
-    git checkout develop
-    git pull origin develop
-    git fetch origin main
-    git merge origin/main --no-edit
-    git push origin develop
+    BACKMERGE_URL=$(gh pr create --base develop --head main \
+        --title "chore(config): back-merge v<VERSION> into develop" \
+        --body "Back-merge of the \`v<VERSION>\` release commit from \`main\` into \`develop\` so the two branches stay in lock-step per \`.claude/rules/branch-workflow.md\`. Auto-opened by the \`/release\` skill.")
+    BACKMERGE_NUMBER=$(echo "$BACKMERGE_URL" | sed -E 's|.*/pull/([0-9]+)|\1|')
+
+    while true; do
+        pr_state=$(gh pr view "$BACKMERGE_NUMBER" --json state -q .state)
+        pr_mergeable=$(gh pr view "$BACKMERGE_NUMBER" --json mergeable -q .mergeable)
+        pr_state_status=$(gh pr view "$BACKMERGE_NUMBER" --json mergeStateStatus -q .mergeStateStatus)
+        if [ "$pr_state" = "MERGED" ]; then
+            echo "Back-merge PR merged!"
+            break
+        elif [ "$pr_state" = "CLOSED" ]; then
+            echo "Back-merge PR was closed without merging — stop"
+            exit 1
+        elif [ "$pr_mergeable" = "CONFLICTING" ]; then
+            echo "Back-merge PR has conflicts — stop, do not merge"
+            exit 1
+        elif [ "$pr_mergeable" = "MERGEABLE" ] && [ "$pr_state_status" != "BLOCKED" ]; then
+            gh pr merge "$BACKMERGE_NUMBER" --merge && break
+        fi
+        echo "Waiting for back-merge PR... (state: $pr_state, mergeable: $pr_mergeable, status: $pr_state_status)"
+        sleep 30
+    done
     ```
 
-19. **Report success** with the PR URL and the GitHub Release URL (printed by step 17), and confirm develop is synced. The Release description is the new version's changelog section; the full history lives in `CHANGELOG.md`.
+18. **Local cleanup** — fast-forward both branches against their remotes, drop the throwaway release branch, and prune stale tracking refs:
+    ```bash
+    git checkout develop
+    git pull --ff-only origin develop
+    git checkout main
+    git pull --ff-only origin main
+    git checkout develop
+    git branch -d release/<timestamp from step 3>
+    git fetch --all --prune
+    ```
+
+    `git branch -d` succeeds because the release branch is fully integrated into `main` via the release PR's merge commit. If it ever errors "not fully merged" while the PR shows merged and the remote head is gone, the work is integrated — `git branch -D` is then safe.
+
+19. **Report success** with the release PR URL, the GitHub Release URL (printed by step 16), and the back-merge PR URL. The Release description is the new version's changelog section; the full history lives in `CHANGELOG.md`.
 
 ## Notes
 
