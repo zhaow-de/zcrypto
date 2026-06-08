@@ -1,3 +1,6 @@
+# Project-specific
+memo.local.md
+
 # Claude Code
 **/.claude/settings.local.json
 **/.claude/*.lock
