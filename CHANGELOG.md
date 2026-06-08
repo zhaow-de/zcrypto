@@ -1,0 +1,60 @@
+## v0.1.0 (2026-06-08)
+
+### 🚀 Features
+
+#### iter-1 — Qlib ETH-USD example subcommand
+
+Adds a new `zcrypto example` subcommand that runs a self-contained offline Qlib strategy experiment on a bundled crypto dataset, producing annualized-return, information-ratio, and max-drawdown metrics for a LinearModel + TopkDropout backtest over six coins.
+
+*[#1](https://github.com/zhaow-de/zcrypto/pull/1) by @zhaow-de*
+
+#### iter-2 — general JSON/plain-text logger
+
+Adds project-wide structured logging: plain text to stdout by default, or JSONL to a file via the new `-l/--log <path>` flag; log level is configurable via `--log-level`. Qlib's own log output is captured in both modes so it never bypasses the CLI's output.
+
+*[#5](https://github.com/zhaow-de/zcrypto/pull/5) by @zhaow-de*
+
+#### iter-3 — open-topics rule
+
+Introduces a park-for-later convention for tracking follow-up topics: the agent proposes a topic (with mandatory user approval) and it lands as a serial-numbered markdown file in `docs/open-topics/` with open/resolved status and an auto-maintained index.
+
+*[#3](https://github.com/zhaow-de/zcrypto/pull/3) by @zhaow-de*
+
+### 🐛 Bug Fixes
+
+#### contain qlib's relative-path FileLock leak in run_experiment
+
+Fixed an upstream pyqlib 0.9.7 bug where running `zcrypto example` (or its tests) would litter the project directory with nested `private/var/folders/…` scaffolding left behind by qlib's MLflow FileLock implementation.
+
+*[#4](https://github.com/zhaow-de/zcrypto/pull/4) by @zhaow-de*
+
+#### git-init the qlib chdir tempdir to silence _log_uncommitted_code noise
+
+Fixed spurious `git: not a git repository` stderr output and "Fail to log the uncommitted code" log records that appeared whenever `zcrypto example` ran inside the temporary directory workaround introduced in the previous fix.
+
+*[#7](https://github.com/zhaow-de/zcrypto/pull/7) by @zhaow-de*
+
+#### update agent skill model
+
+Fixed incorrect model alias in the `dependabot` and `merge-pr` agent skill configurations, replacing the non-canonical `claude-haiku` value with the correct `haiku` alias.
+
+*[#2](https://github.com/zhaow-de/zcrypto/pull/2) by @zhaow-de*
+
+### 📦 Other Changes
+
+#### allow model invocation for merge-pr and release skills
+
+The `merge-pr` and `release` skills can now be invoked programmatically from subagent prompts in addition to being typed as slash commands — useful for automated and agentic workflows.
+
+*[#8](https://github.com/zhaow-de/zcrypto/pull/8) by @zhaow-de*
+
+#### move gen_example_data.py under cli/example/scripts
+
+Moved the development-only data generator script next to the example subcommand it supports; it is excluded from the published wheel and coverage report.
+
+*[#6](https://github.com/zhaow-de/zcrypto/pull/6) by @zhaow-de*
+
+## v0.0.0 (2026-06-07)
+
+
+- chore: initial commit
