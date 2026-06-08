@@ -18,9 +18,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["cli"]
+exclude = ["cli/example/scripts/**"]
 
 [tool.coverage.run]
 source = ["cli"]
+omit = ["cli/example/scripts/*"]
 
 [dependency-groups]
 dev = [
