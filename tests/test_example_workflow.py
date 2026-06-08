@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -27,7 +28,11 @@ def test_run_experiment_returns_finite_metrics(tmp_path):
     provider = build_provider(csv, tmp_path / "qlib_data")
     exp_uri = (tmp_path / "mlruns").as_uri()
 
+    cwd_before = Path.cwd()
     metrics = run_experiment(provider, exp_uri)
+    # Regression guard for qlib 0.9.7's MLflowExpManager FileLock bug — see workflow.py.
+    assert Path.cwd() == cwd_before, "run_experiment must restore cwd"
+    assert not (cwd_before / "private").exists(), "qlib leaked relative-path scaffolding into cwd"
 
     for key in ["strategy_absolute", "excess_return_with_cost", "excess_return_without_cost"]:
         for m in ["annualized_return", "information_ratio", "max_drawdown"]:
