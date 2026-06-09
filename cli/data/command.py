@@ -8,7 +8,7 @@ from typing import Optional
 import typer
 
 from cli.data.binance import BinanceSource
-from cli.data.pipeline import PipelineError, backfill_pipeline, download_pipeline
+from cli.data.pipeline import PipelineError, backfill_pipeline, delist_pipeline, download_pipeline
 from cli.data.verify import verify_dataset
 
 _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -122,3 +122,20 @@ def backfill_cmd(
         raise typer.Exit(1)
     if not dry_run:
         typer.echo(f"backfill complete: {out_dir}")
+
+
+@data_app.command("delist")
+def delist_cmd(
+    out_dir: Path = typer.Argument(..., help="Dataset directory.", file_okay=False),
+    symbol: str = typer.Argument(..., help="Symbol to remove (e.g. BTCUSDT)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
+) -> None:
+    """Remove SYMBOL from the dataset."""
+    symbol = symbol.upper()
+    try:
+        delist_pipeline(out_dir, symbol, dry_run=dry_run)
+    except PipelineError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+    if not dry_run:
+        typer.echo(f"delist complete: {symbol} removed from {out_dir}")

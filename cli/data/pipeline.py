@@ -44,6 +44,8 @@ __all__ = [
     "DownloadPlan",
     "backfill_pipeline",
     "BackfillPlan",
+    "delist_pipeline",
+    "DelistPlan",
 ]
 
 _COMMIT_MARKER = ".commit-in-progress"
@@ -787,3 +789,188 @@ def backfill_pipeline(
     plan_fn = lambda d: _backfill_plan(d, interval, arg_to, source)
     apply_fn = lambda d, s, p: _backfill_apply(d, s, p, source, interval)
     _execute_mutation(out_dir, "backfill", plan_fn, apply_fn, dry_run=dry_run)
+
+
+# ---------------------------------------------------------------------------
+# Delist pipeline
+# ---------------------------------------------------------------------------
+
+
+@_dc.dataclass
+class DelistPlan:
+    symbol: str
+    new_calendar: list[dt.date]
+    front_trim: int
+    back_trim: int
+    rewrite_headers: bool
+    remaining_symbols: list[str]
+    is_noop: bool
+
+    def dry_run_summary(self) -> str:
+        lines = [f"DRY-RUN: delist plan: {self.symbol}"]
+        lines.append(f"  features/{self.symbol.lower()}/ → deleted")
+        lines.append(f"  instruments/all.txt → 1 line removed")
+        lines.append(f"  index.json → 1 pair entry removed")
+        lines.append(f"  calendar: front_trim={self.front_trim}, back_trim={self.back_trim}")
+        if self.rewrite_headers:
+            lines.append(f"  Remaining bins: headers rewritten (subtract {self.front_trim} from each start_index)")
+        else:
+            lines.append(f"  Remaining bins: headers unchanged")
+        lines.append(f"  Remaining pairs: {len(self.remaining_symbols)} ({', '.join(self.remaining_symbols)})")
+        return "\n".join(lines)
+
+
+def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
+    """Read-only: validate symbol is in the index, compute calendar shrink plan."""
+    idx = load_index(out_dir)
+    assert idx is not None, "_delist_plan called on empty/missing index"
+    sym = symbol.upper()
+
+    if sym not in idx.pairs:
+        raise PipelineError(f"{sym} not in index; nothing to remove")
+
+    remaining = {s: p for s, p in idx.pairs.items() if s != sym}
+    if not remaining:
+        raise PipelineError(f"delisting {sym} would leave the dataset empty; remove {out_dir} manually if that's intended")
+
+    interval = "1d"
+    new_from = min(dt.date.fromisoformat(p.intervals[interval].from_date) for p in remaining.values())
+    new_to = max(dt.date.fromisoformat(p.intervals[interval].dates_to) for p in remaining.values())
+
+    # Gap check: every date in [new_from, new_to] must be covered by at least one remaining pair.
+    cur = new_from
+    while cur <= new_to:
+        covers = any(
+            dt.date.fromisoformat(p.intervals[interval].from_date) <= cur <= dt.date.fromisoformat(p.intervals[interval].dates_to)
+            for p in remaining.values()
+        )
+        if not covers:
+            raise PipelineError(
+                f"delisting {sym} would create a non-contiguous calendar "
+                f"(no remaining pair covers {cur}); reconcile manually before delisting"
+            )
+        cur += dt.timedelta(days=1)
+
+    old_from = dt.date.fromisoformat(idx.calendar.from_date)
+    old_to = dt.date.fromisoformat(idx.calendar.to_date)
+    front_trim = (new_from - old_from).days
+    back_trim = (old_to - new_to).days
+    new_cal = [new_from + dt.timedelta(days=i) for i in range((new_to - new_from).days + 1)]
+
+    return DelistPlan(
+        symbol=sym,
+        new_calendar=new_cal,
+        front_trim=front_trim,
+        back_trim=back_trim,
+        rewrite_headers=(front_trim > 0),
+        remaining_symbols=list(remaining.keys()),
+        is_noop=False,
+    )
+
+
+def _rewrite_bin_start_index(bin_path: Path, delta: int) -> None:
+    """Read first 4 bytes (float32 header), adjust by delta, write back."""
+    import struct
+
+    data = bytearray(bin_path.read_bytes())
+    current = struct.unpack_from("<f", data, 0)[0]
+    new_val = current + delta
+    struct.pack_into("<f", data, 0, float(new_val))
+    bin_path.write_bytes(bytes(data))
+
+
+def _delist_apply(out_dir: Path, staging: Path, plan: DelistPlan) -> None:
+    """Copy remaining pairs' bins, conditionally rewrite headers, write calendar/instruments/index."""
+    interval = "1d"
+    idx = load_index(out_dir)
+    assert idx is not None
+
+    # Copy remaining pairs' feature dirs into staging.
+    (staging / "features").mkdir(parents=True, exist_ok=True)
+    for sym in plan.remaining_symbols:
+        src_dir = out_dir / "features" / sym.lower()
+        dst_dir = staging / "features" / sym.lower()
+        _shutil.copytree(src_dir, dst_dir)
+        if plan.rewrite_headers:
+            for field_path in dst_dir.iterdir():
+                if field_path.suffix == ".bin":
+                    _rewrite_bin_start_index(field_path, -plan.front_trim)
+
+    # Write new calendar.
+    write_calendar(staging, plan.new_calendar)
+
+    # Write new instruments: remaining pairs use their existing from_date but same to_date.
+    remaining_ranges: dict[str, tuple[dt.date, dt.date]] = {}
+    for sym in plan.remaining_symbols:
+        pair_entry = idx.pairs[sym]
+        interval_entry = pair_entry.intervals[interval]
+        from_d = dt.date.fromisoformat(interval_entry.from_date)
+        to_d = dt.date.fromisoformat(interval_entry.dates_to)
+        remaining_ranges[sym] = (from_d, to_d)
+    write_instruments(staging, remaining_ranges)
+
+    # Build new index.
+    new_calendar = plan.new_calendar
+    cal_index = {d: i for i, d in enumerate(new_calendar)}
+
+    pairs_entries: dict[str, PairEntry] = {}
+    for sym in plan.remaining_symbols:
+        pair_entry = idx.pairs[sym]
+        interval_entry = pair_entry.intervals[interval]
+        from_d = dt.date.fromisoformat(interval_entry.from_date)
+        fields: dict[str, FieldEntry] = {}
+        for fname, fentry in interval_entry.fields.items():
+            bin_path = staging / fentry.bin
+            fields[fname] = FieldEntry(
+                bin=fentry.bin,
+                sha256=compute_sha256(bin_path),
+                updated_at=utc_now_iso(),
+            )
+        pairs_entries[sym] = PairEntry(
+            base_asset=pair_entry.base_asset,
+            quote_asset=pair_entry.quote_asset,
+            intervals={
+                interval: PairIntervalEntry(
+                    from_date=from_d.isoformat(),
+                    rows=interval_entry.rows,
+                    fields=fields,
+                )
+            },
+        )
+
+    from cli.data.config import SCHEMA_VERSION
+
+    new_index = IndexData(
+        schema_version=SCHEMA_VERSION,
+        updated_at=utc_now_iso(),
+        calendar=CalendarEntry(
+            freq="day",
+            from_date=new_calendar[0].isoformat(),
+            to_date=new_calendar[-1].isoformat(),
+            days=len(new_calendar),
+        ),
+        pairs=pairs_entries,
+        other_files={
+            "calendars/day.txt": FileEntry(
+                sha256=compute_sha256(staging / "calendars" / "day.txt"),
+                updated_at=utc_now_iso(),
+            ),
+            "instruments/all.txt": FileEntry(
+                sha256=compute_sha256(staging / "instruments" / "all.txt"),
+                updated_at=utc_now_iso(),
+            ),
+        },
+    )
+    save_index(staging, new_index)
+
+
+def delist_pipeline(
+    out_dir: Path,
+    symbol: str,
+    *,
+    dry_run: bool = False,
+) -> None:
+    """Remove SYMBOL from the dataset under the snapshot+commit discipline."""
+    plan_fn = lambda d: _delist_plan(d, symbol)
+    apply_fn = lambda d, s, p: _delist_apply(d, s, p)
+    _execute_mutation(out_dir, "delist", plan_fn, apply_fn, dry_run=dry_run)
