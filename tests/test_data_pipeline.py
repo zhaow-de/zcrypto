@@ -253,3 +253,112 @@ def test_download_fetches_concurrently_within_cap(tmp_path, monkeypatch):
     assert src.peak_concurrent <= 3, f"expected peak <= 3, got {src.peak_concurrent}"
     assert src.peak_concurrent >= 2, f"expected concurrent fetches, peak was only {src.peak_concurrent}"
     assert src.total_requests == 15
+
+
+# ---------------------------------------------------------------------------
+# Commit-phase crash recovery tests
+# ---------------------------------------------------------------------------
+
+
+def test_commit_failure_restores_from_snapshot(tmp_path, monkeypatch):
+    """If _commit_staging raises mid-way through file moves, the live dir is rolled back from the snapshot."""
+    import shutil
+
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\nETHUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 5))
+
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)
+
+    initial_calendar = (out / "calendars" / "day.txt").read_text(encoding="utf-8")
+    initial_index_bytes = (out / "index.json").read_bytes()
+
+    # Add more days so a follow-up run has work to do.
+    cur = dt.date(2024, 1, 6)
+    while cur <= dt.date(2024, 1, 8):
+        src.add_kline("BTCUSDT", "1d", cur)
+        src.add_kline("ETHUSDT", "1d", cur)
+        cur += dt.timedelta(days=1)
+
+    # Inject a failure into the move loop (boom on the second move — after `calendars/` already swapped).
+    real_move = shutil.move
+    counter = {"n": 0}
+
+    def boom_after_first(src_arg, dst_arg, *a, **kw):
+        counter["n"] += 1
+        if counter["n"] == 2:
+            raise OSError("simulated mid-commit disk error")
+        return real_move(src_arg, dst_arg, *a, **kw)
+
+    monkeypatch.setattr("cli.data.pipeline._shutil.move", boom_after_first)
+
+    with pytest.raises((OSError, PipelineError)):
+        download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 8), src)
+
+    # Live state restored to pre-commit
+    assert (out / "calendars" / "day.txt").read_text(encoding="utf-8") == initial_calendar
+    assert (out / "index.json").read_bytes() == initial_index_bytes
+    assert not (out / ".commit-in-progress").exists()
+    assert verify_dataset(out).ok
+
+
+def test_interrupted_commit_marker_triggers_recovery_on_next_run(tmp_path):
+    """A leftover .commit-in-progress marker (simulating a killed process) is auto-resolved on next run."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 5))
+
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)
+
+    # Capture the good calendar bytes for the recovery check.
+    good_calendar = (out / "calendars" / "day.txt").read_text(encoding="utf-8")
+
+    # Simulate a killed process: corrupt the live calendar AND plant a marker pointing at the most recent snapshot.
+    snaps = sorted((out / ".snapshots").glob("*.tar.gz"))
+    assert snaps, "expected at least one snapshot from the previous download"
+    (out / ".commit-in-progress").write_text(snaps[-1].name + "\n", encoding="utf-8")
+    (out / "calendars" / "day.txt").write_text("CORRUPTED\n", encoding="utf-8")
+
+    # Add one more day so the recovery run still has new work to commit.
+    src.add_kline("BTCUSDT", "1d", dt.date(2024, 1, 6))
+
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 6), src)
+
+    # Marker gone; new dataset extends to 2024-01-06; calendar contains both old and new dates.
+    assert not (out / ".commit-in-progress").exists()
+    new_calendar = (out / "calendars" / "day.txt").read_text(encoding="utf-8")
+    assert "2024-01-01" in new_calendar
+    assert "2024-01-06" in new_calendar
+    assert "CORRUPTED" not in new_calendar  # the corruption was overwritten by recovery + new write
+    assert verify_dataset(out).ok
+
+
+def test_interrupted_commit_marker_missing_snapshot_errors(tmp_path):
+    """A marker pointing at a nonexistent snapshot raises PipelineError with a clear message."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 2))
+
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 2), src)
+
+    (out / ".commit-in-progress").write_text("nonexistent-snapshot.tar.gz\n", encoding="utf-8")
+
+    with pytest.raises(PipelineError, match=r"missing|cannot auto-recover"):
+        download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 2), src)
+
+
+def test_verify_flags_stale_commit_marker(tmp_path):
+    """verify_dataset reports a problem when a stale .commit-in-progress marker is present."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 2))
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 2), src)
+
+    (out / ".commit-in-progress").write_text("some-snapshot.tar.gz\n", encoding="utf-8")
+    report = verify_dataset(out)
+    assert not report.ok
+    assert any("commit-in-progress" in p for p in report.problems)

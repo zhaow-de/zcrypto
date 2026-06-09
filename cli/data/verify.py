@@ -28,6 +28,12 @@ def verify_dataset(out_dir: Path) -> VerifyReport:
     if index.schema_version != SCHEMA_VERSION:
         problems.append(f"unknown schema_version {index.schema_version}")
 
+    if (out_dir / ".commit-in-progress").exists():
+        problems.append(
+            "stale commit-in-progress marker found; the previous download may have been "
+            "interrupted — re-run `data download` to auto-recover or inspect .snapshots/"
+        )
+
     cal_path = out_dir / "calendars" / "day.txt"
     if not cal_path.exists():
         problems.append("calendars/day.txt missing")

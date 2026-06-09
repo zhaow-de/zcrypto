@@ -3,7 +3,9 @@ from __future__ import annotations
 import dataclasses as _dc
 import datetime as dt
 import hashlib as _hashlib
+import os
 import shutil as _shutil
+import tarfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -37,6 +39,8 @@ __all__ = [
     "find_first_available",
     "download_pipeline",
 ]
+
+_COMMIT_MARKER = ".commit-in-progress"
 
 logger = get_logger("data.pipeline")
 
@@ -317,20 +321,90 @@ def _build_staging(
     save_index(staging, index)
 
 
-def _commit_staging(out_dir: Path, staging: Path) -> None:
-    """Atomically replace live files from staging. `index.json` is written last."""
-    create_snapshot(out_dir, "download")
-    prune_snapshots(out_dir)
+def _restore_from_snapshot(out_dir: Path, snapshot_path: Path) -> None:
+    """Restore the dataset state captured in `snapshot_path` over `out_dir`.
+
+    Removes any existing `calendars/`, `instruments/`, `features/`, and `index.json` first,
+    then extracts the archive. Assumes the snapshot was taken from a verified state.
+    """
     for name in ("calendars", "instruments", "features"):
-        target = out_dir / name
-        if target.exists():
-            _shutil.rmtree(target)
-        _shutil.move(str(staging / name), str(target))
-    # Reuse the index module's atomic write (tmp + os.replace).
-    staged_index = load_index(staging)
-    assert staged_index is not None, "staging is supposed to contain a valid index.json"
-    save_index(out_dir, staged_index)
-    _shutil.rmtree(staging)
+        p = out_dir / name
+        if p.exists():
+            _shutil.rmtree(p)
+    index_path = out_dir / "index.json"
+    if index_path.exists():
+        index_path.unlink()
+    with tarfile.open(snapshot_path, "r:gz") as tar:
+        tar.extractall(out_dir, filter="data")
+
+
+def _write_commit_marker(out_dir: Path, snapshot_name: str) -> None:
+    """Atomically write the commit-in-progress marker (tmp + os.replace), naming the snapshot to restore from."""
+    marker = out_dir / _COMMIT_MARKER
+    tmp = marker.with_suffix(marker.suffix + ".tmp")
+    tmp.write_text(snapshot_name + "\n", encoding="utf-8")
+    os.replace(tmp, marker)
+
+
+def _recover_from_interrupted_commit(out_dir: Path) -> None:
+    """If `.commit-in-progress` exists, restore from its referenced snapshot before any new work.
+
+    Raises `PipelineError` if the marker points at a snapshot that does not exist (cannot auto-recover).
+    """
+    marker = out_dir / _COMMIT_MARKER
+    if not marker.exists():
+        return
+    snap_name = marker.read_text(encoding="utf-8").strip()
+    if not snap_name:
+        raise PipelineError(
+            f"commit-in-progress marker at {marker} is empty; cannot auto-recover. "
+            "Manually restore from .snapshots/ or remove the marker after investigation."
+        )
+    snap = out_dir / ".snapshots" / snap_name
+    if not snap.exists():
+        raise PipelineError(
+            f"commit-in-progress marker at {marker} points at {snap_name}, but that snapshot is "
+            f"missing from {out_dir / '.snapshots'}; cannot auto-recover. "
+            "Manually restore from .snapshots/ or remove the marker after investigation."
+        )
+    logger.warning("recovering from interrupted commit using snapshot %s", snap_name)
+    _restore_from_snapshot(out_dir, snap)
+    marker.unlink()
+
+
+def _commit_staging(out_dir: Path, staging: Path) -> None:
+    """Atomically replace live files from staging, with snapshot-based crash recovery.
+
+    The commit phase is bracketed by a snapshot + marker so that any failure (Python exception
+    OR an OS-level crash that kills the process) is recoverable to the pre-commit state on the
+    next invocation. The snapshot is the durability store; the marker names which snapshot to
+    restore from.
+    """
+    snapshot = create_snapshot(out_dir, "download")
+    prune_snapshots(out_dir)
+    _write_commit_marker(out_dir, snapshot.name)
+    try:
+        for name in ("calendars", "instruments", "features"):
+            target = out_dir / name
+            if target.exists():
+                _shutil.rmtree(target)
+            _shutil.move(str(staging / name), str(target))
+        # Reuse the index module's atomic write (tmp + os.replace).
+        staged_index = load_index(staging)
+        assert staged_index is not None, "staging is supposed to contain a valid index.json"
+        save_index(out_dir, staged_index)
+    except BaseException:
+        # Restore the pre-commit state from the snapshot we just took.
+        try:
+            _restore_from_snapshot(out_dir, snapshot)
+        finally:
+            (out_dir / _COMMIT_MARKER).unlink(missing_ok=True)
+        raise
+    else:
+        (out_dir / _COMMIT_MARKER).unlink()
+    finally:
+        if staging.exists():
+            _shutil.rmtree(staging)
 
 
 def download_pipeline(
@@ -343,6 +417,7 @@ def download_pipeline(
 ) -> None:
     """Orchestrate: parse → validate → resolve → fetch → stage → verify → commit."""
     out_dir.mkdir(parents=True, exist_ok=True)
+    _recover_from_interrupted_commit(out_dir)
     if interval not in SUPPORTED_INTERVALS:
         raise PipelineError(f"interval {interval!r} is not supported (only 1d)")
     if from_date > to_date:
