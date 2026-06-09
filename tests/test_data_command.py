@@ -1,6 +1,23 @@
+import datetime as dt
+import json
+from pathlib import Path
+
 from typer.testing import CliRunner
 
 from cli.__main__ import app
+from cli.data.config import FIELDS
+from cli.data.index import (
+    CalendarEntry,
+    FieldEntry,
+    FileEntry,
+    IndexData,
+    PairEntry,
+    PairIntervalEntry,
+    compute_sha256,
+    save_index,
+    utc_now_iso,
+)
+from cli.data.qlib_writer import write_bin, write_calendar, write_instruments
 
 runner = CliRunner()
 
@@ -12,3 +29,54 @@ def test_bare_data_prints_help_and_exits_zero():
     # for Task 1, we only assert the group itself appears and exit is 0.
     assert "Usage" in result.output
     assert "data" in result.output.lower()
+
+
+def _seed_valid_dataset(out_dir: Path) -> None:
+    cal = [dt.date(2024, 1, 1), dt.date(2024, 1, 2)]
+    write_calendar(out_dir, cal)
+    write_instruments(out_dir, {"BTCUSDT": (cal[0], cal[-1])})
+    fields = {}
+    for f in FIELDS:
+        rel = f"features/btcusdt/{f}.day.bin"
+        write_bin(out_dir / rel, [1.0, 1.0], start_index=0)
+        fields[f] = FieldEntry(bin=rel, sha256=compute_sha256(out_dir / rel), updated_at=utc_now_iso())
+    idx = IndexData(
+        schema_version=1,
+        updated_at=utc_now_iso(),
+        calendar=CalendarEntry(freq="day", from_date="2024-01-01", to_date="2024-01-02", days=2),
+        pairs={
+            "BTCUSDT": PairEntry(
+                base_asset="BTC",
+                quote_asset="USDT",
+                intervals={"1d": PairIntervalEntry(from_date="2024-01-01", rows=2, fields=fields)},
+            )
+        },
+        other_files={
+            "calendars/day.txt": FileEntry(sha256=compute_sha256(out_dir / "calendars" / "day.txt"), updated_at=utc_now_iso()),
+            "instruments/all.txt": FileEntry(sha256=compute_sha256(out_dir / "instruments" / "all.txt"), updated_at=utc_now_iso()),
+        },
+    )
+    save_index(out_dir, idx)
+
+
+def test_data_verify_ok_exits_zero_and_prints_ok(tmp_path):
+    _seed_valid_dataset(tmp_path)
+    result = runner.invoke(app, ["data", "verify", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "OK" in result.output
+
+
+def test_data_verify_fail_exits_nonzero(tmp_path):
+    _seed_valid_dataset(tmp_path)
+    # Corrupt the calendar
+    (tmp_path / "calendars" / "day.txt").write_text("2024-01-01\n")
+    result = runner.invoke(app, ["data", "verify", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "FAIL" in result.output
+
+
+def test_data_verify_silent_prints_nothing(tmp_path):
+    _seed_valid_dataset(tmp_path)
+    result = runner.invoke(app, ["data", "verify", "--silent", str(tmp_path)])
+    assert result.exit_code == 0
+    assert result.output.strip() == ""
