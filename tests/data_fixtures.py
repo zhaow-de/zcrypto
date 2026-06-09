@@ -43,8 +43,8 @@ class FakeSource:
         # (symbol, interval, date) -> (zip_bytes, sha256_hex)
         self._klines: dict[tuple[str, str, dt.date], tuple[bytes, str]] = {}
 
-    def add_pair(self, symbol: str, base: str, quote: str) -> None:
-        self.exchange_info.append({"symbol": symbol, "baseAsset": base, "quoteAsset": quote, "status": "TRADING"})
+    def add_pair(self, symbol: str, base: str, quote: str, status: str = "TRADING") -> None:
+        self.exchange_info.append({"symbol": symbol, "baseAsset": base, "quoteAsset": quote, "status": status})
 
     def add_kline(
         self,

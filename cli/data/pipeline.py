@@ -139,8 +139,8 @@ def parse_pairs_file(path: Path) -> list[str]:
     return pairs
 
 
-def validate_pairs_against_exchange(pairs: list[str], exchange_info: list[dict]) -> dict[str, tuple[str, str]]:
-    sym_map = {e["symbol"]: (e["baseAsset"], e["quoteAsset"]) for e in exchange_info}
+def validate_pairs_against_exchange(pairs: list[str], exchange_info: list[dict]) -> dict[str, tuple[str, str, str]]:
+    sym_map = {e["symbol"]: (e["baseAsset"], e["quoteAsset"], e.get("status", "TRADING")) for e in exchange_info}
     missing = [p for p in pairs if p not in sym_map]
     if missing:
         raise PipelineError(f"symbols not on Binance exchangeInfo: {missing}")
@@ -186,7 +186,7 @@ class _PerPair:
 
 
 def _resolve_ranges(
-    pair_to_assets: dict[str, tuple[str, str]],
+    pair_to_assets: dict[str, tuple[str, str, str]],
     existing: IndexData | None,
     source: Source,
     interval: str,
@@ -206,7 +206,7 @@ def _resolve_ranges(
     if absent_from_file:
         raise PipelineError(f"indexed pairs absent from pairs file (use delist/rename): {absent_from_file}")
 
-    for sym, (base, quote) in pair_to_assets.items():
+    for sym, (base, quote, _status) in pair_to_assets.items():
         if sym in indexed_pairs:
             assert existing_to is not None
             if arg_from <= existing_to:

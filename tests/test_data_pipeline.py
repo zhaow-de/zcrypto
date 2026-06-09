@@ -44,13 +44,46 @@ def test_parse_pairs_file_dedupes_after_case_normalization(tmp_path):
 
 def test_validate_pairs_against_exchange_returns_base_quote_map():
     info = [
-        {"symbol": "BTCUSDT", "baseAsset": "BTC", "quoteAsset": "USDT"},
-        {"symbol": "ETHUSDT", "baseAsset": "ETH", "quoteAsset": "USDT"},
+        {"symbol": "BTCUSDT", "baseAsset": "BTC", "quoteAsset": "USDT", "status": "TRADING"},
+        {"symbol": "ETHUSDT", "baseAsset": "ETH", "quoteAsset": "USDT", "status": "TRADING"},
     ]
     assert validate_pairs_against_exchange(["BTCUSDT", "ETHUSDT"], info) == {
-        "BTCUSDT": ("BTC", "USDT"),
-        "ETHUSDT": ("ETH", "USDT"),
+        "BTCUSDT": ("BTC", "USDT", "TRADING"),
+        "ETHUSDT": ("ETH", "USDT", "TRADING"),
     }
+
+
+def test_validate_pairs_classifies_trading_pair():
+    """A TRADING pair returns (base, quote, 'TRADING')."""
+    from tests.data_fixtures import FakeSource
+
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")  # default status="TRADING"
+
+    classified = validate_pairs_against_exchange(["BTCUSDT"], src.fetch_exchange_info())
+    assert classified == {"BTCUSDT": ("BTC", "USDT", "TRADING")}
+
+
+def test_validate_pairs_classifies_break_pair():
+    """A status=BREAK pair is returned with 'BREAK', not filtered out."""
+    from tests.data_fixtures import FakeSource
+
+    src = FakeSource()
+    src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
+
+    classified = validate_pairs_against_exchange(["MATICUSDT"], src.fetch_exchange_info())
+    assert classified == {"MATICUSDT": ("MATIC", "USDT", "BREAK")}
+
+
+def test_validate_pairs_unknown_symbol_errors():
+    """An unknown symbol still errors (iter-4 behavior preserved)."""
+    from tests.data_fixtures import FakeSource
+
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+
+    with pytest.raises(PipelineError):
+        validate_pairs_against_exchange(["XYZUSDT"], src.fetch_exchange_info())
 
 
 def test_validate_pairs_against_exchange_unknown_raises():
