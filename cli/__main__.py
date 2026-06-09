@@ -65,6 +65,10 @@ from cli.example.command import example
 
 app.command(name="example")(example)
 
+from cli.data.command import data_app
+
+app.add_typer(data_app, name="data")
+
 
 if __name__ == "__main__":
     app()
