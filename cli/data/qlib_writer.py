@@ -8,6 +8,7 @@ import numpy as np
 
 def write_calendar(out_dir: Path, dates: list[dt.date]) -> None:
     """Write `<out_dir>/calendars/day.txt` — one ISO date per line, sorted."""
+    dates = sorted(dates)
     cal_dir = out_dir / "calendars"
     cal_dir.mkdir(parents=True, exist_ok=True)
     lines = [d.strftime("%Y-%m-%d") for d in dates]
@@ -27,6 +28,8 @@ def write_instruments(out_dir: Path, pairs_to_range: dict[str, tuple[dt.date, dt
 
 def write_bin(path: Path, values: list[float], start_index: int) -> None:
     """Write a Qlib `<field>.day.bin`: [start_index_as_f4, v0, v1, ...] little-endian float32."""
+    if start_index < 0:
+        raise ValueError(f"start_index must be >= 0, got {start_index}")
     path.parent.mkdir(parents=True, exist_ok=True)
     arr = np.empty(len(values) + 1, dtype="<f4")
     arr[0] = np.float32(start_index)
@@ -39,4 +42,7 @@ def read_bin(path: Path) -> tuple[int, np.ndarray]:
     arr = np.fromfile(path, dtype="<f4")
     if arr.size < 1:
         raise ValueError(f"{path}: bin file is empty")
-    return int(arr[0]), arr[1:]
+    header = float(arr[0])
+    if not header.is_integer():
+        raise ValueError(f"{path}: bin header {header} is not a whole number")
+    return int(header), arr[1:]
