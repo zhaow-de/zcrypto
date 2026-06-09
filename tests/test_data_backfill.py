@@ -81,9 +81,10 @@ def test_backfill_silently_skips_break_pair_dataset_still_valid(tmp_path):
 
 def test_backfill_trading_pair_unreachable_raises_pipeline_error(tmp_path):
     out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
-    # BTCUSDT still TRADING but no new klines added; backfill --to 2024-01-08 → 404 at right edge
-    with pytest.raises(PipelineError, match=r"not available|fetch failed|reachable"):
-        backfill_pipeline(out, "1d", dt.date(2024, 1, 8), src)
+    # BTCUSDT still TRADING but no new klines added; backfill --to 2024-02-04 (30-day gap > 7-day grace)
+    # → sustained absence beyond grace fires the actionable delist/rename error
+    with pytest.raises(PipelineError, match=r"delisted|renamed"):
+        backfill_pipeline(out, "1d", dt.date(2024, 2, 4), src)
 
 
 def test_backfill_dry_run_no_snapshot_prints_plan(tmp_path, capsys):
@@ -105,3 +106,25 @@ def test_backfill_empty_index_raises(tmp_path):
     src = FakeSource()
     with pytest.raises(PipelineError, match=r"no pairs"):
         backfill_pipeline(out, "1d", dt.date(2024, 1, 5), src)
+
+
+def test_backfill_trading_pair_publishing_lag_within_grace_no_op(tmp_path):
+    """When archive lags by <= GRACE_DAYS, backfill is a silent no-op (no snapshot)."""
+    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+    snaps_before = sorted((out / ".snapshots").glob("*.tar.gz"))
+    # No new klines added; arg_to = index.to + 3 days (within 7-day grace)
+    backfill_pipeline(out, "1d", dt.date(2024, 1, 8), src)
+    snaps_after = sorted((out / ".snapshots").glob("*.tar.gz"))
+    assert snaps_before == snaps_after, "publishing-lag backfill must not snapshot"
+    # Pairs unchanged
+    idx = load_index(out)
+    for p in idx.pairs.values():
+        assert p.intervals["1d"].dates_to == "2024-01-05"
+
+
+def test_backfill_trading_pair_sustained_absence_beyond_grace_raises(tmp_path):
+    """When the absence exceeds GRACE_DAYS, fire the actionable error."""
+    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+    # No new klines; arg_to = index.to + 30 days (well beyond 7-day grace)
+    with pytest.raises(PipelineError, match=r"delisted|renamed|publishing-lag grace"):
+        backfill_pipeline(out, "1d", dt.date(2024, 2, 4), src)

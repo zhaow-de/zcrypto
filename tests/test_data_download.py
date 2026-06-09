@@ -60,3 +60,25 @@ def test_download_delisted_pair_no_archive_in_range_errors(tmp_path):
 
     with pytest.raises(PipelineError, match=r"no kline data|status="):
         download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 10), src)
+
+
+def test_download_new_trading_pair_publishing_lag_clips_to_last_available(tmp_path):
+    """When the archive's latest day is older than arg_to (publishing lag),
+    a new TRADING pair's effective_to should clip to last available, not error."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("ADAUSDT\n")
+    out = tmp_path / "ds"
+    src = FakeSource()
+    src.add_pair("ADAUSDT", "ADA", "USDT")  # TRADING
+    # Archive: 2024-01-01..2024-01-09 (no 2024-01-10 — simulated publishing lag)
+    for i in range(9):
+        src.add_kline("ADAUSDT", "1d", dt.date(2024, 1, 1) + dt.timedelta(days=i))
+
+    # arg_to = 2024-01-10 (a day the archive hasn't published yet)
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 10), src)
+
+    idx = load_index(out)
+    ada = idx.pairs["ADAUSDT"].intervals["1d"]
+    assert ada.dates_from == "2024-01-01"
+    assert ada.dates_to == "2024-01-09"  # clipped to last available
+    assert verify_dataset(out).ok

@@ -407,10 +407,11 @@ def test_download_existing_pair_delisted_mid_window_raises_actionable_error(tmp_
 
     download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)
 
-    # Simulate a mid-window delisting: re-run extending to 2024-01-08, but DON'T add the new klines.
+    # Simulate a mid-window delisting: re-run extending to 2024-02-01 (27-day gap > 7-day grace),
+    # but DON'T add the new klines.
     # The source still has the pair listed in exchange_info (so validate passes) but no klines at the right edge.
-    with pytest.raises(PipelineError, match=r"delisted|rename"):
-        download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 8), src)
+    with pytest.raises(PipelineError, match=r"delisted|renamed"):
+        download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 2, 1), src)
 
 
 def test_download_aborts_on_broken_pre_existing_dataset(tmp_path):

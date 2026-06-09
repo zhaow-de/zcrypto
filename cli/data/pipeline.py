@@ -308,36 +308,64 @@ def _resolve_ranges(
             else:
                 raise PipelineError(f"gap for {sym}: --from {arg_from} is more than one day after index.to {existing_to}")
             existing_from = dt.date.fromisoformat(existing.pairs[sym].intervals[interval].from_date)
-            if not source.exists_kline(sym, interval, arg_to):
-                raise PipelineError(
-                    f"{sym}: existing pair is not available on Binance at {arg_to} "
-                    f"(likely delisted or the ticker was renamed mid-window). Reconcile with "
-                    f"`zcrypto data delist` or `zcrypto data rename` (iter-5) before re-running download."
+            rng = find_available_range(source, sym, interval, effective_from, arg_to)
+            if rng is None:
+                days_since = (arg_to - existing_to).days
+                if days_since > CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS:
+                    raise PipelineError(
+                        f"{sym}: no new archive data since {existing_to} ({days_since} days > "
+                        f"{CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS}-day publishing-lag grace); "
+                        "likely delisted or renamed. Reconcile with `zcrypto data delist` or "
+                        "`zcrypto data rename`."
+                    )
+                logger.info(
+                    "%s: no new archive data since %s (%d-day publishing-lag grace not yet exceeded); skipping.",
+                    sym,
+                    existing_to,
+                    days_since,
                 )
-            plan.append(_PerPair(sym, base, quote, effective_from, arg_to, False, existing_from))
+                continue
+            # else rng = (first_new, last_new)
+            if rng[0] > effective_from:
+                raise PipelineError(
+                    f"{sym}: gap detected — index.to={existing_to}, next archive day={rng[0]}; manual reconciliation required"
+                )
+            effective_from, effective_to_rng = rng
+            if effective_to_rng < arg_to:
+                logger.info(
+                    "%s: archive last available %s (arg_to was %s); fetched up to %s (archive publishing lag).",
+                    sym,
+                    effective_to_rng,
+                    arg_to,
+                    effective_to_rng,
+                )
+            plan.append(_PerPair(sym, base, quote, effective_from, effective_to_rng, False, existing_from))
         else:
-            if status == "TRADING":
-                # iter-4 path: fetch up to arg_to
-                first = find_first_available(source, sym, interval, arg_from, arg_to)
-                if first is None:
-                    raise PipelineError(f"{sym}: no kline data available in [{arg_from}, {arg_to}]")
-                if first > arg_from:
-                    logger.warning("%s data starts %s, later than --from %s", sym, first, arg_from)
-                plan.append(_PerPair(sym, base, quote, max(arg_from, first), arg_to, True, None))
-            else:
-                # Non-TRADING (BREAK, HALT, ...): fetch only the historical archive [first, last]
-                rng = find_available_range(source, sym, interval, arg_from, arg_to)
-                if rng is None:
-                    raise PipelineError(f"{sym}: status={status} but no kline data in [{arg_from}, {arg_to}]")
-                first_avail, last_avail = rng
+            # Unified discovery for both TRADING and non-TRADING new pairs.
+            # find_available_range handles hi 404 (archive publishing lag) gracefully.
+            rng = find_available_range(source, sym, interval, arg_from, arg_to)
+            if rng is None:
+                raise PipelineError(f"{sym}: no kline data available in [{arg_from}, {arg_to}]")
+            eff_from, eff_to = rng
+            if eff_from > arg_from:
+                logger.warning("%s data starts %s, later than --from %s", sym, eff_from, arg_from)
+            if status != "TRADING":
                 logger.info(
                     "%s: status=%s on Binance; fetching only historical archive [%s..%s], no extension possible.",
                     sym,
                     status,
-                    first_avail,
-                    last_avail,
+                    eff_from,
+                    eff_to,
                 )
-                plan.append(_PerPair(sym, base, quote, first_avail, last_avail, True, None))
+            elif eff_to < arg_to:
+                logger.info(
+                    "%s: archive last available %s (arg_to was %s); fetched up to %s (archive publishing lag).",
+                    sym,
+                    eff_to,
+                    arg_to,
+                    eff_to,
+                )
+            plan.append(_PerPair(sym, base, quote, eff_from, eff_to, True, None))
     return plan
 
 
@@ -726,13 +754,37 @@ def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source
             continue
 
         effective_from = current_to + dt.timedelta(days=1)
-        effective_to = arg_to
 
-        if not source.exists_kline(sym, interval, arg_to):
+        rng = find_available_range(source, sym, interval, effective_from, arg_to)
+        if rng is None:
+            days_since = (arg_to - current_to).days
+            if days_since > CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS:
+                raise PipelineError(
+                    f"{sym}: no new archive data since {current_to} ({days_since} days > "
+                    f"{CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS}-day publishing-lag grace); "
+                    "likely delisted or renamed. Reconcile with "
+                    "'zcrypto data delist' or 'zcrypto data rename'."
+                )
+            logger.info(
+                "%s: no new archive data since %s (%d-day publishing-lag grace not yet exceeded); skipping.",
+                sym,
+                current_to,
+                days_since,
+            )
+            continue
+
+        if rng[0] > effective_from:
             raise PipelineError(
-                f"{sym}: existing pair is not available on Binance at {arg_to} "
-                "(likely delisted or renamed mid-window). Reconcile with "
-                "'zcrypto data delist' or 'zcrypto data rename' before re-running backfill."
+                f"{sym}: gap detected — index.to={current_to}, next archive day={rng[0]}; manual reconciliation required"
+            )
+        effective_from, effective_to = rng
+        if effective_to < arg_to:
+            logger.info(
+                "%s: archive last available %s (arg_to was %s); fetched up to %s (archive publishing lag).",
+                sym,
+                effective_to,
+                arg_to,
+                effective_to,
             )
 
         existing_from = dt.date.fromisoformat(interval_entry.from_date)

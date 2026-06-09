@@ -17,3 +17,9 @@ class CliConstants:
     RENAME_SYNTH_WARN_DAYS = 7
     """Synthetic-gap-fill days threshold for rename Variant 1. Gaps larger than this
     emit a louder warning; smaller gaps emit a standard info-level warning."""
+
+    BACKFILL_RIGHT_EDGE_GRACE_DAYS = 7
+    """How many days a TRADING pair's right edge can be absent from the archive
+    before backfill treats it as a likely delist/rename rather than archive
+    publishing lag. Within this window: silent skip with info log. Beyond:
+    PipelineError pointing at `data delist`/`data rename`."""
