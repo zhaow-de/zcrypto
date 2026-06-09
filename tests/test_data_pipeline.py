@@ -200,3 +200,24 @@ def test_download_leaves_live_dir_pristine_on_error(tmp_path):
     after_sizes = [p.stat().st_size for p in sorted((out / "features" / "btcusdt").glob("*.bin"))]
     assert before_sizes == after_sizes
     assert verify_dataset(out).ok
+
+
+def test_download_extend_contiguous_no_adjust(tmp_path):
+    """`--from == index.to + 1` is the no-overlap-no-gap case; no warning needed, just continue."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 5))
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)
+
+    # Extend with --from exactly one day after index.to (contiguous branch).
+    cur = dt.date(2024, 1, 6)
+    while cur <= dt.date(2024, 1, 8):
+        src.add_kline("BTCUSDT", "1d", cur)
+        cur += dt.timedelta(days=1)
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 6), dt.date(2024, 1, 8), src)
+    assert verify_dataset(out).ok
+    # Calendar now spans the full union
+    cal_lines = (out / "calendars" / "day.txt").read_text(encoding="utf-8").splitlines()
+    assert cal_lines[0] == "2024-01-01"
+    assert cal_lines[-1] == "2024-01-08"
