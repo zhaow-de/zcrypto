@@ -33,3 +33,46 @@ def make_zip_with_checksum(csv_text: str, inner_name: str) -> tuple[bytes, str]:
         zf.writestr(inner_name, csv_text)
     zip_bytes = buf.getvalue()
     return zip_bytes, hashlib.sha256(zip_bytes).hexdigest()
+
+
+class FakeSource:
+    """In-memory Source for tests; pre-load via `.add_pair` / `.add_kline`."""
+
+    def __init__(self) -> None:
+        self.exchange_info: list[dict] = []
+        # (symbol, interval, date) -> (zip_bytes, sha256_hex)
+        self._klines: dict[tuple[str, str, dt.date], tuple[bytes, str]] = {}
+
+    def add_pair(self, symbol: str, base: str, quote: str) -> None:
+        self.exchange_info.append({"symbol": symbol, "baseAsset": base, "quoteAsset": quote, "status": "TRADING"})
+
+    def add_kline(
+        self,
+        symbol: str,
+        interval: str,
+        date: dt.date,
+        *,
+        base_price: float = 100.0,
+        base_vol: float = 50.0,
+    ) -> None:
+        csv = synthetic_kline_csv(date, base_price=base_price, base_vol=base_vol)
+        zip_bytes, digest = make_zip_with_checksum(csv, f"{symbol}-{interval}-{date}.csv")
+        self._klines[(symbol, interval, date)] = (zip_bytes, digest)
+
+    def tamper_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> None:
+        """Force a checksum mismatch on the next fetch (for negative-path tests)."""
+        zb, _ = self._klines[(symbol, interval, date)]
+        self._klines[(symbol, interval, date)] = (zb, "0" * 64)
+
+    # Source protocol
+    def fetch_exchange_info(self) -> list[dict]:
+        return list(self.exchange_info)
+
+    def exists_kline(self, symbol: str, interval: str, date: dt.date) -> bool:
+        return (symbol, interval, date) in self._klines
+
+    def fetch_kline_zip(self, symbol: str, interval: str, date: dt.date) -> bytes:
+        return self._klines[(symbol, interval, date)][0]
+
+    def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str:
+        return self._klines[(symbol, interval, date)][1]
