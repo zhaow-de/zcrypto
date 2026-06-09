@@ -127,3 +127,92 @@ def test_rename_v1_dry_run_no_mutation(tmp_path, capsys):
     assert "MATICUSDT" in captured.out and "POLUSDT" in captured.out
     # Mutation didn't happen
     assert (out / "features" / "maticusdt").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# Variant 2 tests
+# ---------------------------------------------------------------------------
+
+
+def _seed_two_pairs_for_merge(tmp_path, old_range, new_range):
+    """Seed dataset with two pairs: OLD on old_range (BREAK status), NEW on new_range (TRADING)."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("MATICUSDT\nPOLUSDT\n")
+    out = tmp_path / "ds"
+    src = FakeSource()
+    src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
+    src.add_pair("POLUSDT", "POL", "USDT")
+    cur = old_range[0]
+    while cur <= old_range[1]:
+        src.add_kline("MATICUSDT", "1d", cur)
+        cur += dt.timedelta(days=1)
+    cur = new_range[0]
+    while cur <= new_range[1]:
+        src.add_kline("POLUSDT", "1d", cur)
+        cur += dt.timedelta(days=1)
+    download_pipeline(out, pairs, "1d", old_range[0], new_range[1], src)
+    return out
+
+
+def test_rename_v2_merge_no_gap(tmp_path):
+    """OLD ends 2024-09-10, NEW starts 2024-09-11 → no gap, simple merge."""
+    out = _seed_two_pairs_for_merge(
+        tmp_path,
+        old_range=(dt.date(2024, 8, 1), dt.date(2024, 9, 10)),
+        new_range=(dt.date(2024, 9, 11), dt.date(2024, 9, 20)),
+    )
+    src = FakeSource()
+    src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
+    src.add_pair("POLUSDT", "POL", "USDT")
+    rename_pipeline(out, "MATICUSDT", "POLUSDT", src)
+    idx = load_index(out)
+    assert "MATICUSDT" not in idx.pairs
+    pol = idx.pairs["POLUSDT"].intervals["1d"]
+    assert pol.dates_from == "2024-08-01"  # extends back through OLD
+    assert pol.dates_to == "2024-09-20"
+    # Merged bin: OLD's 41 days + 0 gap + NEW's 10 days = 51 rows
+    _, vols = read_bin(out / "features" / "polusdt" / "volume.day.bin")
+    assert len(vols) == 51
+    assert verify_dataset(out).ok
+
+
+def test_rename_v2_merge_with_gap_fills(tmp_path):
+    """OLD ends 2024-09-10, NEW starts 2024-09-13 → 2 synthetic days in middle."""
+    out = _seed_two_pairs_for_merge(
+        tmp_path,
+        old_range=(dt.date(2024, 8, 1), dt.date(2024, 9, 10)),
+        new_range=(dt.date(2024, 9, 13), dt.date(2024, 9, 20)),
+    )
+    src = FakeSource()
+    src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
+    src.add_pair("POLUSDT", "POL", "USDT")
+    rename_pipeline(out, "MATICUSDT", "POLUSDT", src)
+
+    idx = load_index(out)
+    pol = idx.pairs["POLUSDT"].intervals["1d"]
+    assert pol.dates_from == "2024-08-01"
+    assert pol.dates_to == "2024-09-20"
+    # 41 OLD + 2 gap + 8 NEW = 51 rows
+    _, vols = read_bin(out / "features" / "polusdt" / "volume.day.bin")
+    assert len(vols) == 51
+    # Synthetic gap is at indices 41, 42 (zero volume)
+    assert vols[41] == pytest.approx(0.0)
+    assert vols[42] == pytest.approx(0.0)
+    assert verify_dataset(out).ok
+
+
+def test_rename_v2_dry_run_no_mutation(tmp_path, capsys):
+    out = _seed_two_pairs_for_merge(
+        tmp_path,
+        old_range=(dt.date(2024, 8, 1), dt.date(2024, 9, 10)),
+        new_range=(dt.date(2024, 9, 13), dt.date(2024, 9, 20)),
+    )
+    src = FakeSource()
+    src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
+    src.add_pair("POLUSDT", "POL", "USDT")
+    rename_pipeline(out, "MATICUSDT", "POLUSDT", src, dry_run=True)
+    captured = capsys.readouterr()
+    assert "MATICUSDT" in captured.out and "POLUSDT" in captured.out
+    # Both entries unchanged
+    idx = load_index(out)
+    assert "MATICUSDT" in idx.pairs and "POLUSDT" in idx.pairs

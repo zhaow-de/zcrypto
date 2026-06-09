@@ -1051,7 +1051,66 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
     new_base_asset, new_quote_asset = sym_map[new]
 
     if variant == 2:
-        raise NotImplementedError("rename Variant 2 lands in Task 9")
+        old_pair = idx.pairs[old]
+        new_pair = idx.pairs[new]
+        old_interval_entry = old_pair.intervals["1d"]
+        new_interval_entry = new_pair.intervals["1d"]
+        old_to = dt.date.fromisoformat(old_interval_entry.dates_to)
+        new_from = dt.date.fromisoformat(new_interval_entry.from_date)
+        new_to_v2 = dt.date.fromisoformat(new_interval_entry.dates_to)
+
+        # Overlap check: if NEW's downloaded range starts at-or-before OLD's last day → error.
+        if new_from <= old_to:
+            raise PipelineError(
+                f"rename Variant 2 overlap: {old} ends {old_to} but {new} starts {new_from}; "
+                "operator must reconcile manually before merging"
+            )
+
+        # Read OLD's last close for gap-fill synthetic value.
+        old_close_bin = out_dir / "features" / old.lower() / "close.day.bin"
+        _header, old_closes = read_bin(old_close_bin)
+        synthetic_locked_ohlc = float(old_closes[-1])
+
+        # Gap dates: days between old_to+1 and new_from-1 (may be empty).
+        gap_dates_v2: list[dt.date] = []
+        cur = old_to + dt.timedelta(days=1)
+        while cur < new_from:
+            gap_dates_v2.append(cur)
+            cur += dt.timedelta(days=1)
+
+        if len(gap_dates_v2) > CliConstants.RENAME_SYNTH_WARN_DAYS:
+            logger.warning(
+                "rename %s → %s (Variant 2): large synthetic gap fill: %d days (%s .. %s), locked OHLC = %s. Verify data integrity after rename.",
+                old,
+                new,
+                len(gap_dates_v2),
+                gap_dates_v2[0],
+                gap_dates_v2[-1],
+                synthetic_locked_ohlc,
+            )
+        elif gap_dates_v2:
+            logger.warning(
+                "rename %s → %s (Variant 2): synthetic gap fill: %d day(s) (%s .. %s), locked OHLC = %s",
+                old,
+                new,
+                len(gap_dates_v2),
+                gap_dates_v2[0],
+                gap_dates_v2[-1],
+                synthetic_locked_ohlc,
+            )
+
+        return RenamePlan(
+            variant=2,
+            old_symbol=old,
+            new_symbol=new,
+            new_base_asset=new_base_asset,
+            new_quote_asset=new_quote_asset,
+            new_first=new_from,
+            new_to=new_to_v2,
+            gap_dates=gap_dates_v2,
+            synthetic_locked_ohlc=synthetic_locked_ohlc,
+            is_noop=False,
+        )
 
     # Variant 1 only below.
     old_pair = idx.pairs[old]
@@ -1122,7 +1181,58 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
     )
 
 
+def _load_calendar_dates(cal_path: Path) -> list[dt.date]:
+    """Parse calendars/day.txt → sorted list of dt.date."""
+    dates: list[dt.date] = []
+    for line in cal_path.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if s:
+            dates.append(dt.date.fromisoformat(s))
+    return dates
+
+
+def _build_pair_entry_from_staging(
+    staging: Path,
+    sym: str,
+    base: str,
+    quote: str,
+    from_date: dt.date,
+    rows: int,
+    interval: str = "1d",
+) -> PairEntry:
+    """Build a PairEntry by computing sha256 of each field bin in staging."""
+    fields_entries: dict[str, FieldEntry] = {}
+    feat_lower = sym.lower()
+    for fname in FIELDS:
+        rel = f"features/{feat_lower}/{fname}.day.bin"
+        bin_path = staging / rel
+        fields_entries[fname] = FieldEntry(
+            bin=rel,
+            sha256=compute_sha256(bin_path),
+            updated_at=utc_now_iso(),
+        )
+    return PairEntry(
+        base_asset=base,
+        quote_asset=quote,
+        intervals={
+            interval: PairIntervalEntry(
+                from_date=from_date.isoformat(),
+                rows=rows,
+                fields=fields_entries,
+            )
+        },
+    )
+
+
 def _rename_apply(out_dir: Path, staging: Path, plan: RenamePlan) -> None:
+    """Dispatch to variant-specific apply."""
+    if plan.variant == 1:
+        _rename_apply_variant1(out_dir, staging, plan)
+    else:
+        _rename_apply_variant2(out_dir, staging, plan)
+
+
+def _rename_apply_variant1(out_dir: Path, staging: Path, plan: RenamePlan) -> None:
     """Copy and optionally extend bins; rewrite calendar, instruments, and index."""
     import struct
 
@@ -1153,12 +1263,7 @@ def _rename_apply(out_dir: Path, staging: Path, plan: RenamePlan) -> None:
                     fh.write(gap_bytes)
 
     # Calendar: union of old calendar dates and gap_dates (dedup + sort).
-    old_cal_path = out_dir / "calendars" / "day.txt"
-    old_cal_dates: list[dt.date] = []
-    for line in old_cal_path.read_text(encoding="utf-8").splitlines():
-        s = line.strip()
-        if s:
-            old_cal_dates.append(dt.date.fromisoformat(s))
+    old_cal_dates = _load_calendar_dates(out_dir / "calendars" / "day.txt")
     new_calendar = sorted(set(old_cal_dates) | set(plan.gap_dates))
     write_calendar(staging, new_calendar)
 
@@ -1243,6 +1348,156 @@ def _rename_apply(out_dir: Path, staging: Path, plan: RenamePlan) -> None:
     save_index(staging, new_index)
 
 
+def _rename_apply_variant2(out_dir: Path, staging: Path, plan: RenamePlan) -> None:
+    """Merge OLD's bin into NEW's slot: OLD.bin + synthetic gap + NEW.bin per field.
+    Drop OLD's index entry. Update NEW's range to span both."""
+    import struct
+
+    interval = "1d"
+    idx = load_index(out_dir)
+    assert idx is not None
+
+    old_entry = idx.pairs[plan.old_symbol]
+    new_entry = idx.pairs[plan.new_symbol]
+    old_interval = old_entry.intervals[interval]
+    new_interval = new_entry.intervals[interval]
+    old_from = dt.date.fromisoformat(old_interval.from_date)
+    new_from = dt.date.fromisoformat(new_interval.from_date)
+    new_to = dt.date.fromisoformat(new_interval.dates_to)
+
+    # Load existing calendar; union with gap_dates.
+    old_cal = _load_calendar_dates(out_dir / "calendars" / "day.txt")
+    new_cal_dates = sorted(set(old_cal) | set(plan.gap_dates))
+
+    # Detect front-extension: does OLD's history predate the existing calendar start?
+    front_extension = (old_cal[0] - new_cal_dates[0]).days if new_cal_dates[0] < old_cal[0] else 0
+
+    # Merged bin's logical start date.
+    merged_from = min(old_from, new_from)
+
+    (staging / "features").mkdir(parents=True)
+    n_gap = len(plan.gap_dates)
+
+    # 1. Build merged bins for NEW: OLD data + gap + NEW data.
+    new_dir_staging = staging / "features" / plan.new_symbol.lower()
+    new_dir_staging.mkdir()
+    old_dir_live = out_dir / "features" / plan.old_symbol.lower()
+    new_dir_live = out_dir / "features" / plan.new_symbol.lower()
+
+    new_start_index = new_cal_dates.index(merged_from)
+
+    for field in FIELDS:
+        old_bytes = (old_dir_live / f"{field}.day.bin").read_bytes()
+        new_bytes = (new_dir_live / f"{field}.day.bin").read_bytes()
+        # Strip the 4-byte start_index header from each.
+        old_data = old_bytes[4:]
+        new_data = new_bytes[4:]
+        # Synthetic gap bytes.
+        synth_val = _synthetic_value(field, plan.synthetic_locked_ohlc)
+        gap_data = struct.pack("<f", float(synth_val)) * n_gap
+        merged_data = old_data + gap_data + new_data
+        # Write with new header (start_index as float32).
+        header = struct.pack("<f", float(new_start_index))
+        (new_dir_staging / f"{field}.day.bin").write_bytes(header + merged_data)
+
+    # 2. Copy OTHER pairs (not OLD, not NEW) unchanged; rewrite headers if front_extension > 0.
+    for sym in idx.pairs:
+        if sym in (plan.old_symbol, plan.new_symbol):
+            continue
+        src_dir = out_dir / "features" / sym.lower()
+        dst_dir = staging / "features" / sym.lower()
+        _shutil.copytree(src_dir, dst_dir)
+        if front_extension > 0:
+            for field_file in dst_dir.iterdir():
+                if field_file.suffix == ".bin":
+                    _rewrite_bin_start_index(field_file, +front_extension)
+
+    # 3. Write new calendar.
+    write_calendar(staging, new_cal_dates)
+
+    # 4. Write new instruments: drop OLD, update NEW's range to [merged_from, new_to].
+    instruments_ranges: dict[str, tuple[dt.date, dt.date]] = {}
+    for sym, entry in idx.pairs.items():
+        if sym == plan.old_symbol:
+            continue
+        if sym == plan.new_symbol:
+            instruments_ranges[sym] = (merged_from, new_to)
+        else:
+            instruments_ranges[sym] = (
+                dt.date.fromisoformat(entry.intervals[interval].from_date),
+                dt.date.fromisoformat(entry.intervals[interval].dates_to),
+            )
+    write_instruments(staging, instruments_ranges)
+
+    # 5. Build new IndexData.
+    old_rows = old_interval.rows
+    new_rows = new_interval.rows
+    merged_rows = old_rows + n_gap + new_rows
+
+    pairs_entries: dict[str, PairEntry] = {}
+    for sym, entry in idx.pairs.items():
+        if sym == plan.old_symbol:
+            continue
+        if sym == plan.new_symbol:
+            pairs_entries[sym] = _build_pair_entry_from_staging(
+                staging,
+                sym,
+                plan.new_base_asset,
+                plan.new_quote_asset,
+                merged_from,
+                merged_rows,
+                interval,
+            )
+        else:
+            iv = entry.intervals[interval]
+            if front_extension > 0:
+                pairs_entries[sym] = _build_pair_entry_from_staging(
+                    staging,
+                    sym,
+                    entry.base_asset,
+                    entry.quote_asset,
+                    dt.date.fromisoformat(iv.from_date),
+                    iv.rows,
+                    interval,
+                )
+            else:
+                # Headers unchanged; reuse existing entry as-is, recomputing sha256 from staging copy.
+                pairs_entries[sym] = _build_pair_entry_from_staging(
+                    staging,
+                    sym,
+                    entry.base_asset,
+                    entry.quote_asset,
+                    dt.date.fromisoformat(iv.from_date),
+                    iv.rows,
+                    interval,
+                )
+
+    from cli.data.config import SCHEMA_VERSION
+
+    new_index = IndexData(
+        schema_version=SCHEMA_VERSION,
+        updated_at=utc_now_iso(),
+        calendar=CalendarEntry(
+            freq="day",
+            from_date=new_cal_dates[0].isoformat(),
+            to_date=new_cal_dates[-1].isoformat(),
+            days=len(new_cal_dates),
+        ),
+        pairs=pairs_entries,
+        other_files={
+            "calendars/day.txt": FileEntry(
+                sha256=compute_sha256(staging / "calendars" / "day.txt"),
+                updated_at=utc_now_iso(),
+            ),
+            "instruments/all.txt": FileEntry(
+                sha256=compute_sha256(staging / "instruments" / "all.txt"),
+                updated_at=utc_now_iso(),
+            ),
+        },
+    )
+    save_index(staging, new_index)
+
+
 def rename_pipeline(
     out_dir: Path,
     old_symbol: str,
@@ -1251,7 +1506,7 @@ def rename_pipeline(
     *,
     dry_run: bool = False,
 ) -> None:
-    """Re-label OLD → NEW under the snapshot+commit discipline (Variant 1 only; Variant 2 in Task 9)."""
+    """Re-label OLD → NEW under the snapshot+commit discipline (Variant 1 and Variant 2)."""
     plan_fn = lambda d: _rename_plan(d, old_symbol, new_symbol, source)
     apply_fn = lambda d, s, p: _rename_apply(d, s, p)
     _execute_mutation(out_dir, "rename", plan_fn, apply_fn, dry_run=dry_run)
