@@ -4,10 +4,12 @@ import dataclasses as _dc
 import datetime as dt
 import hashlib as _hashlib
 import shutil as _shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pandas as _pd
 
+from cli.constants import CliConstants
 from cli.data.binance import Source
 from cli.data.config import FIELDS, SCHEMA_VERSION, SUPPORTED_INTERVALS
 from cli.data.index import (
@@ -161,21 +163,66 @@ def _verify_checksum(source: Source, sym: str, interval: str, date: dt.date, zip
         raise PipelineError(f"{sym} {date}: checksum mismatch")
 
 
-def _fetch_pair(source: Source, plan: _PerPair, interval: str) -> _pd.DataFrame:
-    """Returns concatenated single-row DataFrames covering [effective_from, effective_to]."""
-    dates: list[dt.date] = []
-    cur = plan.effective_from
-    while cur <= plan.effective_to:
-        dates.append(cur)
-        cur += dt.timedelta(days=1)
-    rows: list[_pd.DataFrame] = []
-    for d in dates:
-        zip_bytes = source.fetch_kline_zip(plan.symbol, interval, d)
-        _verify_checksum(source, plan.symbol, interval, d, zip_bytes)
-        rows.append(parse_kline_zip(zip_bytes, plan.symbol, interval, d))
-    df = _pd.concat(rows, ignore_index=True) if rows else _pd.DataFrame(columns=["date"] + list(FIELDS))
-    assert_no_internal_gaps(df["date"].tolist(), dates, symbol=plan.symbol)
-    return df
+def _fetch_one_date(source: Source, sym: str, interval: str, date: dt.date) -> tuple[str, dt.date, _pd.DataFrame]:
+    """Fetch + checksum + parse one (sym, interval, date) tuple. Returns the parsed single-row DataFrame."""
+    zip_bytes = source.fetch_kline_zip(sym, interval, date)
+    _verify_checksum(source, sym, interval, date, zip_bytes)
+    df = parse_kline_zip(zip_bytes, sym, interval, date)
+    return sym, date, df
+
+
+def _fetch_all_concurrent(source: Source, plan: list[_PerPair], interval: str, max_workers: int) -> dict[str, _pd.DataFrame]:
+    """Fetch every (pair, date) tuple via a bounded thread pool. Per-pair gap-check runs after collection."""
+    work: list[tuple[str, dt.date]] = []
+    per_pair_expected: dict[str, list[dt.date]] = {}
+    per_pair_rows: dict[str, list[_pd.DataFrame]] = {}
+    for p in plan:
+        dates: list[dt.date] = []
+        cur = p.effective_from
+        while cur <= p.effective_to:
+            dates.append(cur)
+            cur += dt.timedelta(days=1)
+        per_pair_expected[p.symbol] = dates
+        per_pair_rows[p.symbol] = []
+        work.extend((p.symbol, d) for d in dates)
+
+    if not work:
+        return {sym: _pd.DataFrame(columns=["date"] + list(FIELDS)) for sym in per_pair_expected}
+
+    logger.info(
+        "fetching %d (pair, date) tuples concurrently (max_workers=%d)",
+        len(work),
+        max_workers,
+    )
+
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="zcrypto-fetch") as pool:
+        futures = {pool.submit(_fetch_one_date, source, sym, interval, d): (sym, d) for sym, d in work}
+        try:
+            for fut in as_completed(futures):
+                sym, d = futures[fut]
+                try:
+                    s, _, df = fut.result()
+                except PipelineError:
+                    raise
+                except Exception as e:
+                    raise PipelineError(f"{sym} {d}: fetch failed: {e}") from e
+                per_pair_rows[s].append(df)
+        except BaseException:
+            # Cancel any future not yet started so in-flight workers drain quickly.
+            for f in futures:
+                f.cancel()
+            raise
+
+    result: dict[str, _pd.DataFrame] = {}
+    for sym, expected in per_pair_expected.items():
+        rows = per_pair_rows[sym]
+        if not rows:
+            result[sym] = _pd.DataFrame(columns=["date"] + list(FIELDS))
+            continue
+        df = _pd.concat(rows, ignore_index=True).sort_values("date").reset_index(drop=True)
+        assert_no_internal_gaps(df["date"].tolist(), expected, symbol=sym)
+        result[sym] = df
+    return result
 
 
 def _read_existing_pair(out_dir: Path, sym: str, existing_from: dt.date, calendar: list[dt.date]) -> _pd.DataFrame:
@@ -308,12 +355,14 @@ def download_pipeline(
     existing = load_index(out_dir)
     plan = _resolve_ranges(pair_to_assets, existing, source, interval, from_date, to_date)
 
-    new_rows_per_sym: dict[str, _pd.DataFrame] = {}
-    for p in plan:
-        if p.effective_from > p.effective_to:
-            new_rows_per_sym[p.symbol] = _pd.DataFrame(columns=["date"] + list(FIELDS))
-        else:
-            new_rows_per_sym[p.symbol] = _fetch_pair(source, p, interval)
+    max_workers = CliConstants.FETCH_CONCURRENCY
+
+    # Empty-window pairs (overlap-adjust trimmed everything) need an empty DF to keep _build_staging happy.
+    non_empty_plan = [p for p in plan if p.effective_from <= p.effective_to]
+    fetched = _fetch_all_concurrent(source, non_empty_plan, interval, max_workers)
+    new_rows_per_sym: dict[str, _pd.DataFrame] = {
+        p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan
+    }
 
     staging = out_dir / ".staging"
     _build_staging(out_dir, staging, plan, new_rows_per_sym, existing, to_date, interval)

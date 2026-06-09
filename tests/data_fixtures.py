@@ -76,3 +76,32 @@ class FakeSource:
 
     def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str:
         return self._klines[(symbol, interval, date)][1]
+
+
+import threading
+import time
+
+
+class CountingSource(FakeSource):
+    """FakeSource that tracks peak concurrent in-flight `fetch_kline_zip` calls."""
+
+    def __init__(self, *, request_delay: float = 0.02) -> None:
+        super().__init__()
+        self._lock = threading.Lock()
+        self._active = 0
+        self._delay = request_delay
+        self.peak_concurrent = 0
+        self.total_requests = 0
+
+    def fetch_kline_zip(self, symbol: str, interval: str, date) -> bytes:
+        with self._lock:
+            self._active += 1
+            self.total_requests += 1
+            if self._active > self.peak_concurrent:
+                self.peak_concurrent = self._active
+        try:
+            time.sleep(self._delay)  # give other threads a window to enter
+            return super().fetch_kline_zip(symbol, interval, date)
+        finally:
+            with self._lock:
+                self._active -= 1

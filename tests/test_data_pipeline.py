@@ -221,3 +221,35 @@ def test_download_extend_contiguous_no_adjust(tmp_path):
     cal_lines = (out / "calendars" / "day.txt").read_text(encoding="utf-8").splitlines()
     assert cal_lines[0] == "2024-01-01"
     assert cal_lines[-1] == "2024-01-08"
+
+
+# ---------------------------------------------------------------------------
+# Concurrent fetcher tests (Slice 5)
+# ---------------------------------------------------------------------------
+
+
+from tests.data_fixtures import CountingSource  # noqa: E402
+
+
+def test_download_fetches_concurrently_within_cap(tmp_path, monkeypatch):
+    """Peak concurrent fetches stays <= CliConstants.FETCH_CONCURRENCY AND parallelism actually happens."""
+    from cli.constants import CliConstants
+
+    monkeypatch.setattr(CliConstants, "FETCH_CONCURRENCY", 3)
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    src = CountingSource(request_delay=0.05)
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    for d in (dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(15)):
+        src.add_kline("BTCUSDT", "1d", d)
+    download_pipeline(
+        tmp_path / "ds",
+        pairs,
+        "1d",
+        dt.date(2024, 1, 1),
+        dt.date(2024, 1, 15),
+        src,
+    )
+    assert src.peak_concurrent <= 3, f"expected peak <= 3, got {src.peak_concurrent}"
+    assert src.peak_concurrent >= 2, f"expected concurrent fetches, peak was only {src.peak_concurrent}"
+    assert src.total_requests == 15

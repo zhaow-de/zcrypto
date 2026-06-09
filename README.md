@@ -70,6 +70,8 @@ echo BTCUSDT > pairs.txt
 zcrypto data download ./ds pairs.txt --from 2024-01-01 --to 2024-01-31
 ```
 
+**Concurrency:** `data download` fetches up to **5** daily zips in parallel (gentle by default to avoid hammering the data archive). The cap is set by `CliConstants.FETCH_CONCURRENCY` in `cli/constants.py`; tune by editing the constant — there is no env var or CLI flag for this. The convention is that low-change operational config lives in `CliConstants`; high-change-odds config gets a Typer flag.
+
 ##### `zcrypto data verify OUT_DIR`
 
 Re-validate an existing dataset against `index.json` and all invariants. Read-only.
