@@ -286,7 +286,7 @@ def _resolve_ranges(
     if absent_from_file:
         raise PipelineError(f"indexed pairs absent from pairs file (use delist/rename): {absent_from_file}")
 
-    for sym, (base, quote, _status) in pair_to_assets.items():
+    for sym, (base, quote, status) in pair_to_assets.items():
         if sym in indexed_pairs:
             assert existing_to is not None
             if arg_from <= existing_to:
@@ -310,12 +310,28 @@ def _resolve_ranges(
                 )
             plan.append(_PerPair(sym, base, quote, effective_from, arg_to, False, existing_from))
         else:
-            first = find_first_available(source, sym, interval, arg_from, arg_to)
-            if first is None:
-                raise PipelineError(f"{sym}: no kline data available in [{arg_from}, {arg_to}]")
-            if first > arg_from:
-                logger.warning("%s data starts %s, later than --from %s", sym, first, arg_from)
-            plan.append(_PerPair(sym, base, quote, max(arg_from, first), arg_to, True, None))
+            if status == "TRADING":
+                # iter-4 path: fetch up to arg_to
+                first = find_first_available(source, sym, interval, arg_from, arg_to)
+                if first is None:
+                    raise PipelineError(f"{sym}: no kline data available in [{arg_from}, {arg_to}]")
+                if first > arg_from:
+                    logger.warning("%s data starts %s, later than --from %s", sym, first, arg_from)
+                plan.append(_PerPair(sym, base, quote, max(arg_from, first), arg_to, True, None))
+            else:
+                # Non-TRADING (BREAK, HALT, ...): fetch only the historical archive [first, last]
+                rng = find_available_range(source, sym, interval, arg_from, arg_to)
+                if rng is None:
+                    raise PipelineError(f"{sym}: status={status} but no kline data in [{arg_from}, {arg_to}]")
+                first_avail, last_avail = rng
+                logger.info(
+                    "%s: status=%s on Binance; fetching only historical archive [%s..%s], no extension possible.",
+                    sym,
+                    status,
+                    first_avail,
+                    last_avail,
+                )
+                plan.append(_PerPair(sym, base, quote, first_avail, last_avail, True, None))
     return plan
 
 
@@ -408,7 +424,6 @@ def _build_staging(
     plan: list[_PerPair],
     new_rows_per_sym: dict[str, _pd.DataFrame],
     existing: IndexData | None,
-    arg_to: dt.date,
     interval: str,
 ) -> None:
     """Assemble the complete dataset in `staging/`. Old + new rows merged per pair."""
@@ -431,14 +446,19 @@ def _build_staging(
             old_df = _read_existing_pair(out_dir, p.symbol, p.existing_from, existing_calendar)
             merged[p.symbol] = _pd.concat([old_df, new_df], ignore_index=True)
 
+    # Per-pair effective_to: TRADING pairs go to arg_to; non-TRADING pairs stop at last_available.
+    pair_effective_to: dict[str, dt.date] = {p.symbol: p.effective_to for p in plan}
+
     pair_starts = [df["date"].min() for df in merged.values()]
     union_from = min(pair_starts)
-    union_to = arg_to
+    union_to = max(pair_effective_to.values())
     calendar = [union_from + dt.timedelta(days=i) for i in range((union_to - union_from).days + 1)]
     cal_index = {d: i for i, d in enumerate(calendar)}
 
     write_calendar(staging, calendar)
-    pair_ranges: dict[str, tuple[dt.date, dt.date]] = {sym: (df["date"].min(), union_to) for sym, df in merged.items()}
+    pair_ranges: dict[str, tuple[dt.date, dt.date]] = {
+        sym: (df["date"].min(), pair_effective_to[sym]) for sym, df in merged.items()
+    }
     write_instruments(staging, pair_ranges)
 
     pairs_entries: dict[str, PairEntry] = {}
@@ -624,7 +644,7 @@ def _download_apply(out_dir: Path, staging: Path, plan: DownloadPlan, source: So
     new_rows_per_sym: dict[str, _pd.DataFrame] = {
         p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan.per_pair
     }
-    _build_staging(out_dir, staging, plan.per_pair, new_rows_per_sym, plan.existing, plan.arg_to, plan.interval)
+    _build_staging(out_dir, staging, plan.per_pair, new_rows_per_sym, plan.existing, plan.interval)
 
 
 def download_pipeline(

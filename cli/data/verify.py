@@ -86,7 +86,8 @@ def verify_dataset(out_dir: Path) -> VerifyReport:
             problems.append("instruments/all.txt sha256 mismatch")
         instr_lines = sorted(inst_path.read_text(encoding="utf-8").strip().splitlines())
         expected_lines = sorted(
-            f"{sym.upper()}\t{p.intervals['1d'].from_date}\t{index.calendar.to_date}"
+            f"{sym.upper()}\t{p.intervals['1d'].from_date}\t"
+            f"{(_iso_to_date(p.intervals['1d'].from_date) + dt.timedelta(days=p.intervals['1d'].rows - 1)).isoformat()}"
             for sym, p in index.pairs.items()
             if "1d" in p.intervals
         )
@@ -100,9 +101,12 @@ def verify_dataset(out_dir: Path) -> VerifyReport:
                 problems.append(f"{sym} {interval}: from-date {from_d} not in calendar")
                 continue
             start_idx = cal_index[from_d]
-            expected_rows = len(expected_dates) - start_idx
-            if entry.rows != expected_rows:
-                problems.append(f"{sym} {interval}: rows {entry.rows} != expected {expected_rows}")
+            # Rows are stored per-pair in the index; pairs may end before calendar.to (e.g. delisted pairs).
+            expected_rows = entry.rows
+            if expected_rows <= 0:
+                problems.append(f"{sym} {interval}: rows {expected_rows} must be > 0")
+            # Cross-check: all fields for this pair must agree on the same row count.
+            _checked_first_field = False
             for fname, fentry in entry.fields.items():
                 bin_path = out_dir / fentry.bin
                 if not bin_path.exists():
@@ -111,6 +115,12 @@ def verify_dataset(out_dir: Path) -> VerifyReport:
                 if compute_sha256(bin_path) != fentry.sha256:
                     problems.append(f"{sym} {interval} {fname}: sha256 mismatch")
                 actual_size = bin_path.stat().st_size
+                actual_rows_from_bin = (actual_size // 4) - 1
+                if not _checked_first_field:
+                    # Emit a "rows" problem when index.rows disagrees with what the bin encodes.
+                    if actual_rows_from_bin != expected_rows:
+                        problems.append(f"{sym} {interval}: rows {expected_rows} != bin-derived rows {actual_rows_from_bin}")
+                    _checked_first_field = True
                 expected_size = (expected_rows + 1) * 4
                 if actual_size != expected_size:
                     problems.append(f"{sym} {interval} {fname}: bin size {actual_size} != {expected_size}")

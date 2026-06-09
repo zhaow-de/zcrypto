@@ -41,6 +41,16 @@ class PairIntervalEntry:
     rows: int
     fields: dict[str, FieldEntry]
 
+    @property
+    def dates_from(self) -> str:
+        """Alias for from_date; convenience for tests and callers."""
+        return self.from_date
+
+    @property
+    def dates_to(self) -> str:
+        """Computed last date covered by this interval: from_date + rows - 1 days."""
+        return (dt.date.fromisoformat(self.from_date) + dt.timedelta(days=self.rows - 1)).isoformat()
+
     def to_dict(self) -> dict:
         return {
             "from": self.from_date,
