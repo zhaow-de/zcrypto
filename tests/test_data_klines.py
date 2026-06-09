@@ -34,6 +34,7 @@ def test_parse_kline_zip_skips_header_row():
     zip_bytes, _ = make_zip_with_checksum(csv, f"BTCUSDT-1d-{D}.csv")
     df = parse_kline_zip(zip_bytes, "BTCUSDT", "1d", D)
     assert df.iloc[0]["date"] == D
+    assert df.iloc[0]["open"] == pytest.approx(100.0)
 
 
 def test_parse_kline_zip_zero_volume_vwap_falls_back_to_close():

@@ -23,8 +23,12 @@ _RAW_COLS = [
 ]
 
 
-def parse_kline_zip(zip_bytes: bytes, symbol: str, interval: str, date: dt.date) -> pd.DataFrame:
-    """Decode one Binance daily kline zip → single-row DataFrame with normalized 11 fields + date."""
+def parse_kline_zip(zip_bytes: bytes, symbol: str, interval: str, date: dt.date) -> pd.DataFrame:  # noqa: ARG001
+    """Decode one Binance daily kline zip → single-row DataFrame with normalized 11 fields + date.
+
+    `interval` is accepted for call-site symmetry (Task 8 dispatches by (symbol, interval, date))
+    but is not used in the body.
+    """
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         names = zf.namelist()
         if len(names) != 1:
@@ -69,9 +73,10 @@ def parse_kline_zip(zip_bytes: bytes, symbol: str, interval: str, date: dt.date)
     )
 
 
-def assert_no_internal_gaps(observed: Iterable[dt.date], expected: Iterable[dt.date]) -> None:
+def assert_no_internal_gaps(observed: Iterable[dt.date], expected: Iterable[dt.date], symbol: str | None = None) -> None:
     """Raise if any expected date is missing from observed (set-difference)."""
     obs = set(observed)
     missing = [d for d in expected if d not in obs]
     if missing:
-        raise ValueError(f"internal gap in fetched kline sequence; missing: {missing[:5]}")
+        prefix = f"{symbol}: " if symbol is not None else ""
+        raise ValueError(f"{prefix}internal gap in fetched kline sequence; missing: {missing[:5]}")
