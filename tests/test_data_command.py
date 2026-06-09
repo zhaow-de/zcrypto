@@ -1,6 +1,7 @@
 import datetime as dt
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
@@ -18,6 +19,7 @@ from cli.data.index import (
     utc_now_iso,
 )
 from cli.data.qlib_writer import write_bin, write_calendar, write_instruments
+from tests.data_fixtures import FakeSource
 
 runner = CliRunner()
 
@@ -80,3 +82,82 @@ def test_data_verify_silent_prints_nothing(tmp_path):
     result = runner.invoke(app, ["data", "verify", "--silent", str(tmp_path)])
     assert result.exit_code == 0
     assert result.output.strip() == ""
+
+
+# ---------------------------------------------------------------------------
+# download command tests (Slice 3)
+# ---------------------------------------------------------------------------
+
+
+def _pairs_file(tmp_path: Path, names: list[str]) -> Path:
+    p = tmp_path / "pairs.txt"
+    p.write_text("\n".join(names) + "\n")
+    return p
+
+
+def test_data_download_rejects_bad_date_at_parse_time(tmp_path):
+    pairs = _pairs_file(tmp_path, ["BTCUSDT"])
+    result = runner.invoke(
+        app,
+        ["data", "download", str(tmp_path / "ds"), str(pairs), "--from", "20240101"],
+    )
+    assert result.exit_code != 0
+    assert "YYYY-MM-DD" in result.output
+
+
+def test_data_download_rejects_non_calendar_date(tmp_path):
+    pairs = _pairs_file(tmp_path, ["BTCUSDT"])
+    result = runner.invoke(
+        app,
+        ["data", "download", str(tmp_path / "ds"), str(pairs), "--from", "2024-13-40"],
+    )
+    assert result.exit_code != 0
+    assert "calendar" in result.output.lower()
+
+
+def test_data_download_unsupported_interval_exits_nonzero(tmp_path):
+    pairs = _pairs_file(tmp_path, ["BTCUSDT"])
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "download",
+            str(tmp_path / "ds"),
+            str(pairs),
+            "--interval",
+            "1h",
+            "--from",
+            "2024-01-01",
+            "--to",
+            "2024-01-02",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not supported" in result.output.lower() or "1d" in result.output
+
+
+def test_data_download_smoke_with_fake_source(tmp_path):
+    pairs = _pairs_file(tmp_path, ["BTCUSDT"])
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    for d in (dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(3)):
+        src.add_kline("BTCUSDT", "1d", d)
+
+    with patch("cli.data.command.BinanceSource", return_value=src):
+        result = runner.invoke(
+            app,
+            [
+                "data",
+                "download",
+                str(tmp_path / "ds"),
+                str(pairs),
+                "--from",
+                "2024-01-01",
+                "--to",
+                "2024-01-03",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "ds" / "index.json").exists()
+    idx = json.loads((tmp_path / "ds" / "index.json").read_text(encoding="utf-8"))
+    assert idx["calendar"]["to"] == "2024-01-03"

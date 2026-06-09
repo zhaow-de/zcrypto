@@ -1,10 +1,44 @@
 from __future__ import annotations
 
+import datetime as dt
+import re
 from pathlib import Path
 
 import typer
 
+from cli.data.binance import BinanceSource
+from cli.data.pipeline import PipelineError, download_pipeline
 from cli.data.verify import verify_dataset
+
+_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _parse_date_arg(name: str, value: str) -> dt.date:
+    if not _ISO_RE.match(value):
+        raise typer.BadParameter(f"{name} must be YYYY-MM-DD, got {value!r}")
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError as e:
+        raise typer.BadParameter(f"{name} is not a real calendar date: {value!r}") from e
+
+
+def _from_callback(value: str | None) -> str | None:
+    if value is None:
+        return None
+    _parse_date_arg("--from", value)
+    return value
+
+
+def _to_callback(value: str | None) -> str | None:
+    if value is None:
+        return None
+    _parse_date_arg("--to", value)
+    return value
+
+
+def _default_to() -> str:
+    return (dt.date.today() - dt.timedelta(days=1)).isoformat()
+
 
 data_app = typer.Typer(
     add_completion=False,
@@ -36,3 +70,22 @@ def verify_cmd(
             for p in report.problems:
                 typer.echo(f"  - {p}")
     raise typer.Exit(code=0 if report.ok else 1)
+
+
+@data_app.command("download")
+def download_cmd(
+    out_dir: Path = typer.Argument(..., help="Dataset directory (created if absent).", file_okay=False),
+    pairs_file: Path = typer.Argument(..., help="Plain-text file: one Binance symbol per line.", exists=True, dir_okay=False),
+    interval: str = typer.Option("1d", "--interval", help="Kline interval (only 1d supported)."),
+    from_date: str = typer.Option("2020-01-01", "--from", callback=_from_callback, help="ISO date YYYY-MM-DD."),
+    to_date: str = typer.Option(None, "--to", callback=_to_callback, help="ISO date YYYY-MM-DD (default: yesterday UTC)."),
+) -> None:
+    """Fetch Binance spot klines and write/append a Qlib-ready dataset."""
+    fd = _parse_date_arg("--from", from_date)
+    td = _parse_date_arg("--to", to_date or _default_to())
+    try:
+        download_pipeline(out_dir, pairs_file, interval, fd, td, source=BinanceSource())
+    except PipelineError as e:
+        typer.echo(f"ERROR: {e}", err=True)
+        raise typer.Exit(code=1) from e
+    typer.echo(f"OK — dataset at {out_dir} now reaches {td}.")
