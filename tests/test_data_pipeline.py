@@ -30,6 +30,18 @@ def test_parse_pairs_file_empty_or_blank_raises(tmp_path):
         parse_pairs_file(p)
 
 
+def test_parse_pairs_file_uppercases_symbols(tmp_path):
+    p = tmp_path / "pairs.txt"
+    p.write_text("btcusdt\nETHUSDT\n  bnbusdt  \n")
+    assert parse_pairs_file(p) == ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+
+
+def test_parse_pairs_file_dedupes_after_case_normalization(tmp_path):
+    p = tmp_path / "pairs.txt"
+    p.write_text("BTCUSDT\nbtcusdt\nBtcUsdt\n")
+    assert parse_pairs_file(p) == ["BTCUSDT"]
+
+
 def test_validate_pairs_against_exchange_returns_base_quote_map():
     info = [
         {"symbol": "BTCUSDT", "baseAsset": "BTC", "quoteAsset": "USDT"},

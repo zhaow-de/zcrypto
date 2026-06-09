@@ -50,7 +50,7 @@ def parse_pairs_file(path: Path) -> list[str]:
     pairs: list[str] = []
     seen: set[str] = set()
     for line in raw.splitlines():
-        s = line.strip()
+        s = line.strip().upper()  # Binance symbols are uppercase
         if not s or s in seen:
             continue
         seen.add(s)
@@ -279,7 +279,10 @@ def _commit_staging(out_dir: Path, staging: Path) -> None:
         if target.exists():
             _shutil.rmtree(target)
         _shutil.move(str(staging / name), str(target))
-    (out_dir / "index.json").write_text((staging / "index.json").read_text(encoding="utf-8"), encoding="utf-8")
+    # Reuse the index module's atomic write (tmp + os.replace).
+    staged_index = load_index(staging)
+    assert staged_index is not None, "staging is supposed to contain a valid index.json"
+    save_index(out_dir, staged_index)
     _shutil.rmtree(staging)
 
 
