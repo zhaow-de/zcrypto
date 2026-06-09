@@ -13,6 +13,7 @@ from cli.data.qlib_writer import read_bin
 class VerifyReport:
     ok: bool
     problems: list[str]
+    is_empty: bool = False
 
 
 def _iso_to_date(s: str) -> dt.date:
@@ -22,9 +23,24 @@ def _iso_to_date(s: str) -> dt.date:
 def verify_dataset(out_dir: Path) -> VerifyReport:
     """Read-only re-validation of every invariant in `docs/specs/00003-data-prep-design.md`."""
     problems: list[str] = []
+
+    # Distinguish "empty" (legitimate fresh state) from "partial/broken" (corruption).
+    index_path = out_dir / "index.json"
+    has_index = index_path.exists()
+    has_components = any((out_dir / name).exists() for name in ("calendars", "instruments", "features"))
+    if not has_index and not has_components:
+        return VerifyReport(ok=True, problems=[], is_empty=True)
+    if not has_index:
+        return VerifyReport(
+            ok=False,
+            problems=[
+                "index.json missing but dataset components (calendars/instruments/features) "
+                "are present — partial/broken state. Restore from .snapshots/ or remove the orphan files."
+            ],
+        )
+
     index = load_index(out_dir)
-    if index is None:
-        return VerifyReport(False, ["index.json missing"])
+    assert index is not None, "has_index just checked"
     if index.schema_version != SCHEMA_VERSION:
         problems.append(f"unknown schema_version {index.schema_version}")
 

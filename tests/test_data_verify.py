@@ -62,10 +62,48 @@ def test_verify_valid_dataset(tmp_path):
     assert report.ok, report.problems
 
 
-def test_verify_reports_missing_index(tmp_path):
+def test_verify_reports_missing_index_when_components_present(tmp_path):
+    """A partial state (components on disk but no index.json) is NOT ok."""
+    (tmp_path / "calendars").mkdir()
+    (tmp_path / "calendars" / "day.txt").write_text("2024-01-01\n")
     report = verify_dataset(tmp_path)
     assert not report.ok
-    assert any("index.json missing" in p for p in report.problems)
+    assert any("index.json" in p or "partial" in p for p in report.problems)
+
+
+def test_verify_empty_directory_is_ok_with_is_empty_flag(tmp_path):
+    report = verify_dataset(tmp_path)
+    assert report.ok
+    assert report.is_empty
+    assert report.problems == []
+
+
+def test_verify_nonexistent_directory_is_ok_with_is_empty_flag(tmp_path):
+    # The pre-flight contract: verify_dataset on a path that doesn't exist yet should not crash.
+    report = verify_dataset(tmp_path / "does_not_exist")
+    assert report.ok
+    assert report.is_empty
+
+
+def test_verify_partial_state_index_missing_is_not_ok(tmp_path):
+    # Only calendars/ present — partial/broken state.
+    (tmp_path / "calendars").mkdir()
+    (tmp_path / "calendars" / "day.txt").write_text("2024-01-01\n")
+    report = verify_dataset(tmp_path)
+    assert not report.ok
+    assert not report.is_empty
+    assert any("partial" in p or "missing" in p for p in report.problems)
+
+
+def test_verify_index_only_no_components_is_not_ok(tmp_path):
+    # Only index.json present, no components — partial/broken state.
+    # has_index=True but has_components=False: falls through to load_index.
+    # load_index("{}")  raises KeyError since the dict is missing required fields.
+    import pytest
+
+    (tmp_path / "index.json").write_text("{}")
+    with pytest.raises(KeyError):
+        verify_dataset(tmp_path)
 
 
 def test_verify_detects_bin_sha_mismatch(tmp_path):

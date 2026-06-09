@@ -377,3 +377,30 @@ def test_download_existing_pair_delisted_mid_window_raises_actionable_error(tmp_
     # The source still has the pair listed in exchange_info (so validate passes) but no klines at the right edge.
     with pytest.raises(PipelineError, match=r"delisted|rename"):
         download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 8), src)
+
+
+def test_download_aborts_on_broken_pre_existing_dataset(tmp_path):
+    """download_pipeline refuses to mutate a partial/broken dataset."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)
+    # Seed a partial state: just calendars/, no index.json.
+    (out / "calendars").mkdir()
+    (out / "calendars" / "day.txt").write_text("2024-01-01\n")
+
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 2))
+    with pytest.raises(PipelineError, match=r"refusing to mutate|verified state"):
+        download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 2), src)
+
+
+def test_download_proceeds_on_empty_out_dir(tmp_path):
+    """An empty out_dir is allowed — fresh download proceeds normally."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)  # exists but empty
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 2))
+    # Should not raise.
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 2), src)
+    assert verify_dataset(out).ok

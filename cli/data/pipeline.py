@@ -428,6 +428,16 @@ def download_pipeline(
     """Orchestrate: parse → validate → resolve → fetch → stage → verify → commit."""
     out_dir.mkdir(parents=True, exist_ok=True)
     _recover_from_interrupted_commit(out_dir)
+
+    # Pre-flight: never mutate a dataset we can't verify.
+    pre = verify_dataset(out_dir)
+    if not pre.ok:
+        raise PipelineError(
+            f"refusing to mutate {out_dir}: dataset is not in a verified state. "
+            f"Problems: {pre.problems}. Resolve manually (restore from .snapshots/, "
+            f"or remove the orphan files) before re-running."
+        )
+
     if interval not in SUPPORTED_INTERVALS:
         raise PipelineError(f"interval {interval!r} is not supported (only 1d)")
     if from_date > to_date:

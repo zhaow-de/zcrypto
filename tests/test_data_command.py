@@ -68,6 +68,22 @@ def test_data_verify_ok_exits_zero_and_prints_ok(tmp_path):
     assert "OK" in result.output
 
 
+def test_data_verify_empty_directory_prints_empty_message(tmp_path):
+    empty = tmp_path / "fresh"
+    empty.mkdir()
+    result = runner.invoke(app, ["data", "verify", str(empty)])
+    assert result.exit_code == 0, result.output
+    assert "empty" in result.output.lower()
+
+
+def test_data_verify_silent_empty_directory_exits_zero(tmp_path):
+    empty = tmp_path / "fresh"
+    empty.mkdir()
+    result = runner.invoke(app, ["data", "verify", "--silent", str(empty)])
+    assert result.exit_code == 0
+    assert result.output.strip() == ""
+
+
 def test_data_verify_fail_exits_nonzero(tmp_path):
     _seed_valid_dataset(tmp_path)
     # Corrupt the calendar

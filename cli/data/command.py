@@ -58,7 +58,9 @@ def verify_cmd(
     """Re-validate an existing dataset against `index.json` and all invariants."""
     report = verify_dataset(out_dir)
     if not silent:
-        if report.ok:
+        if report.is_empty:
+            typer.echo(f"OK — {out_dir} is empty (no dataset to verify).")
+        elif report.ok:
             typer.echo(f"OK — {out_dir} validates clean.")
         else:
             typer.echo(f"FAIL — {len(report.problems)} problem(s) in {out_dir}:")
