@@ -46,6 +46,8 @@ __all__ = [
     "BackfillPlan",
     "delist_pipeline",
     "DelistPlan",
+    "rename_pipeline",
+    "RenamePlan",
 ]
 
 _COMMIT_MARKER = ".commit-in-progress"
@@ -974,3 +976,282 @@ def delist_pipeline(
     plan_fn = lambda d: _delist_plan(d, symbol)
     apply_fn = lambda d, s, p: _delist_apply(d, s, p)
     _execute_mutation(out_dir, "delist", plan_fn, apply_fn, dry_run=dry_run)
+
+
+# ---------------------------------------------------------------------------
+# Rename pipeline
+# ---------------------------------------------------------------------------
+
+_FIELD_SYNTH: dict[str, object] = {
+    "open": lambda c: c,
+    "high": lambda c: c,
+    "low": lambda c: c,
+    "close": lambda c: c,
+    "vwap": lambda c: c,
+    "volume": lambda c: 0.0,
+    "amount": lambda c: 0.0,
+    "trades": lambda c: 0.0,
+    "taker_buy_base": lambda c: 0.0,
+    "taker_buy_amount": lambda c: 0.0,
+    "factor": lambda c: 1.0,
+}
+
+
+def _synthetic_value(field: str, locked: float) -> float:
+    return _FIELD_SYNTH[field](locked)  # type: ignore[operator]
+
+
+@_dc.dataclass
+class RenamePlan:
+    variant: int
+    old_symbol: str
+    new_symbol: str
+    new_base_asset: str
+    new_quote_asset: str
+    new_first: dt.date
+    new_to: dt.date  # renamed pair's index.to after fill = new_first - 1 day
+    gap_dates: list[dt.date]
+    synthetic_locked_ohlc: float
+    is_noop: bool
+
+    def dry_run_summary(self) -> str:
+        lines = [f"DRY-RUN: rename plan (Variant {self.variant}): {self.old_symbol} → {self.new_symbol}"]
+        if self.gap_dates:
+            lines.append(f"  synthetic gap fill: {len(self.gap_dates)} day(s) ({self.gap_dates[0]} .. {self.gap_dates[-1]})")
+            lines.append(f"  locked OHLC/VWAP = {self.synthetic_locked_ohlc}, volume/amount/trades = 0.0, factor = 1.0")
+        else:
+            lines.append("  no synthetic gap fill needed")
+        lines.append(f"  renamed pair index.to will be: {self.new_to}")
+        lines.append(f"  NEW first archive day: {self.new_first}")
+        return "\n".join(lines)
+
+
+def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source) -> RenamePlan:
+    """Read-only pre-flight: validate, detect variant, probe NEW archive availability."""
+    import struct
+
+    idx = load_index(out_dir)
+    assert idx is not None, "_rename_plan called on empty/missing index"
+
+    old = old_symbol.upper()
+    new = new_symbol.upper()
+
+    if old not in idx.pairs:
+        raise PipelineError(f"{old} not in index; nothing to rename")
+
+    if old == new:
+        raise PipelineError("old_symbol equals new_symbol; no change requested")
+
+    variant = 2 if new in idx.pairs else 1
+
+    exchange_info = source.fetch_exchange_info()
+    sym_map = {e["symbol"]: (e["baseAsset"], e["quoteAsset"]) for e in exchange_info}
+    if new not in sym_map:
+        raise PipelineError(f"{new} not found on Binance (exchangeInfo); not a valid symbol")
+    new_base_asset, new_quote_asset = sym_map[new]
+
+    if variant == 2:
+        raise NotImplementedError("rename Variant 2 lands in Task 9")
+
+    # Variant 1 only below.
+    old_pair = idx.pairs[old]
+    old_interval_entry = old_pair.intervals["1d"]
+    old_to = dt.date.fromisoformat(old_interval_entry.dates_to)
+
+    # Read OLD's last close from the bin.
+    old_close_bin = out_dir / "features" / old.lower() / "close.day.bin"
+    _header, old_closes = read_bin(old_close_bin)
+    synthetic_locked_ohlc = float(old_closes[-1])
+
+    # Probe NEW's first archive day starting from old_to + 1.
+    yesterday_utc = dt.date.today() - dt.timedelta(days=1)
+    probe_lo = old_to + dt.timedelta(days=1)
+    rng = find_available_range(source, new, "1d", probe_lo, yesterday_utc)
+    if rng is None:
+        raise PipelineError(
+            f"{new} has no daily archive available on data.binance.vision yet (likely too early after listing). Try again tomorrow."
+        )
+    new_first = rng[0]
+
+    if new_first <= old_to:
+        raise PipelineError(
+            f"rename has overlapping data: {old} ends {old_to} but {new} starts {new_first}; manual resolution required"
+        )
+
+    # Gap dates: days between old_to+1 and new_first-1 (may be empty).
+    gap_dates: list[dt.date] = []
+    cur = old_to + dt.timedelta(days=1)
+    while cur < new_first:
+        gap_dates.append(cur)
+        cur += dt.timedelta(days=1)
+
+    new_to = new_first - dt.timedelta(days=1)
+
+    if len(gap_dates) > CliConstants.RENAME_SYNTH_WARN_DAYS:
+        logger.warning(
+            "rename %s → %s: large synthetic gap fill: %d days (%s .. %s), locked OHLC = %s. Verify data integrity after rename.",
+            old,
+            new,
+            len(gap_dates),
+            gap_dates[0],
+            gap_dates[-1],
+            synthetic_locked_ohlc,
+        )
+    elif gap_dates:
+        logger.warning(
+            "rename %s → %s: synthetic gap fill: %d day(s) (%s .. %s), locked OHLC = %s",
+            old,
+            new,
+            len(gap_dates),
+            gap_dates[0],
+            gap_dates[-1],
+            synthetic_locked_ohlc,
+        )
+
+    return RenamePlan(
+        variant=1,
+        old_symbol=old,
+        new_symbol=new,
+        new_base_asset=new_base_asset,
+        new_quote_asset=new_quote_asset,
+        new_first=new_first,
+        new_to=new_to,
+        gap_dates=gap_dates,
+        synthetic_locked_ohlc=synthetic_locked_ohlc,
+        is_noop=False,
+    )
+
+
+def _rename_apply(out_dir: Path, staging: Path, plan: RenamePlan) -> None:
+    """Copy and optionally extend bins; rewrite calendar, instruments, and index."""
+    import struct
+
+    interval = "1d"
+    idx = load_index(out_dir)
+    assert idx is not None
+
+    (staging / "features").mkdir(parents=True, exist_ok=True)
+
+    # Copy each pair's feature dir; rename OLD → NEW with optional gap fill.
+    for sym, pair_entry in idx.pairs.items():
+        src_dir = out_dir / "features" / sym.lower()
+        if sym == plan.old_symbol:
+            dst_dir = staging / "features" / plan.new_symbol.lower()
+        else:
+            dst_dir = staging / "features" / sym.lower()
+        _shutil.copytree(src_dir, dst_dir)
+
+        if sym == plan.old_symbol and plan.gap_dates:
+            # Append synthetic float32 values for each gap day to each field bin.
+            for field in FIELDS:
+                bin_path = dst_dir / f"{field}.day.bin"
+                gap_bytes = b""
+                for _d in plan.gap_dates:
+                    val = _synthetic_value(field, plan.synthetic_locked_ohlc)
+                    gap_bytes += struct.pack("<f", val)
+                with bin_path.open("ab") as fh:
+                    fh.write(gap_bytes)
+
+    # Calendar: union of old calendar dates and gap_dates (dedup + sort).
+    old_cal_path = out_dir / "calendars" / "day.txt"
+    old_cal_dates: list[dt.date] = []
+    for line in old_cal_path.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if s:
+            old_cal_dates.append(dt.date.fromisoformat(s))
+    new_calendar = sorted(set(old_cal_dates) | set(plan.gap_dates))
+    write_calendar(staging, new_calendar)
+
+    # Instruments: for OLD→NEW line, use new symbol + old from + new_to.
+    # For others, keep as-is.
+    instruments_ranges: dict[str, tuple[dt.date, dt.date]] = {}
+    for sym, pair_entry in idx.pairs.items():
+        iv = pair_entry.intervals[interval]
+        from_d = dt.date.fromisoformat(iv.from_date)
+        if sym == plan.old_symbol:
+            instruments_ranges[plan.new_symbol] = (from_d, plan.new_to)
+        else:
+            to_d = dt.date.fromisoformat(iv.dates_to)
+            instruments_ranges[sym] = (from_d, to_d)
+    write_instruments(staging, instruments_ranges)
+
+    # Build fresh index.
+    pairs_entries: dict[str, PairEntry] = {}
+    for sym, pair_entry in idx.pairs.items():
+        iv = pair_entry.intervals[interval]
+        from_d = dt.date.fromisoformat(iv.from_date)
+        old_rows = iv.rows
+
+        if sym == plan.old_symbol:
+            new_sym = plan.new_symbol
+            new_rows = old_rows + len(plan.gap_dates)
+            base = plan.new_base_asset
+            quote = plan.new_quote_asset
+            feat_lower = plan.new_symbol.lower()
+        else:
+            new_sym = sym
+            new_rows = old_rows
+            base = pair_entry.base_asset
+            quote = pair_entry.quote_asset
+            feat_lower = sym.lower()
+
+        fields_entries: dict[str, FieldEntry] = {}
+        for fname in FIELDS:
+            rel = f"features/{feat_lower}/{fname}.day.bin"
+            bin_path = staging / rel
+            fields_entries[fname] = FieldEntry(
+                bin=rel,
+                sha256=compute_sha256(bin_path),
+                updated_at=utc_now_iso(),
+            )
+
+        pairs_entries[new_sym] = PairEntry(
+            base_asset=base,
+            quote_asset=quote,
+            intervals={
+                interval: PairIntervalEntry(
+                    from_date=from_d.isoformat(),
+                    rows=new_rows,
+                    fields=fields_entries,
+                )
+            },
+        )
+
+    from cli.data.config import SCHEMA_VERSION
+
+    new_index = IndexData(
+        schema_version=SCHEMA_VERSION,
+        updated_at=utc_now_iso(),
+        calendar=CalendarEntry(
+            freq="day",
+            from_date=new_calendar[0].isoformat(),
+            to_date=new_calendar[-1].isoformat(),
+            days=len(new_calendar),
+        ),
+        pairs=pairs_entries,
+        other_files={
+            "calendars/day.txt": FileEntry(
+                sha256=compute_sha256(staging / "calendars" / "day.txt"),
+                updated_at=utc_now_iso(),
+            ),
+            "instruments/all.txt": FileEntry(
+                sha256=compute_sha256(staging / "instruments" / "all.txt"),
+                updated_at=utc_now_iso(),
+            ),
+        },
+    )
+    save_index(staging, new_index)
+
+
+def rename_pipeline(
+    out_dir: Path,
+    old_symbol: str,
+    new_symbol: str,
+    source: Source,
+    *,
+    dry_run: bool = False,
+) -> None:
+    """Re-label OLD → NEW under the snapshot+commit discipline (Variant 1 only; Variant 2 in Task 9)."""
+    plan_fn = lambda d: _rename_plan(d, old_symbol, new_symbol, source)
+    apply_fn = lambda d, s, p: _rename_apply(d, s, p)
+    _execute_mutation(out_dir, "rename", plan_fn, apply_fn, dry_run=dry_run)

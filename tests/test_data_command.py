@@ -254,3 +254,20 @@ def test_data_delist_dry_run_flag_accepted(tmp_path, monkeypatch):
     result = runner.invoke(app, ["data", "delist", str(tmp_path / "ds"), "BTCUSDT", "--dry-run"])
     assert result.exit_code == 0, result.output
     assert captured.get("dry_run") is True
+
+
+def test_data_rename_dry_run_flag_accepted(tmp_path, monkeypatch):
+    """`data rename --dry-run` is parsed; the CLI handler passes dry_run=True to rename_pipeline."""
+    captured = {}
+
+    def fake_pipeline(*args, dry_run=False, **kw):
+        captured["dry_run"] = dry_run
+
+    from cli.data import command as cmd_mod
+
+    monkeypatch.setattr(cmd_mod, "rename_pipeline", fake_pipeline)
+    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda: object())
+
+    result = runner.invoke(app, ["data", "rename", str(tmp_path / "ds"), "MATICUSDT", "POLUSDT", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert captured.get("dry_run") is True

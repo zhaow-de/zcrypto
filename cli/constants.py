@@ -13,3 +13,7 @@ class CliConstants:
     FETCH_CONCURRENCY = 5
     """Max parallel HTTP fetches in ``zcrypto data download``. Gentle by
     default to avoid hammering ``data.binance.vision``."""
+
+    RENAME_SYNTH_WARN_DAYS = 7
+    """Synthetic-gap-fill days threshold for rename Variant 1. Gaps larger than this
+    emit a louder warning; smaller gaps emit a standard info-level warning."""

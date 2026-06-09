@@ -8,7 +8,7 @@ from typing import Optional
 import typer
 
 from cli.data.binance import BinanceSource
-from cli.data.pipeline import PipelineError, backfill_pipeline, delist_pipeline, download_pipeline
+from cli.data.pipeline import PipelineError, backfill_pipeline, delist_pipeline, download_pipeline, rename_pipeline
 from cli.data.verify import verify_dataset
 
 _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -139,3 +139,22 @@ def delist_cmd(
         raise typer.Exit(1)
     if not dry_run:
         typer.echo(f"delist complete: {symbol} removed from {out_dir}")
+
+
+@data_app.command("rename")
+def rename_cmd(
+    out_dir: Path = typer.Argument(..., help="Dataset directory.", file_okay=False),
+    old_symbol: str = typer.Argument(..., help="Existing symbol to rename (e.g. MATICUSDT)."),
+    new_symbol: str = typer.Argument(..., help="Replacement symbol name (e.g. POLUSDT)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
+) -> None:
+    """Re-label OLD_SYMBOL to NEW_SYMBOL in the dataset (Variant 1: single rename + synthetic gap fill)."""
+    old_symbol = old_symbol.upper()
+    new_symbol = new_symbol.upper()
+    try:
+        rename_pipeline(out_dir, old_symbol, new_symbol, BinanceSource(), dry_run=dry_run)
+    except PipelineError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+    if not dry_run:
+        typer.echo(f"rename complete: {old_symbol} → {new_symbol} in {out_dir}")
