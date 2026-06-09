@@ -211,3 +211,30 @@ def test_data_download_dry_run_flag_accepted(tmp_path, monkeypatch):
     )
     assert result.exit_code == 0, result.output
     assert captured.get("dry_run") is True
+
+
+def test_data_backfill_dry_run_flag_accepted(tmp_path, monkeypatch):
+    """`data backfill --dry-run` is parsed; the CLI handler passes dry_run=True to backfill_pipeline."""
+    captured = {}
+
+    def fake_pipeline(*args, dry_run=False, **kw):
+        captured["dry_run"] = dry_run
+
+    from cli.data import command as cmd_mod
+
+    monkeypatch.setattr(cmd_mod, "backfill_pipeline", fake_pipeline)
+    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda: object())
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "backfill",
+            str(tmp_path / "ds"),
+            "--to",
+            "2024-01-02",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured.get("dry_run") is True

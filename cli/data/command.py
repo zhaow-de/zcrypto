@@ -8,7 +8,7 @@ from typing import Optional
 import typer
 
 from cli.data.binance import BinanceSource
-from cli.data.pipeline import PipelineError, download_pipeline
+from cli.data.pipeline import PipelineError, backfill_pipeline, download_pipeline
 from cli.data.verify import verify_dataset
 
 _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -99,3 +99,26 @@ def download_cmd(
         raise typer.Exit(code=1) from e
     if not dry_run:
         typer.echo(f"OK — dataset at {out_dir} now reaches {td}.")
+
+
+@data_app.command("backfill")
+def backfill_cmd(
+    out_dir: Path = typer.Argument(..., help="Dataset directory.", file_okay=False),
+    interval: str = typer.Option("1d", "--interval", help="Kline interval (only 1d supported)."),
+    arg_to_str: Optional[str] = typer.Option(  # noqa: UP007
+        None,
+        "--to",
+        callback=_to_callback,
+        help="ISO date YYYY-MM-DD (default: yesterday UTC).",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
+) -> None:
+    """Extend every TRADING pair in the index to --to (default yesterday UTC)."""
+    arg_to: dt.date = arg_to_str if isinstance(arg_to_str, dt.date) else (dt.date.today() - dt.timedelta(days=1))  # type: ignore[assignment]
+    try:
+        backfill_pipeline(out_dir, interval, arg_to, BinanceSource(), dry_run=dry_run)
+    except PipelineError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+    if not dry_run:
+        typer.echo(f"backfill complete: {out_dir}")

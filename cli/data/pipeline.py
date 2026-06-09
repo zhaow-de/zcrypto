@@ -42,6 +42,8 @@ __all__ = [
     "find_available_range",
     "download_pipeline",
     "DownloadPlan",
+    "backfill_pipeline",
+    "BackfillPlan",
 ]
 
 _COMMIT_MARKER = ".commit-in-progress"
@@ -661,3 +663,127 @@ def download_pipeline(
     plan_fn = lambda d: _download_plan(d, pairs_file, interval, from_date, to_date, source)
     apply_fn = lambda d, s, p: _download_apply(d, s, p, source)
     _execute_mutation(out_dir, "download", plan_fn, apply_fn, dry_run=dry_run)
+
+
+# ---------------------------------------------------------------------------
+# Backfill pipeline
+# ---------------------------------------------------------------------------
+
+
+@_dc.dataclass
+class BackfillPlan:
+    """Per-pair extension plan for backfill."""
+
+    per_pair: list[_PerPair]
+    new_calendar: list[dt.date]
+    skipped_pairs: list[tuple[str, str]]  # (symbol, status) for logged skips
+    is_noop: bool
+
+    def dry_run_summary(self) -> str:
+        if self.is_noop:
+            return "DRY-RUN: backfill: nothing to do."
+        lines = ["DRY-RUN: backfill plan:"]
+        for p in self.per_pair:
+            cur = p.effective_from
+            n_zips = 0
+            while cur <= p.effective_to:
+                n_zips += 1
+                cur += dt.timedelta(days=1)
+            lines.append(f"  {p.symbol}: {p.effective_from} → {p.effective_to} ({n_zips} zips)")
+        for sym, status in self.skipped_pairs:
+            lines.append(f"  {sym}: skipped (status={status})")
+        return "\n".join(lines)
+
+
+def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source) -> BackfillPlan:
+    """Read-only: load index, route each pair by status, build fetch plan."""
+    existing = load_index(out_dir)
+    if existing is None or not existing.pairs:
+        raise PipelineError("no pairs in index; use 'data download' first to seed the dataset")
+
+    exchange_info = source.fetch_exchange_info()
+    per_pair: list[_PerPair] = []
+    skipped: list[tuple[str, str]] = []
+
+    for sym, pair_entry in existing.pairs.items():
+        validated = validate_pairs_against_exchange([sym], exchange_info)
+        base, quote, status = validated[sym]
+
+        if status != "TRADING":
+            logger.info("%s: status=%s on Binance; nothing to extend.", sym, status)
+            skipped.append((sym, status))
+            continue
+
+        interval_entry = pair_entry.intervals[interval]
+        current_to = dt.date.fromisoformat(interval_entry.dates_to)
+
+        if current_to >= arg_to:
+            # Already caught up — skip silently (not in plan)
+            continue
+
+        effective_from = current_to + dt.timedelta(days=1)
+        effective_to = arg_to
+
+        if not source.exists_kline(sym, interval, arg_to):
+            raise PipelineError(
+                f"{sym}: existing pair is not available on Binance at {arg_to} "
+                "(likely delisted or renamed mid-window). Reconcile with "
+                "'zcrypto data delist' or 'zcrypto data rename' before re-running backfill."
+            )
+
+        existing_from = dt.date.fromisoformat(interval_entry.from_date)
+        per_pair.append(_PerPair(sym, base, quote, effective_from, effective_to, False, existing_from))
+
+    # Build new calendar: union of [existing.calendar.from_date .. arg_to]
+    cal_from = dt.date.fromisoformat(existing.calendar.from_date)
+    cal_to = max(arg_to, dt.date.fromisoformat(existing.calendar.to_date))
+    new_calendar = [cal_from + dt.timedelta(days=i) for i in range((cal_to - cal_from).days + 1)]
+
+    is_noop = len(per_pair) == 0
+    return BackfillPlan(per_pair=per_pair, new_calendar=new_calendar, skipped_pairs=skipped, is_noop=is_noop)
+
+
+def _backfill_apply(out_dir: Path, staging: Path, plan: BackfillPlan, source: Source, interval: str) -> None:
+    """Fetch new rows and rebuild staging with old + new data merged per pair."""
+    existing = load_index(out_dir)
+    assert existing is not None, "_backfill_apply called without an existing index"
+
+    fetched = _fetch_all_concurrent(source, plan.per_pair, interval, CliConstants.FETCH_CONCURRENCY)
+
+    # Collect all pairs: those being extended + those carried over unchanged.
+    extended_syms = {p.symbol for p in plan.per_pair}
+    carry_over: list[_PerPair] = []
+    exchange_info = source.fetch_exchange_info()
+    for sym, pair_entry in existing.pairs.items():
+        if sym in extended_syms:
+            continue
+        validated = validate_pairs_against_exchange([sym], exchange_info)
+        base, quote, _status = validated[sym]
+        interval_entry = pair_entry.intervals[interval]
+        existing_from = dt.date.fromisoformat(interval_entry.from_date)
+        existing_to = dt.date.fromisoformat(interval_entry.dates_to)
+        carry_over.append(_PerPair(sym, base, quote, existing_from, existing_to, False, existing_from))
+
+    all_pairs = plan.per_pair + carry_over
+    new_rows_per_sym: dict[str, _pd.DataFrame] = {}
+    for p in plan.per_pair:
+        new_rows_per_sym[p.symbol] = fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS)))
+    # Carry-over pairs contribute no new rows (empty df); _build_staging will read existing bins.
+    for p in carry_over:
+        new_rows_per_sym[p.symbol] = _pd.DataFrame(columns=["date"] + list(FIELDS))
+
+    _build_staging(out_dir, staging, all_pairs, new_rows_per_sym, existing, interval)
+
+
+def backfill_pipeline(
+    out_dir: Path,
+    interval: str,
+    arg_to: dt.date,
+    source: Source,
+    *,
+    dry_run: bool = False,
+) -> None:
+    """Extend every TRADING pair in the index to arg_to. Non-TRADING pairs are silently skipped."""
+    plan_fn = lambda d: _backfill_plan(d, interval, arg_to, source)
+    apply_fn = lambda d, s, p: _backfill_apply(d, s, p, source, interval)
+    _execute_mutation(out_dir, "backfill", plan_fn, apply_fn, dry_run=dry_run)
