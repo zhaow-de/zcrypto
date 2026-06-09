@@ -23,3 +23,17 @@ class CliConstants:
     before backfill treats it as a likely delist/rename rather than archive
     publishing lag. Within this window: silent skip with info log. Beyond:
     PipelineError pointing at `data delist`/`data rename`."""
+
+    HTTP_TIMEOUT_HEAD_SECS = 5
+    """Socket timeout for HEAD / small-body (~kB) requests against data.binance.vision
+    and api.binance.com. urllib defaults to unbounded — a stalled TLS handshake or
+    network blip would hang forever without this. HEAD against S3-style archives is
+    typically sub-second; 5s is a generous upper bound that fails fast on stalled
+    connections (the retry loop then re-attempts)."""
+
+    HTTP_TIMEOUT_GET_SECS = 60
+    """Socket timeout for daily-zip GETs (~MB). Larger budget for the body transfer."""
+
+    HTTP_RETRY_ATTEMPTS = 3
+    """Total attempts per HTTP call before giving up. Retries on transient failures
+    only (timeouts, connection resets, 5xx); 4xx propagates immediately."""

@@ -333,7 +333,7 @@ def _resolve_ranges(
             effective_from, effective_to_rng = rng
             if effective_to_rng < arg_to:
                 logger.info(
-                    "%s: archive last available %s (arg_to was %s); fetched up to %s (archive publishing lag).",
+                    "%s: archive last available %s (arg_to was %s); effective right edge clipped to %s (archive publishing lag).",
                     sym,
                     effective_to_rng,
                     arg_to,
@@ -359,7 +359,7 @@ def _resolve_ranges(
                 )
             elif eff_to < arg_to:
                 logger.info(
-                    "%s: archive last available %s (arg_to was %s); fetched up to %s (archive publishing lag).",
+                    "%s: archive last available %s (arg_to was %s); effective right edge clipped to %s (archive publishing lag).",
                     sym,
                     eff_to,
                     arg_to,
@@ -780,7 +780,7 @@ def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source
         effective_from, effective_to = rng
         if effective_to < arg_to:
             logger.info(
-                "%s: archive last available %s (arg_to was %s); fetched up to %s (archive publishing lag).",
+                "%s: archive last available %s (arg_to was %s); effective right edge clipped to %s (archive publishing lag).",
                 sym,
                 effective_to,
                 arg_to,
