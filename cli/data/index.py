@@ -4,6 +4,7 @@ import dataclasses as dc
 import datetime as dt
 import hashlib
 import json
+import os
 from pathlib import Path
 
 
@@ -129,7 +130,11 @@ def load_index(out_dir: Path) -> IndexData | None:
 
 
 def save_index(out_dir: Path, index: IndexData) -> None:
-    (out_dir / "index.json").write_text(json.dumps(index.to_dict(), indent=2) + "\n", encoding="utf-8")
+    """Atomic write: serialize to a sibling tmp file, then `os.replace` over the target."""
+    target = out_dir / "index.json"
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_text(json.dumps(index.to_dict(), indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, target)
 
 
 def compute_sha256(path: Path) -> str:

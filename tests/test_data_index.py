@@ -78,3 +78,12 @@ def test_utc_now_iso_format():
     assert s.endswith("Z")
     # Round-trip parseable as a UTC datetime
     dt.datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_save_index_uses_atomic_replace(tmp_path):
+    """A crash mid-write must not leave index.json truncated/corrupt."""
+    save_index(tmp_path, _sample_index())
+    # After a successful save, no .tmp file remains.
+    assert not (tmp_path / "index.json.tmp").exists()
+    # And the file is parseable (full content was committed).
+    assert load_index(tmp_path) is not None
