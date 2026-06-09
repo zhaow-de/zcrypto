@@ -2,8 +2,6 @@ import datetime as dt
 import json
 from pathlib import Path
 
-import numpy as np
-
 from cli.data.config import FIELDS
 from cli.data.index import (
     CalendarEntry,
@@ -122,3 +120,26 @@ def test_verify_detects_header_start_index_mismatch(tmp_path):
     report = verify_dataset(tmp_path)
     assert not report.ok
     assert any("header" in p for p in report.problems)
+
+
+def test_verify_detects_calendar_sha_mismatch_even_when_instruments_missing(tmp_path):
+    """The calendar sha check must run regardless of whether instruments/all.txt exists."""
+    _build_valid_dataset(tmp_path)
+    # Remove instruments AND tamper the calendar file's bytes.
+    (tmp_path / "instruments" / "all.txt").unlink()
+    cal = tmp_path / "calendars" / "day.txt"
+    cal.write_text(cal.read_text(encoding="utf-8") + "\n", encoding="utf-8")  # extra blank → different sha
+    report = verify_dataset(tmp_path)
+    assert not report.ok
+    problems = report.problems
+    # Both problems should surface (calendar sha + missing instruments)
+    assert any("calendars/day.txt sha256 mismatch" in p for p in problems), problems
+    assert any("instruments/all.txt missing" in p for p in problems), problems
+
+
+def test_verify_detects_orphan_in_instruments_dir(tmp_path):
+    _build_valid_dataset(tmp_path)
+    (tmp_path / "instruments" / "stray.txt").write_text("hello")
+    report = verify_dataset(tmp_path)
+    assert not report.ok
+    assert any("orphan" in p and "stray.txt" in p for p in report.problems)

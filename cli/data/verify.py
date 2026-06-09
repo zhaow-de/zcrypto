@@ -45,15 +45,18 @@ def verify_dataset(out_dir: Path) -> VerifyReport:
 
     cal_index = {d: i for i, d in enumerate(expected_dates)}
 
+    # Calendar sha (independent of instruments existence)
+    cal_entry = index.other_files.get("calendars/day.txt")
+    if cal_entry is None:
+        problems.append("calendars/day.txt entry missing from other_files")
+    elif compute_sha256(cal_path) != cal_entry.sha256:
+        problems.append("calendars/day.txt sha256 mismatch")
+
+    # Instruments file (existence, sha, matches index)
     inst_path = out_dir / "instruments" / "all.txt"
     if not inst_path.exists():
         problems.append("instruments/all.txt missing")
     else:
-        cal_entry = index.other_files.get("calendars/day.txt")
-        if cal_entry is None:
-            problems.append("calendars/day.txt entry missing from other_files")
-        elif compute_sha256(cal_path) != cal_entry.sha256:
-            problems.append("calendars/day.txt sha256 mismatch")
         inst_entry = index.other_files.get("instruments/all.txt")
         if inst_entry is None:
             problems.append("instruments/all.txt entry missing from other_files")
@@ -101,5 +104,17 @@ def verify_dataset(out_dir: Path) -> VerifyReport:
             rel = p.relative_to(out_dir).as_posix()
             if rel not in indexed_bins:
                 problems.append(f"orphan bin file: {rel}")
+
+    # Orphans in calendars/ and instruments/ not listed in other_files
+    indexed_other = set(index.other_files.keys())
+    for name, subdir in (("calendars", "calendars"), ("instruments", "instruments")):
+        d = out_dir / subdir
+        if d.is_dir():
+            for p in d.iterdir():
+                if not p.is_file():
+                    continue
+                rel = p.relative_to(out_dir).as_posix()
+                if rel not in indexed_other:
+                    problems.append(f"orphan file: {rel}")
 
     return VerifyReport(ok=not problems, problems=problems)
