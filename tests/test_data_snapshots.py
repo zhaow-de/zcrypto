@@ -57,3 +57,35 @@ def test_create_snapshot_stamps_are_monotone(tmp_path):
     time.sleep(1.1)  # ensure stamp difference (UTC seconds resolution)
     b = create_snapshot(tmp_path, "download")
     assert a.name < b.name
+
+
+def test_create_snapshot_no_partial_on_failure(tmp_path, monkeypatch):
+    """If the archive write fails mid-way, no .tar.gz is left in .snapshots."""
+    _populate(tmp_path)
+
+    from cli.data import snapshots
+
+    real_add = tarfile.TarFile.add
+
+    def boom(self, *args, **kwargs):
+        real_add(self, *args, **kwargs)  # add the first entry
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(tarfile.TarFile, "add", boom)
+
+    import pytest as _pt
+
+    with _pt.raises(RuntimeError, match="disk full"):
+        snapshots.create_snapshot(tmp_path, "download")
+
+    # Neither the final archive nor a .tmp file remains
+    snap_dir = tmp_path / ".snapshots"
+    assert not list(snap_dir.glob("*.tar.gz"))
+    assert not list(snap_dir.glob("*.tmp"))
+
+
+def test_prune_snapshots_missing_dir_returns_empty(tmp_path):
+    """prune_snapshots returns [] when .snapshots/ doesn't exist."""
+    from cli.data.snapshots import prune_snapshots
+
+    assert prune_snapshots(tmp_path, keep=7) == []
