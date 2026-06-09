@@ -39,6 +39,7 @@ __all__ = [
     "parse_pairs_file",
     "validate_pairs_against_exchange",
     "find_first_available",
+    "find_available_range",
     "download_pipeline",
     "DownloadPlan",
 ]
@@ -167,6 +168,85 @@ def find_first_available(source: Source, symbol: str, interval: str, lo: dt.date
         else:
             lo = mid
     return hi
+
+
+def _bisect_first_available(source: Source, symbol: str, interval: str, lo: dt.date, anchor: dt.date) -> dt.date:
+    """Find the earliest date in [lo, anchor] with data. anchor is known good.
+
+    Assumes data is **contiguous** within [lo, anchor]: a single uninterrupted
+    block ending at-or-before anchor. For real Binance kline archives this
+    holds (a pair trades continuously while listed; delisted pairs preserve
+    a contiguous historical range). If data has internal gaps, the bisect
+    may stop at a gap boundary and miss earlier data.
+    """
+    if source.exists_kline(symbol, interval, lo):
+        return lo
+    # Invariant: lo missing, anchor present.
+    while lo + dt.timedelta(days=1) < anchor:
+        mid = lo + dt.timedelta(days=(anchor - lo).days // 2)
+        if source.exists_kline(symbol, interval, mid):
+            anchor = mid
+        else:
+            lo = mid
+    return anchor
+
+
+def _bisect_last_available(source: Source, symbol: str, interval: str, anchor: dt.date, hi: dt.date) -> dt.date:
+    """Find the latest date in [anchor, hi] with data. anchor is known good.
+
+    Assumes data is **contiguous** within [anchor, hi]: a single uninterrupted
+    block starting at-or-after anchor. Same caveat as `_bisect_first_available`
+    — a real Binance kline archive satisfies this; a gappy synthetic source
+    could trip the bisect into stopping at the gap.
+    """
+    if source.exists_kline(symbol, interval, hi):
+        return hi
+    # Invariant: anchor present, hi missing.
+    while anchor + dt.timedelta(days=1) < hi:
+        mid = anchor + dt.timedelta(days=(hi - anchor).days // 2)
+        if source.exists_kline(symbol, interval, mid):
+            anchor = mid
+        else:
+            hi = mid
+    return anchor
+
+
+def find_available_range(
+    source: Source,
+    symbol: str,
+    interval: str,
+    lo: dt.date,
+    hi: dt.date,
+) -> tuple[dt.date, dt.date] | None:
+    """Return (first_available, last_available) within [lo, hi], or None
+    if no kline zip exists in that range.
+
+    Implementation: find an anchor (any date in [lo, hi] that has data),
+    then bisect leftward for first_available and rightward for last_available.
+    """
+    if lo > hi:
+        return None
+
+    # Fast-path: try endpoints first.
+    if source.exists_kline(symbol, interval, hi):
+        anchor = hi
+    elif source.exists_kline(symbol, interval, lo):
+        anchor = lo
+    else:
+        # Probe scan: linear scan from lo+1 (lo and hi already checked above).
+        anchor = None
+        probe = lo + dt.timedelta(days=1)
+        while probe < hi:
+            if source.exists_kline(symbol, interval, probe):
+                anchor = probe
+                break
+            probe += dt.timedelta(days=1)
+        if anchor is None:
+            return None
+
+    first = _bisect_first_available(source, symbol, interval, lo, anchor)
+    last = _bisect_last_available(source, symbol, interval, anchor, hi)
+    return (first, last)
 
 
 # ---------------------------------------------------------------------------

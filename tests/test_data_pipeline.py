@@ -5,6 +5,7 @@ import pytest
 
 from cli.data.pipeline import (
     PipelineError,
+    find_available_range,
     find_first_available,
     parse_pairs_file,
     validate_pairs_against_exchange,
@@ -633,3 +634,58 @@ def test_execute_mutation_real_run_invokes_apply_and_commits(tmp_path):
     # Marker cleaned up
     assert not (out / ".commit-in-progress").exists()
     assert not (out / ".staging").exists()
+
+
+# ---------------------------------------------------------------------------
+# find_available_range tests (Task 4)
+# ---------------------------------------------------------------------------
+
+
+def test_find_available_range_finds_first_and_last():
+    """A pair with data on [2024-09-13, 2024-09-15] returns that exact range."""
+    src = FakeSource()
+    src.add_pair("POLUSDT", "POL", "USDT")
+    for d in (dt.date(2024, 9, 13), dt.date(2024, 9, 14), dt.date(2024, 9, 15)):
+        src.add_kline("POLUSDT", "1d", d)
+
+    rng = find_available_range(src, "POLUSDT", "1d", dt.date(2024, 9, 10), dt.date(2024, 9, 20))
+    assert rng == (dt.date(2024, 9, 13), dt.date(2024, 9, 15))
+
+
+def test_find_available_range_no_data_returns_none():
+    src = FakeSource()
+    src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
+    # no add_kline calls
+
+    assert find_available_range(src, "MATICUSDT", "1d", dt.date(2020, 1, 1), dt.date(2024, 12, 31)) is None
+
+
+def test_find_available_range_lo_gt_hi_returns_none():
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    src.add_kline("BTCUSDT", "1d", dt.date(2024, 1, 1))
+
+    assert find_available_range(src, "BTCUSDT", "1d", dt.date(2024, 1, 5), dt.date(2024, 1, 1)) is None
+
+
+def test_find_available_range_single_day_with_data():
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    src.add_kline("BTCUSDT", "1d", dt.date(2024, 1, 1))
+
+    rng = find_available_range(src, "BTCUSDT", "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 1))
+    assert rng == (dt.date(2024, 1, 1), dt.date(2024, 1, 1))
+
+
+def test_find_available_range_delisted_pair_finds_historical():
+    """MATIC-shaped case: data 2020-01-01..2020-01-05; nothing later."""
+    src = FakeSource()
+    src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
+    for i in range(5):
+        src.add_kline("MATICUSDT", "1d", dt.date(2020, 1, 1) + dt.timedelta(days=i))
+
+    rng = find_available_range(src, "MATICUSDT", "1d", dt.date(2019, 1, 1), dt.date(2025, 1, 1))
+    # Anchor-finding falls back to probe scan; should locate Jan 2020 cluster.
+    assert rng is not None
+    assert rng[0] == dt.date(2020, 1, 1)
+    assert rng[1] == dt.date(2020, 1, 5)
