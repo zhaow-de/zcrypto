@@ -119,11 +119,15 @@ def _execute_mutation(
         _shutil.rmtree(staging)
     staging.mkdir()
     try:
+        logger.info("%s: applying plan to staging at %s", cmd_name, staging)
         apply_fn(out_dir, staging, plan)
+        logger.info("%s: post-verifying staging", cmd_name)
         post = verify_dataset(staging)
         if not post.ok:
             raise PipelineError(f"staging fails verify after apply: {post.problems}")
+        logger.info("%s: snapshotting + atomic commit", cmd_name)
         _commit_staging(out_dir, staging, cmd_name=cmd_name)
+        logger.info("%s: commit complete", cmd_name)
     finally:
         if staging.exists():
             _shutil.rmtree(staging)
@@ -292,7 +296,9 @@ def _resolve_ranges(
     if absent_from_file:
         raise PipelineError(f"indexed pairs absent from pairs file (use delist/rename): {absent_from_file}")
 
-    for sym, (base, quote, status) in pair_to_assets.items():
+    total_pairs = len(pair_to_assets)
+    for i, (sym, (base, quote, status)) in enumerate(pair_to_assets.items(), start=1):
+        logger.info("plan: resolving %s (%d/%d)", sym, i, total_pairs)
         if sym in indexed_pairs:
             assert existing_to is not None
             if arg_from <= existing_to:
@@ -408,6 +414,9 @@ def _fetch_all_concurrent(source: Source, plan: list[_PerPair], interval: str, m
         max_workers,
     )
 
+    total = len(work)
+    completed = 0
+    log_every = CliConstants.FETCH_PROGRESS_LOG_INTERVAL
     with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="zcrypto-fetch") as pool:
         futures = {pool.submit(_fetch_one_date, source, sym, interval, d): (sym, d) for sym, d in work}
         try:
@@ -420,6 +429,11 @@ def _fetch_all_concurrent(source: Source, plan: list[_PerPair], interval: str, m
                 except Exception as e:
                     raise PipelineError(f"{sym} {d}: fetch failed: {e}") from e
                 per_pair_rows[s].append(df)
+                completed += 1
+                if completed % log_every == 0 or completed == total:
+                    logger.info("fetch progress: %d/%d zips (%.1f%%)", completed, total, 100.0 * completed / total)
+                if len(per_pair_rows[s]) == len(per_pair_expected[s]):
+                    logger.info("fetch complete for %s (%d zips)", s, len(per_pair_expected[s]))
         except BaseException:
             # Cancel any future not yet started so in-flight workers drain quickly.
             for f in futures:

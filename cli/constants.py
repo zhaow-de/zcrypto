@@ -37,3 +37,9 @@ class CliConstants:
     HTTP_RETRY_ATTEMPTS = 3
     """Total attempts per HTTP call before giving up. Retries on transient failures
     only (timeouts, connection resets, 5xx); 4xx propagates immediately."""
+
+    FETCH_PROGRESS_LOG_INTERVAL = 50
+    """How often to emit a progress info-log line during the concurrent fetch phase
+    (every N completed (pair, date) tuples). Per-pair completion is logged
+    additionally. Keep low enough to feel alive on long downloads but not so low
+    it floods the structured log."""
