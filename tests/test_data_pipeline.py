@@ -362,3 +362,18 @@ def test_verify_flags_stale_commit_marker(tmp_path):
     report = verify_dataset(out)
     assert not report.ok
     assert any("commit-in-progress" in p for p in report.problems)
+
+
+def test_download_existing_pair_delisted_mid_window_raises_actionable_error(tmp_path):
+    """An existing pair whose right edge is no longer reachable triggers a clear delist/rename hint."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 5))
+
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)
+
+    # Simulate a mid-window delisting: re-run extending to 2024-01-08, but DON'T add the new klines.
+    # The source still has the pair listed in exchange_info (so validate passes) but no klines at the right edge.
+    with pytest.raises(PipelineError, match=r"delisted|rename"):
+        download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 8), src)

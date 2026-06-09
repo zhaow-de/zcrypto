@@ -149,6 +149,12 @@ def _resolve_ranges(
             else:
                 raise PipelineError(f"gap for {sym}: --from {arg_from} is more than one day after index.to {existing_to}")
             existing_from = dt.date.fromisoformat(existing.pairs[sym].intervals[interval].from_date)
+            if not source.exists_kline(sym, interval, arg_to):
+                raise PipelineError(
+                    f"{sym}: existing pair is not available on Binance at {arg_to} "
+                    f"(likely delisted or the ticker was renamed mid-window). Reconcile with "
+                    f"`zcrypto data delist` or `zcrypto data rename` (iter-5) before re-running download."
+                )
             plan.append(_PerPair(sym, base, quote, effective_from, arg_to, False, existing_from))
         else:
             first = find_first_available(source, sym, interval, arg_from, arg_to)
@@ -381,6 +387,10 @@ def _commit_staging(out_dir: Path, staging: Path) -> None:
     restore from.
     """
     snapshot = create_snapshot(out_dir, "download")
+    # Ordering: prune runs BEFORE the marker write because `snapshot` is the newest archive
+    # (UTC stamp lexicographically sorts ascending) and `prune_snapshots` keeps the newest
+    # `SNAPSHOT_KEEP`, so it can never remove what we just took. Re-check this invariant if
+    # any code is ever inserted between these two lines that takes another snapshot.
     prune_snapshots(out_dir)
     _write_commit_marker(out_dir, snapshot.name)
     try:
