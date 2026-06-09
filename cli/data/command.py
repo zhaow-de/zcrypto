@@ -86,14 +86,16 @@ def download_cmd(
         callback=_to_callback,
         help="ISO date YYYY-MM-DD (default: yesterday UTC).",
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
 ) -> None:
     """Fetch Binance spot klines and write/append a Qlib-ready dataset."""
     # Callbacks already validated and parsed; cast to dt.date (the callback returns dt.date | None).
     fd: dt.date = from_date if isinstance(from_date, dt.date) else dt.date(2020, 1, 1)  # type: ignore[assignment]
     td: dt.date = to_date if isinstance(to_date, dt.date) else (dt.date.today() - dt.timedelta(days=1))  # type: ignore[assignment]
     try:
-        download_pipeline(out_dir, pairs_file, interval, fd, td, source=BinanceSource())
+        download_pipeline(out_dir, pairs_file, interval, fd, td, source=BinanceSource(), dry_run=dry_run)
     except PipelineError as e:
         typer.echo(f"ERROR: {e}", err=True)
         raise typer.Exit(code=1) from e
-    typer.echo(f"OK — dataset at {out_dir} now reaches {td}.")
+    if not dry_run:
+        typer.echo(f"OK — dataset at {out_dir} now reaches {td}.")

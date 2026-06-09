@@ -177,3 +177,37 @@ def test_data_download_smoke_with_fake_source(tmp_path):
     assert (tmp_path / "ds" / "index.json").exists()
     idx = json.loads((tmp_path / "ds" / "index.json").read_text(encoding="utf-8"))
     assert idx["calendar"]["to"] == "2024-01-03"
+
+
+def test_data_download_dry_run_flag_accepted(tmp_path, monkeypatch):
+    """`data download --dry-run` is parsed; the CLI handler passes dry_run=True to download_pipeline."""
+    captured = {}
+
+    def fake_pipeline(*args, dry_run=False, **kw):
+        captured["dry_run"] = dry_run
+
+    from cli.data import command as cmd_mod
+
+    monkeypatch.setattr(cmd_mod, "download_pipeline", fake_pipeline)
+    # Avoid touching the real network: stub BinanceSource with a no-op object
+    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda: object())
+
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "download",
+            str(tmp_path / "ds"),
+            str(pairs),
+            "--from",
+            "2024-01-01",
+            "--to",
+            "2024-01-02",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured.get("dry_run") is True

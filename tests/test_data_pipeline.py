@@ -406,6 +406,58 @@ def test_download_proceeds_on_empty_out_dir(tmp_path):
     assert verify_dataset(out).ok
 
 
+def test_download_no_op_skips_snapshot(tmp_path):
+    """If pairs.txt + dates resolve to no fetches, download is a no-op: no snapshot file added."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 5))
+
+    # First download — should snapshot + commit
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)
+    snaps_before = sorted(p.name for p in (out / ".snapshots").glob("*.tar.gz"))
+    assert len(snaps_before) >= 1, "first download must take a snapshot"
+
+    # Second download with same args → no work needed → no new snapshot
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)
+    snaps_after = sorted(p.name for p in (out / ".snapshots").glob("*.tar.gz"))
+    assert snaps_before == snaps_after, (
+        f"expected no new snapshot on no-op download, got new entries: {set(snaps_after) - set(snaps_before)}"
+    )
+
+
+def test_download_dry_run_prints_plan_no_mutation(tmp_path, capsys):
+    """--dry-run skips snapshot + mutation; prints plan summary to stdout."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 5))
+
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src, dry_run=True)
+
+    # No dataset created, no snapshot
+    assert not (out / "index.json").exists()
+    snaps = list((out / ".snapshots").glob("*.tar.gz")) if (out / ".snapshots").exists() else []
+    assert not snaps
+    # Plan summary printed
+    captured = capsys.readouterr()
+    assert "DRY-RUN" in captured.out or "BTCUSDT" in captured.out
+
+
+def test_download_snapshot_uses_download_cmd_name(tmp_path):
+    """The snapshot tar.gz produced by a real download run is <stamp>-download.tar.gz."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 2))
+
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 2), src)
+    snaps = list((out / ".snapshots").glob("*-download.tar.gz"))
+    assert len(snaps) == 1, (
+        f"expected one snapshot named *-download.tar.gz, got: {[s.name for s in (out / '.snapshots').glob('*')]}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # _execute_mutation harness tests
 # ---------------------------------------------------------------------------

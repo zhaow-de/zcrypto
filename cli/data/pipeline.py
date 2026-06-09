@@ -40,6 +40,7 @@ __all__ = [
     "validate_pairs_against_exchange",
     "find_first_available",
     "download_pipeline",
+    "DownloadPlan",
 ]
 
 _COMMIT_MARKER = ".commit-in-progress"
@@ -489,6 +490,63 @@ def _commit_staging(out_dir: Path, staging: Path, *, cmd_name: str = "download")
             _shutil.rmtree(staging)
 
 
+@_dc.dataclass
+class DownloadPlan:
+    """Per-pair fetch plan for download (shared shape with backfill in later tasks)."""
+
+    per_pair: list[_PerPair]
+    existing: IndexData | None
+    arg_to: dt.date
+    interval: str
+    is_noop: bool
+
+    def dry_run_summary(self) -> str:
+        if self.is_noop:
+            return "DRY-RUN: download: nothing to do."
+        lines = ["DRY-RUN: download plan:"]
+        for p in self.per_pair:
+            n_zips = max(0, (p.effective_to - p.effective_from).days + 1)
+            if n_zips > 0:
+                lines.append(f"  {p.symbol}: {p.effective_from} → {p.effective_to} ({n_zips} zips)")
+        return "\n".join(lines)
+
+
+def _download_plan(
+    out_dir: Path,
+    pairs_file: Path,
+    interval: str,
+    arg_from: dt.date,
+    arg_to: dt.date,
+    source: Source,
+) -> DownloadPlan:
+    """Read-only: parse + validate + resolve ranges. The harness has already run
+    mkdir + recovery + pre-flight verify before calling this."""
+    if interval not in SUPPORTED_INTERVALS:
+        raise PipelineError(f"interval {interval!r} is not supported (only 1d)")
+    if arg_from > arg_to:
+        raise PipelineError(f"--from {arg_from} must be ≤ --to {arg_to}")
+
+    requested = parse_pairs_file(pairs_file)
+    exchange_info = source.fetch_exchange_info()
+    pair_to_assets = validate_pairs_against_exchange(requested, exchange_info)
+
+    existing = load_index(out_dir)
+    per_pair = _resolve_ranges(pair_to_assets, existing, source, interval, arg_from, arg_to)
+
+    is_noop = all(p.effective_from > p.effective_to for p in per_pair)
+    return DownloadPlan(per_pair=per_pair, existing=existing, arg_to=arg_to, interval=interval, is_noop=is_noop)
+
+
+def _download_apply(out_dir: Path, staging: Path, plan: DownloadPlan, source: Source) -> None:
+    """Fetch + build staging. The harness handles snapshot, post-verify, commit."""
+    non_empty = [p for p in plan.per_pair if p.effective_from <= p.effective_to]
+    fetched = _fetch_all_concurrent(source, non_empty, plan.interval, CliConstants.FETCH_CONCURRENCY)
+    new_rows_per_sym: dict[str, _pd.DataFrame] = {
+        p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan.per_pair
+    }
+    _build_staging(out_dir, staging, plan.per_pair, new_rows_per_sym, plan.existing, plan.arg_to, plan.interval)
+
+
 def download_pipeline(
     out_dir: Path,
     pairs_file: Path,
@@ -496,46 +554,10 @@ def download_pipeline(
     from_date: dt.date,
     to_date: dt.date,
     source: Source,
+    *,
+    dry_run: bool = False,
 ) -> None:
     """Orchestrate: parse → validate → resolve → fetch → stage → verify → commit."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    _recover_from_interrupted_commit(out_dir)
-
-    # Pre-flight: never mutate a dataset we can't verify.
-    pre = verify_dataset(out_dir)
-    if not pre.ok:
-        raise PipelineError(
-            f"refusing to mutate {out_dir}: dataset is not in a verified state. "
-            f"Problems: {pre.problems}. Resolve manually (restore from .snapshots/, "
-            f"or remove the orphan files) before re-running."
-        )
-
-    if interval not in SUPPORTED_INTERVALS:
-        raise PipelineError(f"interval {interval!r} is not supported (only 1d)")
-    if from_date > to_date:
-        raise PipelineError(f"--from {from_date} must be ≤ --to {to_date}")
-
-    pairs = parse_pairs_file(pairs_file)
-    exchange_info = source.fetch_exchange_info()
-    pair_to_assets = validate_pairs_against_exchange(pairs, exchange_info)
-
-    existing = load_index(out_dir)
-    plan = _resolve_ranges(pair_to_assets, existing, source, interval, from_date, to_date)
-
-    max_workers = CliConstants.FETCH_CONCURRENCY
-
-    # Empty-window pairs (overlap-adjust trimmed everything) need an empty DF to keep _build_staging happy.
-    non_empty_plan = [p for p in plan if p.effective_from <= p.effective_to]
-    fetched = _fetch_all_concurrent(source, non_empty_plan, interval, max_workers)
-    new_rows_per_sym: dict[str, _pd.DataFrame] = {
-        p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan
-    }
-
-    staging = out_dir / ".staging"
-    _build_staging(out_dir, staging, plan, new_rows_per_sym, existing, to_date, interval)
-
-    report = verify_dataset(staging)
-    if not report.ok:
-        raise PipelineError(f"staging verify failed: {report.problems[:3]}")
-
-    _commit_staging(out_dir, staging)
+    plan_fn = lambda d: _download_plan(d, pairs_file, interval, from_date, to_date, source)
+    apply_fn = lambda d, s, p: _download_apply(d, s, p, source)
+    _execute_mutation(out_dir, "download", plan_fn, apply_fn, dry_run=dry_run)
