@@ -8,8 +8,10 @@ import shutil as _shutil
 import tarfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Callable, Protocol
 
 import pandas as _pd
+import typer
 
 from cli.constants import CliConstants
 from cli.data.binance import Source
@@ -47,6 +49,76 @@ logger = get_logger("data.pipeline")
 
 class PipelineError(Exception):
     """Operator-visible error from the download pipeline (stops execution, exits non-zero)."""
+
+
+class Plan(Protocol):
+    """Per-command plan dataclass shape. Each command defines its own
+    concrete dataclass implementing this Protocol."""
+
+    is_noop: bool
+
+    def dry_run_summary(self) -> str: ...
+
+
+def _execute_mutation(
+    out_dir: Path,
+    cmd_name: str,
+    plan_fn: Callable[[Path], Plan],
+    apply_fn: Callable[[Path, Path, Plan], None],
+    *,
+    dry_run: bool = False,
+) -> None:
+    """Shared mutation discipline: pre-flight (verify + recovery) → plan →
+    no-op short-circuit → dry-run short-circuit → snapshot → marker → apply
+    → post-verify → atomic commit → marker cleanup.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if not dry_run:
+        _recover_from_interrupted_commit(out_dir)
+    else:
+        if (out_dir / _COMMIT_MARKER).exists():
+            raise PipelineError(
+                f"commit-in-progress marker present at {out_dir / _COMMIT_MARKER}; "
+                "cannot dry-run until prior commit is recovered. "
+                "Re-run without --dry-run to auto-recover."
+            )
+
+    pre = verify_dataset(out_dir)
+    if not pre.ok:
+        raise PipelineError(
+            f"refusing to mutate {out_dir}: dataset is not in a verified state. "
+            f"Problems: {pre.problems}. Resolve manually (restore from .snapshots/, "
+            "or remove the orphan files) before re-running."
+        )
+
+    plan = plan_fn(out_dir)
+
+    if plan.is_noop:
+        msg = f"{cmd_name}: nothing to do"
+        if dry_run:
+            typer.echo(f"DRY-RUN: {msg}.")
+        else:
+            logger.info(msg)
+        return
+
+    if dry_run:
+        typer.echo(plan.dry_run_summary())
+        return
+
+    staging = out_dir / ".staging"
+    if staging.exists():
+        _shutil.rmtree(staging)
+    staging.mkdir()
+    try:
+        apply_fn(out_dir, staging, plan)
+        post = verify_dataset(staging)
+        if not post.ok:
+            raise PipelineError(f"staging fails verify after apply: {post.problems}")
+        _commit_staging(out_dir, staging, cmd_name=cmd_name)
+    finally:
+        if staging.exists():
+            _shutil.rmtree(staging)
 
 
 def parse_pairs_file(path: Path) -> list[str]:
@@ -378,7 +450,7 @@ def _recover_from_interrupted_commit(out_dir: Path) -> None:
     marker.unlink()
 
 
-def _commit_staging(out_dir: Path, staging: Path) -> None:
+def _commit_staging(out_dir: Path, staging: Path, *, cmd_name: str = "download") -> None:
     """Atomically replace live files from staging, with snapshot-based crash recovery.
 
     The commit phase is bracketed by a snapshot + marker so that any failure (Python exception
@@ -386,7 +458,7 @@ def _commit_staging(out_dir: Path, staging: Path) -> None:
     next invocation. The snapshot is the durability store; the marker names which snapshot to
     restore from.
     """
-    snapshot = create_snapshot(out_dir, "download")
+    snapshot = create_snapshot(out_dir, cmd_name)
     # Ordering: prune runs BEFORE the marker write because `snapshot` is the newest archive
     # (UTC stamp lexicographically sorts ascending) and `prune_snapshots` keeps the newest
     # `SNAPSHOT_KEEP`, so it can never remove what we just took. Re-check this invariant if

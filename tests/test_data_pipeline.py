@@ -404,3 +404,147 @@ def test_download_proceeds_on_empty_out_dir(tmp_path):
     # Should not raise.
     download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 2), src)
     assert verify_dataset(out).ok
+
+
+# ---------------------------------------------------------------------------
+# _execute_mutation harness tests
+# ---------------------------------------------------------------------------
+
+
+class _StubPlan:
+    """Test-only Plan with controllable noop/summary."""
+
+    def __init__(self, *, is_noop: bool = False, summary: str = "(stub)"):
+        self.is_noop = is_noop
+        self._summary = summary
+
+    def dry_run_summary(self) -> str:
+        return self._summary
+
+
+def test_execute_mutation_pre_flight_fails_aborts_with_pipeline_error(tmp_path):
+    """If verify_dataset returns ok=False (and is_empty=False), harness raises before plan_fn runs."""
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)
+    # Partial / broken state: components without index.json → ok=False, is_empty=False
+    (out / "calendars").mkdir()
+    (out / "calendars" / "day.txt").write_text("2024-01-01\n")
+
+    plan_fn = lambda d: pytest.fail("plan_fn must not be called on broken dataset")
+    apply_fn = lambda d, s, p: pytest.fail("apply_fn must not be called")
+
+    from cli.data.pipeline import PipelineError, _execute_mutation
+
+    with pytest.raises(PipelineError, match=r"refusing to mutate"):
+        _execute_mutation(out, "fakecmd", plan_fn, apply_fn, dry_run=False)
+
+
+def test_execute_mutation_dry_run_with_marker_aborts(tmp_path):
+    """Dry-run errors if a .commit-in-progress marker is present (recovery would mutate)."""
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)
+    (out / ".commit-in-progress").write_text("some-snapshot.tar.gz\n")
+
+    from cli.data.pipeline import PipelineError, _execute_mutation
+
+    with pytest.raises(PipelineError, match=r"commit-in-progress marker"):
+        _execute_mutation(
+            out,
+            "fakecmd",
+            plan_fn=lambda d: _StubPlan(),
+            apply_fn=lambda d, s, p: None,
+            dry_run=True,
+        )
+
+
+def test_execute_mutation_noop_no_snapshot_no_marker(tmp_path):
+    """No-op plan → harness logs and returns; no snapshot, no marker, no staging dir."""
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)
+    # Empty dir is allowed (is_empty=True passes pre-flight)
+
+    from cli.data.pipeline import _execute_mutation
+
+    _execute_mutation(
+        out,
+        "fakecmd",
+        plan_fn=lambda d: _StubPlan(is_noop=True),
+        apply_fn=lambda d, s, p: pytest.fail("apply must not be called"),
+        dry_run=False,
+    )
+    assert not (out / ".snapshots").exists() or not list((out / ".snapshots").glob("*.tar.gz"))
+    assert not (out / ".commit-in-progress").exists()
+    assert not (out / ".staging").exists()
+
+
+def test_execute_mutation_dry_run_prints_summary_no_side_effects(tmp_path, capsys):
+    """--dry-run with a non-noop plan prints the summary; no snapshot."""
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)
+
+    from cli.data.pipeline import _execute_mutation
+
+    _execute_mutation(
+        out,
+        "fakecmd",
+        plan_fn=lambda d: _StubPlan(is_noop=False, summary="DRY-RUN: would do stuff"),
+        apply_fn=lambda d, s, p: pytest.fail("apply must not run under dry-run"),
+        dry_run=True,
+    )
+    captured = capsys.readouterr()
+    assert "DRY-RUN: would do stuff" in captured.out
+    assert not (out / ".snapshots").exists() or not list((out / ".snapshots").glob("*.tar.gz"))
+
+
+def test_execute_mutation_real_run_invokes_apply_and_commits(tmp_path):
+    """Real run: apply_fn writes a minimal valid dataset into staging; harness commits it.
+
+    Uses _execute_mutation directly with an apply_fn that copies the iter-4 download output
+    (built via a quick download_pipeline call) into staging — sidesteps re-implementing the
+    full staging-build in this test.
+    """
+    # Build a known-good dataset first via the iter-4 download path.
+    import shutil
+
+    from cli.data.pipeline import _execute_mutation, download_pipeline
+    from tests.data_fixtures import FakeSource
+
+    src_out = tmp_path / "src_ds"
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    for i in range(3):
+        src.add_kline("BTCUSDT", "1d", dt.date(2024, 1, 1) + dt.timedelta(days=i))
+    download_pipeline(src_out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 3), src)
+
+    # Now run _execute_mutation on a fresh out_dir, apply_fn just copies the
+    # known-good dataset's components into staging.
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)
+
+    def apply_copy(out_dir, staging, plan):
+        for name in ("calendars", "instruments", "features", "index.json"):
+            src_path = src_out / name
+            dst_path = staging / name
+            if src_path.is_dir():
+                shutil.copytree(src_path, dst_path)
+            else:
+                shutil.copy2(src_path, dst_path)
+
+    _execute_mutation(
+        out,
+        "fakecmd",
+        plan_fn=lambda d: _StubPlan(is_noop=False),
+        apply_fn=apply_copy,
+        dry_run=False,
+    )
+
+    assert (out / "index.json").exists()
+    assert (out / "features" / "btcusdt").is_dir()
+    # Snapshot exists and is named with cmd_name
+    snaps = list((out / ".snapshots").glob("*-fakecmd.tar.gz"))
+    assert len(snaps) == 1, f"expected one snapshot tagged with cmd_name, got {[s.name for s in (out / '.snapshots').glob('*')]}"
+    # Marker cleaned up
+    assert not (out / ".commit-in-progress").exists()
+    assert not (out / ".staging").exists()
