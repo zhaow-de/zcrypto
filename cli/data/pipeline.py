@@ -513,11 +513,19 @@ def _fetch_all_concurrent(source: Source, plan: list[_PerPair], interval: str, m
     return result
 
 
-def _read_existing_pair(out_dir: Path, sym: str, existing_from: dt.date, calendar: list[dt.date]) -> _pd.DataFrame:
-    """Decode existing bins for one pair → DataFrame indexed by date over [existing_from, calendar[-1]]."""
+def _read_existing_pair(
+    out_dir: Path, sym: str, existing_from: dt.date, calendar: list[dt.date], existing_rows: int
+) -> _pd.DataFrame:
+    """Decode existing bins for one pair → DataFrame over the pair's own `existing_rows` days.
+
+    A pair may end before the calendar's last day (a "ragged right edge": a delisted
+    or just-renamed pair whose dates_to < calendar.to because another pair extends
+    the calendar further). So the expected bin length is the pair's own row count
+    from the index, not the distance from existing_from to the calendar end.
+    """
     start_idx = calendar.index(existing_from)
-    span = len(calendar) - start_idx
-    rec: dict = {"date": calendar[start_idx:]}
+    span = existing_rows
+    rec: dict = {"date": calendar[start_idx : start_idx + span]}
     for f in FIELDS:
         bin_path = out_dir / "features" / sym.lower() / f"{f}.day.bin"
         header, values = read_bin(bin_path)
@@ -552,7 +560,9 @@ def _build_staging(
         if p.is_new:
             merged[p.symbol] = new_df
         else:
-            old_df = _read_existing_pair(out_dir, p.symbol, p.existing_from, existing_calendar)
+            assert existing is not None  # a non-new pair implies an existing index
+            existing_rows = existing.pairs[p.symbol].intervals[interval].rows
+            old_df = _read_existing_pair(out_dir, p.symbol, p.existing_from, existing_calendar, existing_rows)
             merged[p.symbol] = _pd.concat([old_df, new_df], ignore_index=True)
 
     # Per-pair effective_to: TRADING pairs go to arg_to; non-TRADING pairs stop at last_available.

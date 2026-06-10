@@ -125,3 +125,46 @@ def test_e2e_pure_delisted_snapshot(tmp_path):
     snaps_after = sorted((out / ".snapshots").glob("*.tar.gz"))
     assert snaps_before == snaps_after, "delisted-only backfill must not snapshot"
     assert verify_dataset(out).ok
+
+
+def test_e2e_download_rename_backfill_extends_ragged_renamed_pair(tmp_path):
+    """User-reported edge case (download → rename → backfill).
+
+    Download a delisted pair (MATIC, archive ends 09-10) alongside a trading pair
+    (ADA, reaches 09-16) that pushes the calendar past MATIC. Rename MATIC→POL,
+    which leaves POL ragged (ends 09-12, calendar ends 09-16). Then backfill POL
+    to the calendar end. Backfill must extend the ragged renamed pair without the
+    "existing POLUSDT open bin inconsistent with index" crash."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("MATICUSDT\nADAUSDT\n")
+    out = tmp_path / "ds"
+
+    # Step 1: download. MATIC (BREAK) archive 09-08..09-10; ADA (TRADING) 09-08..09-16.
+    dl = FakeSource()
+    dl.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
+    dl.add_pair("ADAUSDT", "ADA", "USDT")
+    for i in range(3):
+        dl.add_kline("MATICUSDT", "1d", dt.date(2024, 9, 8) + dt.timedelta(days=i))
+    for i in range(9):
+        dl.add_kline("ADAUSDT", "1d", dt.date(2024, 9, 8) + dt.timedelta(days=i))
+    download_pipeline(out, pairs, "1d", dt.date(2024, 9, 8), dt.date(2024, 9, 16), dl)
+
+    # Step 2: rename MATIC→POL. POL (TRADING) first archive 09-13 → gap 09-11..09-12.
+    ren = FakeSource()
+    ren.add_pair("POLUSDT", "POL", "USDT")
+    ren.add_pair("ADAUSDT", "ADA", "USDT")
+    for i in range(4):
+        ren.add_kline("POLUSDT", "1d", dt.date(2024, 9, 13) + dt.timedelta(days=i))
+    rename_pipeline(out, "MATICUSDT", "POLUSDT", ren)
+    idx = load_index(out)
+    assert "MATICUSDT" not in idx.pairs
+    assert idx.pairs["POLUSDT"].intervals["1d"].dates_to == "2024-09-12"  # ragged
+
+    # Step 3: backfill POL to 09-16 (ADA already caught up → skipped).
+    backfill_pipeline(out, "1d", dt.date(2024, 9, 16), ren)
+    idx = load_index(out)
+    pol = idx.pairs["POLUSDT"].intervals["1d"]
+    assert pol.dates_to == "2024-09-16"
+    assert pol.rows == 9  # 3 real MATIC + 2 synthetic gap + 4 real POL
+    assert idx.pairs["ADAUSDT"].intervals["1d"].dates_to == "2024-09-16"
+    assert verify_dataset(out).ok
