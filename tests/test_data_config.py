@@ -16,4 +16,4 @@ def test_constants_present():
     assert config.BASE_URL == "https://data.binance.vision"
     assert config.EXCHANGE_INFO_URL == "https://api.binance.com/api/v3/exchangeInfo"
     assert config.SNAPSHOT_KEEP == 7
-    assert config.SCHEMA_VERSION == 1
+    assert config.SCHEMA_VERSION == 2

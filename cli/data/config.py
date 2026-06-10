@@ -19,4 +19,4 @@ FIELDS: tuple[str, ...] = (
 
 SUPPORTED_INTERVALS = frozenset({"1d"})
 SNAPSHOT_KEEP = 7
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2

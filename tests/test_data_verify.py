@@ -40,10 +40,17 @@ def _build_valid_dataset(tmp_path: Path) -> IndexData:
         pairs[sym] = PairEntry(
             base_asset=base,
             quote_asset="USDT",
-            intervals={"1d": PairIntervalEntry(from_date=cal[start].isoformat(), rows=rows, fields=fields)},
+            intervals={
+                "1d": PairIntervalEntry(
+                    from_date=cal[start].isoformat(),
+                    to_date=cal[start + rows - 1].isoformat(),
+                    rows=rows,
+                    fields=fields,
+                )
+            },
         )
     idx = IndexData(
-        schema_version=1,
+        schema_version=2,
         updated_at=utc_now_iso(),
         calendar=CalendarEntry(freq="day", from_date=cal[0].isoformat(), to_date=cal[-1].isoformat(), days=len(cal)),
         pairs=pairs,

@@ -513,6 +513,16 @@ def _fetch_all_concurrent(source: Source, plan: list[_PerPair], interval: str, m
     return result
 
 
+def _interval_to_date(calendar: list[dt.date], from_date: dt.date, rows: int) -> dt.date:
+    """Last bar date for a pair occupying `rows` consecutive calendar slots from `from_date`.
+
+    Interval-agnostic: reads the calendar's bar sequence rather than doing date
+    arithmetic, so it stays correct when sub-daily intervals are added (where
+    `rows` counts bars, not days, and `from + (rows - 1) days` would be wrong).
+    """
+    return calendar[calendar.index(from_date) + rows - 1]
+
+
 def _read_existing_pair(
     out_dir: Path, sym: str, existing_from: dt.date, calendar: list[dt.date], existing_rows: int
 ) -> _pd.DataFrame:
@@ -595,6 +605,7 @@ def _build_staging(
             intervals={
                 interval: PairIntervalEntry(
                     from_date=df["date"].iloc[0].isoformat(),
+                    to_date=df["date"].iloc[-1].isoformat(),
                     rows=len(df),
                     fields=fields_entries,
                 )
@@ -1071,6 +1082,7 @@ def _delist_apply(out_dir: Path, staging: Path, plan: DelistPlan) -> None:
             intervals={
                 interval: PairIntervalEntry(
                     from_date=from_d.isoformat(),
+                    to_date=interval_entry.dates_to,
                     rows=interval_entry.rows,
                     fields=fields,
                 )
@@ -1334,6 +1346,7 @@ def _build_pair_entry_from_staging(
     base: str,
     quote: str,
     from_date: dt.date,
+    to_date: dt.date,
     rows: int,
     interval: str = "1d",
 ) -> PairEntry:
@@ -1354,6 +1367,7 @@ def _build_pair_entry_from_staging(
         intervals={
             interval: PairIntervalEntry(
                 from_date=from_date.isoformat(),
+                to_date=to_date.isoformat(),
                 rows=rows,
                 fields=fields_entries,
             )
@@ -1453,6 +1467,7 @@ def _rename_apply_variant1(out_dir: Path, staging: Path, plan: RenamePlan) -> No
             intervals={
                 interval: PairIntervalEntry(
                     from_date=from_d.isoformat(),
+                    to_date=_interval_to_date(new_calendar, from_d, new_rows).isoformat(),
                     rows=new_rows,
                     fields=fields_entries,
                 )
@@ -1582,18 +1597,22 @@ def _rename_apply_variant2(out_dir: Path, staging: Path, plan: RenamePlan) -> No
                 plan.new_base_asset,
                 plan.new_quote_asset,
                 merged_from,
+                _interval_to_date(new_cal_dates, merged_from, merged_rows),
                 merged_rows,
                 interval,
             )
         else:
             iv = entry.intervals[interval]
+            iv_from = dt.date.fromisoformat(iv.from_date)
+            iv_to = _interval_to_date(new_cal_dates, iv_from, iv.rows)
             if front_extension > 0:
                 pairs_entries[sym] = _build_pair_entry_from_staging(
                     staging,
                     sym,
                     entry.base_asset,
                     entry.quote_asset,
-                    dt.date.fromisoformat(iv.from_date),
+                    iv_from,
+                    iv_to,
                     iv.rows,
                     interval,
                 )
@@ -1604,7 +1623,8 @@ def _rename_apply_variant2(out_dir: Path, staging: Path, plan: RenamePlan) -> No
                     sym,
                     entry.base_asset,
                     entry.quote_asset,
-                    dt.date.fromisoformat(iv.from_date),
+                    iv_from,
+                    iv_to,
                     iv.rows,
                     interval,
                 )

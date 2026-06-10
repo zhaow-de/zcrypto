@@ -86,8 +86,7 @@ def verify_dataset(out_dir: Path) -> VerifyReport:
             problems.append("instruments/all.txt sha256 mismatch")
         instr_lines = sorted(inst_path.read_text(encoding="utf-8").strip().splitlines())
         expected_lines = sorted(
-            f"{sym.upper()}\t{p.intervals['1d'].from_date}\t"
-            f"{(_iso_to_date(p.intervals['1d'].from_date) + dt.timedelta(days=p.intervals['1d'].rows - 1)).isoformat()}"
+            f"{sym.upper()}\t{p.intervals['1d'].from_date}\t{p.intervals['1d'].dates_to}"
             for sym, p in index.pairs.items()
             if "1d" in p.intervals
         )
@@ -105,6 +104,15 @@ def verify_dataset(out_dir: Path) -> VerifyReport:
             expected_rows = entry.rows
             if expected_rows <= 0:
                 problems.append(f"{sym} {interval}: rows {expected_rows} must be > 0")
+            # Interval-agnostic cross-check: to-date is the calendar entry at start_idx + rows - 1.
+            to_d = _iso_to_date(entry.dates_to)
+            if to_d not in cal_index:
+                problems.append(f"{sym} {interval}: to-date {to_d} not in calendar")
+            elif cal_index[to_d] != start_idx + expected_rows - 1:
+                problems.append(
+                    f"{sym} {interval}: to-date {to_d} (calendar index {cal_index[to_d]}) "
+                    f"!= from index {start_idx} + rows {expected_rows} - 1"
+                )
             # Cross-check: all fields for this pair must agree on the same row count.
             _checked_first_field = False
             for fname, fentry in entry.fields.items():

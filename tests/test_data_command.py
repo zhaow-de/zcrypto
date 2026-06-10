@@ -43,14 +43,14 @@ def _seed_valid_dataset(out_dir: Path) -> None:
         write_bin(out_dir / rel, [1.0, 1.0], start_index=0)
         fields[f] = FieldEntry(bin=rel, sha256=compute_sha256(out_dir / rel), updated_at=utc_now_iso())
     idx = IndexData(
-        schema_version=1,
+        schema_version=2,
         updated_at=utc_now_iso(),
         calendar=CalendarEntry(freq="day", from_date="2024-01-01", to_date="2024-01-02", days=2),
         pairs={
             "BTCUSDT": PairEntry(
                 base_asset="BTC",
                 quote_asset="USDT",
-                intervals={"1d": PairIntervalEntry(from_date="2024-01-01", rows=2, fields=fields)},
+                intervals={"1d": PairIntervalEntry(from_date="2024-01-01", to_date="2024-01-02", rows=2, fields=fields)},
             )
         },
         other_files={
