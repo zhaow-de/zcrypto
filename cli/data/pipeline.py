@@ -261,19 +261,38 @@ def find_available_range(
         last = _bisect_last_available(source, symbol, interval, lo, hi, hi_known_missing=True)
         return (lo, last)
 
-    # Both endpoints missing — scan for an anchor in the interior (preserve existing behavior).
-    anchor = None
-    cursor = lo + dt.timedelta(days=1)
-    while cursor < hi:
-        if source.exists_kline(symbol, interval, cursor):
-            anchor = cursor
-            break
-        cursor += dt.timedelta(days=1)
+    # Both endpoints missing — recursive midpoint bisect to find any anchor.
+    anchor = _find_interior_anchor(source, symbol, interval, lo, hi)
     if anchor is None:
         return None
     first = _bisect_first_available(source, symbol, interval, lo, anchor, lo_known_missing=True)
     last = _bisect_last_available(source, symbol, interval, anchor, hi, hi_known_missing=True)
     return (first, last)
+
+
+def _find_interior_anchor(source: Source, symbol: str, interval: str, lo: dt.date, hi: dt.date) -> dt.date | None:
+    """Find any date in `(lo, hi)` with data, given `lo` and `hi` are both known to be absent.
+
+    Recursive midpoint bisect: probe the midpoint; if present, return it; otherwise
+    by the contiguity assumption the data block (if any) is entirely in `(lo, mid)`
+    OR entirely in `(mid, hi)` — recurse into both halves.
+
+    Typical case (a late-listing pair with most of `[lo, hi]` covered by data):
+    the midpoint hits → 1 probe. Pathological case (small data block at the edge):
+    O(log² N) probes. Both are dramatic wins over the day-by-day linear scan a
+    naive implementation would do (which would take 1000+ probes for a pair like
+    APTUSDT whose listing date is years after `lo`).
+    """
+    if (hi - lo).days < 2:
+        return None  # No interior days
+    mid = lo + dt.timedelta(days=(hi - lo).days // 2)
+    if source.exists_kline(symbol, interval, mid):
+        return mid
+    # mid is absent. By contiguity, data (if any) is in (lo, mid) or (mid, hi).
+    left = _find_interior_anchor(source, symbol, interval, lo, mid)
+    if left is not None:
+        return left
+    return _find_interior_anchor(source, symbol, interval, mid, hi)
 
 
 # ---------------------------------------------------------------------------

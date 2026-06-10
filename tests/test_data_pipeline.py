@@ -690,3 +690,52 @@ def test_find_available_range_delisted_pair_finds_historical():
     assert rng is not None
     assert rng[0] == dt.date(2020, 1, 1)
     assert rng[1] == dt.date(2020, 1, 5)
+
+
+def test_find_available_range_late_start_pair_uses_bisect_not_linear_scan(monkeypatch):
+    """APT-shaped case: TRADING pair listed years after arg_from, with publishing
+    lag on the right edge. Both endpoints (2020-01-01 and 2026-06-09) are 404; the
+    data block is [2022-10-19, 2026-06-08]. The interior-anchor finder must use
+    recursive midpoint bisect (~O(log²N) worst-case probes), NOT a day-by-day
+    linear scan (which would do ~1000 probes before the first hit)."""
+    src = FakeSource()
+    src.add_pair("APTUSDT", "APT", "USDT")
+    cur = dt.date(2022, 10, 19)
+    while cur <= dt.date(2026, 6, 8):
+        src.add_kline("APTUSDT", "1d", cur)
+        cur += dt.timedelta(days=1)
+
+    # Wrap exists_kline to count HEAD-equivalent probes.
+    probes: list[dt.date] = []
+    real_exists = src.exists_kline
+
+    def counting_exists(symbol, interval, date):
+        probes.append(date)
+        return real_exists(symbol, interval, date)
+
+    monkeypatch.setattr(src, "exists_kline", counting_exists)
+
+    rng = find_available_range(src, "APTUSDT", "1d", dt.date(2020, 1, 1), dt.date(2026, 6, 9))
+    assert rng is not None
+    assert rng[0] == dt.date(2022, 10, 19)  # first available = listing date
+    assert rng[1] == dt.date(2026, 6, 8)  # last available = day before publishing-lag
+    # A day-by-day linear scan would do (2022-10-19 - 2020-01-01).days = 1022+ probes
+    # before the first hit. The bisect-based finder must do far fewer.
+    assert len(probes) < 50, (
+        f"expected far fewer than 50 probes via bisect; got {len(probes)} — "
+        "this suggests the day-by-day linear scan regressed back in"
+    )
+
+
+def test_find_available_range_brief_listing_window_via_recursive_bisect():
+    """Pathological case: a 3-day data block inside a 100-day window with both
+    endpoints absent. Recursive bisect should still find it."""
+    src = FakeSource()
+    src.add_pair("BRIEFUSDT", "BRIEF", "USDT", status="BREAK")
+    for i in range(3):
+        src.add_kline("BRIEFUSDT", "1d", dt.date(2024, 6, 1) + dt.timedelta(days=i))
+
+    rng = find_available_range(src, "BRIEFUSDT", "1d", dt.date(2024, 1, 1), dt.date(2024, 12, 31))
+    assert rng is not None
+    assert rng[0] == dt.date(2024, 6, 1)
+    assert rng[1] == dt.date(2024, 6, 3)
