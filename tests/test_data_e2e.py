@@ -100,24 +100,28 @@ def test_e2e_ongoing_dataset_survives_mid_window_rename(tmp_path):
 
 def test_e2e_pure_delisted_snapshot(tmp_path):
     """Spec scenario 3: pairs.txt with MATICUSDT only (status=BREAK); Change C
-    fetches truncated range; verify passes; backfill is no-op."""
+    fetches truncated range; verify passes; backfill is no-op.
+
+    Realistic MATIC dates: traded 2019-04-26..2024-09-10 before the POL rename."""
     pairs = tmp_path / "pairs.txt"
     pairs.write_text("MATICUSDT\n")
     out = tmp_path / "ds"
     src = FakeSource()
     src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
-    for i in range(5):
-        src.add_kline("MATICUSDT", "1d", dt.date(2020, 1, 1) + dt.timedelta(days=i))
+    cur = dt.date(2019, 4, 26)
+    while cur <= dt.date(2024, 9, 10):
+        src.add_kline("MATICUSDT", "1d", cur)
+        cur += dt.timedelta(days=1)
 
-    download_pipeline(out, pairs, "1d", dt.date(2019, 1, 1), dt.date(2024, 1, 1), src)
+    download_pipeline(out, pairs, "1d", dt.date(2018, 1, 1), dt.date(2026, 1, 1), src)
     assert verify_dataset(out).ok
     idx = load_index(out)
     mat = idx.pairs["MATICUSDT"].intervals["1d"]
-    assert mat.dates_to == "2020-01-05"  # last_available, truncated from arg_to
+    assert mat.dates_to == "2024-09-10"  # last_available, truncated from arg_to
 
     # backfill is no-op
     snaps_before = sorted((out / ".snapshots").glob("*.tar.gz"))
-    backfill_pipeline(out, "1d", dt.date(2024, 1, 1), src)
+    backfill_pipeline(out, "1d", dt.date(2026, 1, 1), src)
     snaps_after = sorted((out / ".snapshots").glob("*.tar.gz"))
     assert snaps_before == snaps_after, "delisted-only backfill must not snapshot"
     assert verify_dataset(out).ok

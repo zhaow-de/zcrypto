@@ -273,26 +273,51 @@ def find_available_range(
 def _find_interior_anchor(source: Source, symbol: str, interval: str, lo: dt.date, hi: dt.date) -> dt.date | None:
     """Find any date in `(lo, hi)` with data, given `lo` and `hi` are both known to be absent.
 
-    Recursive midpoint bisect: probe the midpoint; if present, return it; otherwise
-    by the contiguity assumption the data block (if any) is entirely in `(lo, mid)`
-    OR entirely in `(mid, hi)` — recurse into both halves.
+    Dual-direction doubling scan:
 
-    Typical case (a late-listing pair with most of `[lo, hi]` covered by data):
-    the midpoint hits → 1 probe. Pathological case (small data block at the edge):
-    O(log² N) probes. Both are dramatic wins over the day-by-day linear scan a
-    naive implementation would do (which would take 1000+ probes for a pair like
-    APTUSDT whose listing date is years after `lo`).
+    1. **Backward from hi**: probe `hi-1, hi-2, hi-4, ..., hi-2^k`. Catches
+       TRADING pairs (data extends to ~today; `hi-1` or `hi-2` usually hits
+       even under publishing lag) and recently-delisted pairs (data extends a
+       few years back from today) in `O(log₂(idle window))` probes.
+
+    2. **Forward from lo**: probe `lo+1, lo+2, lo+4, ..., lo+2^k`. Catches
+       early-listed-then-delisted pairs (data in the early portion of
+       `[lo, hi]`) in `O(log₂ N)` probes.
+
+    Each pass is at most `⌈log₂ N⌉` probes; worst-case total ≤ 2·⌈log₂ N⌉
+    (e.g. ~24 probes for a 6-year window). For typical real Binance cases,
+    the first probe of pass 1 hits.
+
+    **Why not recursive midpoint bisect**: that approach degrades to `O(N)`
+    when it recurses into a no-data subrange — the recurrence `T(N) = 1 +
+    2·T(N/2)` solves to `O(N)` because the no-data branch forces every leaf
+    probe. For ARBUSDT-shaped pairs (listing date 2 days past the search
+    midpoint), the recursive bisect would probe 1175 days of pre-listing
+    history before finding the data block in the other half.
+
+    **Limitation**: a data block smaller than the gap between consecutive
+    doubling probes near its offset can fall through both passes. Acceptable
+    for Binance archives — listed pairs have month-to-year-scale blocks.
     """
-    if (hi - lo).days < 2:
-        return None  # No interior days
-    mid = lo + dt.timedelta(days=(hi - lo).days // 2)
-    if source.exists_kline(symbol, interval, mid):
-        return mid
-    # mid is absent. By contiguity, data (if any) is in (lo, mid) or (mid, hi).
-    left = _find_interior_anchor(source, symbol, interval, lo, mid)
-    if left is not None:
-        return left
-    return _find_interior_anchor(source, symbol, interval, mid, hi)
+    # Pass 1: doubling backward from hi (favors recent data — TRADING + recent delist).
+    step = 1
+    while True:
+        cursor = hi - dt.timedelta(days=step)
+        if cursor <= lo:
+            break
+        if source.exists_kline(symbol, interval, cursor):
+            return cursor
+        step *= 2
+    # Pass 2: doubling forward from lo (favors early-listed-then-delisted data).
+    step = 1
+    while True:
+        cursor = lo + dt.timedelta(days=step)
+        if cursor >= hi:
+            break
+        if source.exists_kline(symbol, interval, cursor):
+            return cursor
+        step *= 2
+    return None
 
 
 # ---------------------------------------------------------------------------

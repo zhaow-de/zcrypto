@@ -679,17 +679,21 @@ def test_find_available_range_single_day_with_data():
 
 
 def test_find_available_range_delisted_pair_finds_historical():
-    """MATIC-shaped case: data 2020-01-01..2020-01-05; nothing later."""
+    """MATIC-shaped case: real Binance MATIC traded 2019-04-26..2024-09-10
+    before the POL rename. Search window straddles both ends. The dual-direction
+    doubling anchor finder should hit the data block during the backward pass
+    from `hi` within ~10 probes."""
     src = FakeSource()
     src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
-    for i in range(5):
-        src.add_kline("MATICUSDT", "1d", dt.date(2020, 1, 1) + dt.timedelta(days=i))
+    cur = dt.date(2019, 4, 26)
+    while cur <= dt.date(2024, 9, 10):
+        src.add_kline("MATICUSDT", "1d", cur)
+        cur += dt.timedelta(days=1)
 
-    rng = find_available_range(src, "MATICUSDT", "1d", dt.date(2019, 1, 1), dt.date(2025, 1, 1))
-    # Anchor-finding falls back to probe scan; should locate Jan 2020 cluster.
+    rng = find_available_range(src, "MATICUSDT", "1d", dt.date(2018, 1, 1), dt.date(2026, 6, 9))
     assert rng is not None
-    assert rng[0] == dt.date(2020, 1, 1)
-    assert rng[1] == dt.date(2020, 1, 5)
+    assert rng[0] == dt.date(2019, 4, 26)
+    assert rng[1] == dt.date(2024, 9, 10)
 
 
 def test_find_available_range_late_start_pair_uses_bisect_not_linear_scan(monkeypatch):
@@ -727,15 +731,38 @@ def test_find_available_range_late_start_pair_uses_bisect_not_linear_scan(monkey
     )
 
 
-def test_find_available_range_brief_listing_window_via_recursive_bisect():
-    """Pathological case: a 3-day data block inside a 100-day window with both
-    endpoints absent. Recursive bisect should still find it."""
+def test_find_available_range_arb_shaped_mid_window_listing_does_not_degrade_to_linear(monkeypatch):
+    """ARB-shaped regression: data block [2023-03-23..2026-06-08] inside search
+    window [2020-01-01..2026-06-09]. The midpoint (2023-03-21) lands just two
+    days before the listing date — the previous recursive midpoint bisect
+    degraded to ~1175 sequential probes in the no-data left half before finding
+    the right half. Dual-direction doubling must catch the data block during
+    the backward pass from `hi` in O(log N) probes."""
     src = FakeSource()
-    src.add_pair("BRIEFUSDT", "BRIEF", "USDT", status="BREAK")
-    for i in range(3):
-        src.add_kline("BRIEFUSDT", "1d", dt.date(2024, 6, 1) + dt.timedelta(days=i))
+    src.add_pair("ARBUSDT", "ARB", "USDT")  # TRADING
+    cur = dt.date(2023, 3, 23)
+    while cur <= dt.date(2026, 6, 8):
+        src.add_kline("ARBUSDT", "1d", cur)
+        cur += dt.timedelta(days=1)
 
-    rng = find_available_range(src, "BRIEFUSDT", "1d", dt.date(2024, 1, 1), dt.date(2024, 12, 31))
+    probes: list[dt.date] = []
+    real_exists = src.exists_kline
+
+    def counting_exists(symbol, interval, date):
+        probes.append(date)
+        return real_exists(symbol, interval, date)
+
+    monkeypatch.setattr(src, "exists_kline", counting_exists)
+
+    rng = find_available_range(src, "ARBUSDT", "1d", dt.date(2020, 1, 1), dt.date(2026, 6, 9))
     assert rng is not None
-    assert rng[0] == dt.date(2024, 6, 1)
-    assert rng[1] == dt.date(2024, 6, 3)
+    assert rng[0] == dt.date(2023, 3, 23)  # listing date
+    assert rng[1] == dt.date(2026, 6, 8)  # one day before publishing-lag boundary
+    # The previous recursive bisect did ~1200 probes for this shape. The dual-
+    # direction doubling should hit `hi - 1 = 2026-06-08` immediately, then do
+    # ~11 probes for first-available bisect.
+    assert len(probes) < 40, (
+        f"expected ≤ 40 probes via dual-direction doubling; got {len(probes)} — "
+        "this suggests the algorithm regressed back to the recursive bisect that "
+        "exhausted the no-data left half on ARB-shaped pairs"
+    )
