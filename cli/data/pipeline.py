@@ -1131,23 +1131,31 @@ def delist_pipeline(
 # Rename pipeline
 # ---------------------------------------------------------------------------
 
-_FIELD_SYNTH: dict[str, object] = {
-    "open": lambda c: c,
-    "high": lambda c: c,
-    "low": lambda c: c,
-    "close": lambda c: c,
-    "vwap": lambda c: c,
-    "volume": lambda c: 0.0,
-    "amount": lambda c: 0.0,
-    "trades": lambda c: 0.0,
-    "taker_buy_base": lambda c: 0.0,
-    "taker_buy_amount": lambda c: 0.0,
-    "factor": lambda c: 1.0,
+# Synthetic gap-fill values for rename's bridge days (the window where OLD was
+# delisted but NEW had not yet listed). Price fields are NaN — qlib's native
+# "suspended / not tradable" marker: its backtest exchange derives suspension
+# from `$close.isna()` and refuses to trade on those days, so the gap drops out
+# of returns/indicators instead of injecting fake flat bars. Volume-like fields
+# are 0.0 (the market genuinely had zero Binance volume while halted, and 0 keeps
+# `$volume > 0` filters and volume MAs free of NaN propagation). factor stays 1.0.
+_NAN = float("nan")
+_FIELD_SYNTH: dict[str, float] = {
+    "open": _NAN,
+    "high": _NAN,
+    "low": _NAN,
+    "close": _NAN,
+    "vwap": _NAN,
+    "volume": 0.0,
+    "amount": 0.0,
+    "trades": 0.0,
+    "taker_buy_base": 0.0,
+    "taker_buy_amount": 0.0,
+    "factor": 1.0,
 }
 
 
-def _synthetic_value(field: str, locked: float) -> float:
-    return _FIELD_SYNTH[field](locked)  # type: ignore[operator]
+def _synthetic_value(field: str) -> float:
+    return _FIELD_SYNTH[field]
 
 
 @_dc.dataclass
@@ -1160,14 +1168,13 @@ class RenamePlan:
     new_first: dt.date
     new_to: dt.date  # renamed pair's index.to after fill = new_first - 1 day
     gap_dates: list[dt.date]
-    synthetic_locked_ohlc: float
     is_noop: bool
 
     def dry_run_summary(self) -> str:
         lines = [f"DRY-RUN: rename plan (Variant {self.variant}): {self.old_symbol} → {self.new_symbol}"]
         if self.gap_dates:
             lines.append(f"  synthetic gap fill: {len(self.gap_dates)} day(s) ({self.gap_dates[0]} .. {self.gap_dates[-1]})")
-            lines.append(f"  locked OHLC/VWAP = {self.synthetic_locked_ohlc}, volume/amount/trades = 0.0, factor = 1.0")
+            lines.append("  OHLC/VWAP = NaN (qlib suspension marker), volume/amount/trades = 0.0, factor = 1.0")
         else:
             lines.append("  no synthetic gap fill needed")
         lines.append(f"  renamed pair index.to will be: {self.new_to}")
@@ -1215,11 +1222,6 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
                 "operator must reconcile manually before merging"
             )
 
-        # Read OLD's last close for gap-fill synthetic value.
-        old_close_bin = out_dir / "features" / old.lower() / "close.day.bin"
-        _header, old_closes = read_bin(old_close_bin)
-        synthetic_locked_ohlc = float(old_closes[-1])
-
         # Gap dates: days between old_to+1 and new_from-1 (may be empty).
         gap_dates_v2: list[dt.date] = []
         cur = old_to + dt.timedelta(days=1)
@@ -1229,23 +1231,21 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
 
         if len(gap_dates_v2) > CliConstants.RENAME_SYNTH_WARN_DAYS:
             logger.warning(
-                "rename %s → %s (Variant 2): large synthetic gap fill: %d days (%s .. %s), locked OHLC = %s. Verify data integrity after rename.",
+                "rename %s → %s (Variant 2): large synthetic gap fill: %d days (%s .. %s), OHLC = NaN (suspension). Verify data integrity after rename.",
                 old,
                 new,
                 len(gap_dates_v2),
                 gap_dates_v2[0],
                 gap_dates_v2[-1],
-                synthetic_locked_ohlc,
             )
         elif gap_dates_v2:
             logger.warning(
-                "rename %s → %s (Variant 2): synthetic gap fill: %d day(s) (%s .. %s), locked OHLC = %s",
+                "rename %s → %s (Variant 2): synthetic gap fill: %d day(s) (%s .. %s), OHLC = NaN (suspension)",
                 old,
                 new,
                 len(gap_dates_v2),
                 gap_dates_v2[0],
                 gap_dates_v2[-1],
-                synthetic_locked_ohlc,
             )
 
         return RenamePlan(
@@ -1257,7 +1257,6 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
             new_first=new_from,
             new_to=new_to_v2,
             gap_dates=gap_dates_v2,
-            synthetic_locked_ohlc=synthetic_locked_ohlc,
             is_noop=False,
         )
 
@@ -1265,11 +1264,6 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
     old_pair = idx.pairs[old]
     old_interval_entry = old_pair.intervals["1d"]
     old_to = dt.date.fromisoformat(old_interval_entry.dates_to)
-
-    # Read OLD's last close from the bin.
-    old_close_bin = out_dir / "features" / old.lower() / "close.day.bin"
-    _header, old_closes = read_bin(old_close_bin)
-    synthetic_locked_ohlc = float(old_closes[-1])
 
     # Probe NEW's first archive day starting from old_to + 1.
     yesterday_utc = dt.date.today() - dt.timedelta(days=1)
@@ -1297,23 +1291,21 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
 
     if len(gap_dates) > CliConstants.RENAME_SYNTH_WARN_DAYS:
         logger.warning(
-            "rename %s → %s: large synthetic gap fill: %d days (%s .. %s), locked OHLC = %s. Verify data integrity after rename.",
+            "rename %s → %s: large synthetic gap fill: %d days (%s .. %s), OHLC = NaN (suspension). Verify data integrity after rename.",
             old,
             new,
             len(gap_dates),
             gap_dates[0],
             gap_dates[-1],
-            synthetic_locked_ohlc,
         )
     elif gap_dates:
         logger.warning(
-            "rename %s → %s: synthetic gap fill: %d day(s) (%s .. %s), locked OHLC = %s",
+            "rename %s → %s: synthetic gap fill: %d day(s) (%s .. %s), OHLC = NaN (suspension)",
             old,
             new,
             len(gap_dates),
             gap_dates[0],
             gap_dates[-1],
-            synthetic_locked_ohlc,
         )
 
     return RenamePlan(
@@ -1325,7 +1317,6 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
         new_first=new_first,
         new_to=new_to,
         gap_dates=gap_dates,
-        synthetic_locked_ohlc=synthetic_locked_ohlc,
         is_noop=False,
     )
 
@@ -1408,7 +1399,7 @@ def _rename_apply_variant1(out_dir: Path, staging: Path, plan: RenamePlan) -> No
                 bin_path = dst_dir / f"{field}.day.bin"
                 gap_bytes = b""
                 for _d in plan.gap_dates:
-                    val = _synthetic_value(field, plan.synthetic_locked_ohlc)
+                    val = _synthetic_value(field)
                     gap_bytes += struct.pack("<f", val)
                 with bin_path.open("ab") as fh:
                     fh.write(gap_bytes)
@@ -1545,7 +1536,7 @@ def _rename_apply_variant2(out_dir: Path, staging: Path, plan: RenamePlan) -> No
         old_data = old_bytes[4:]
         new_data = new_bytes[4:]
         # Synthetic gap bytes.
-        synth_val = _synthetic_value(field, plan.synthetic_locked_ohlc)
+        synth_val = _synthetic_value(field)
         gap_data = struct.pack("<f", float(synth_val)) * n_gap
         merged_data = old_data + gap_data + new_data
         # Write with new header (start_index as float32).
