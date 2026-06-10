@@ -28,11 +28,11 @@ def _sample_index() -> IndexData:
         base_asset="BTC",
         quote_asset="USDT",
         intervals={
-            "1d": PairIntervalEntry(from_date="2024-01-01", rows=3, fields=fields),
+            "1d": PairIntervalEntry(from_date="2024-01-01", to_date="2024-01-03", rows=3, fields=fields),
         },
     )
     return IndexData(
-        schema_version=1,
+        schema_version=2,
         updated_at="2024-01-03T12:00:00Z",
         calendar=cal,
         pairs={"BTCUSDT": pair},
