@@ -128,3 +128,48 @@ def test_backfill_trading_pair_sustained_absence_beyond_grace_raises(tmp_path):
     # No new klines; arg_to = index.to + 30 days (well beyond 7-day grace)
     with pytest.raises(PipelineError, match=r"delisted|renamed|publishing-lag grace"):
         backfill_pipeline(out, "1d", dt.date(2024, 2, 4), src)
+
+
+def test_backfill_extends_ragged_pair_that_ends_before_calendar(tmp_path):
+    """Regression: a pair whose dates_to is earlier than the calendar end (a
+    "ragged right edge") must be backfillable once it returns to TRADING.
+
+    Reproduces the rename → backfill edge case at the backfill layer: a pair goes
+    BREAK (so it stops extending) while another pair pushes the calendar further,
+    leaving the first pair's bin shorter than the calendar. When it later returns
+    to TRADING and is backfilled, `_read_existing_pair` previously assumed every
+    existing bin spanned to the calendar end and raised
+    "existing BTCUSDT open bin inconsistent with index: header=0, len=5"."""
+    # Phase 1: BTC + ETH both through 2024-01-05.
+    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+
+    # Phase 2: BTC goes BREAK; ETH extends to 01-07. BTC is now ragged (ends
+    # 01-05) while the calendar reaches 01-07.
+    for entry in src.exchange_info:
+        if entry["symbol"] == "BTCUSDT":
+            entry["status"] = "BREAK"
+            break
+    for d in (dt.date(2024, 1, 6), dt.date(2024, 1, 7)):
+        src.add_kline("ETHUSDT", "1d", d)
+    backfill_pipeline(out, "1d", dt.date(2024, 1, 7), src)
+    idx = load_index(out)
+    assert idx.pairs["BTCUSDT"].intervals["1d"].dates_to == "2024-01-05"  # ragged
+    assert idx.pairs["ETHUSDT"].intervals["1d"].dates_to == "2024-01-07"
+
+    # Phase 3: BTC returns to TRADING with archive through 01-07; backfill must
+    # extend the ragged pair without crashing.
+    for entry in src.exchange_info:
+        if entry["symbol"] == "BTCUSDT":
+            entry["status"] = "TRADING"
+            break
+    for d in (dt.date(2024, 1, 6), dt.date(2024, 1, 7)):
+        src.add_kline("BTCUSDT", "1d", d)
+    backfill_pipeline(out, "1d", dt.date(2024, 1, 7), src)
+
+    idx = load_index(out)
+    btc = idx.pairs["BTCUSDT"].intervals["1d"]
+    eth = idx.pairs["ETHUSDT"].intervals["1d"]
+    assert btc.dates_to == "2024-01-07", "ragged pair extended to calendar end"
+    assert btc.rows == 7
+    assert eth.dates_to == "2024-01-07"
+    assert verify_dataset(out).ok
