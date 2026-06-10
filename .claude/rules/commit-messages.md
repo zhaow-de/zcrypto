@@ -25,6 +25,14 @@ Always reflect the **actual** model and version that did the work (e.g. `Claude 
 
 ## Reviewer trailer
 
+**Review is mandatory.** Every Claude-authored commit on a feature/fix branch must be reviewed by a subagent before it is pushed or merged. Reviewing is fast (a focused review subagent typically takes 30s–2min); skipping it forces a force-push later to add the trailer, and risks shipping unreviewed code in the meantime. There is no "trivial enough to skip review" exception — chore / docs / one-line fix commits all go through review, same as feature commits. The discipline is uniform so the rule never becomes a judgment call.
+
+- **Implementer-authored commits**: dispatch a review subagent (a different one from the implementer) before push. Amend the `Reviewed-by:` trailer while the commit is still local.
+- **Orchestrator-authored inline commits** (the orchestrating session edits files directly instead of delegating to an implementer subagent): still dispatch a review subagent. The orchestrator is not its own reviewer.
+- **Exemption — spec / plan / closeout-docs commits authored under brainstorming / writing-plans / iterations-history flows**: the user's explicit approval at the end of the brainstorming or plan-writing flow counts as review. No subagent review needed for those, and no `Reviewed-by:` trailer is added.
+- **Exemption — merge commits**: produced by `gh pr merge`, not by Claude. No review, no trailer.
+- **Remediation when a commit slipped to remote without review**: dispatch the review now, amend the trailer onto the commit, force-push the branch (`git push --force-with-lease`). Allowed on feature/fix branches and `develop` per this repo's `.github/settings.yml`.
+
 Credit **every** review subagent that signs off on a commit (e.g. during subagent-driven development) with a `Reviewed-by:` trailer on **that commit** — regardless of whether its feedback prompted a change, matching the standard "I reviewed this and vouch for it" meaning. Use the same full form as the co-author trailer, a distinct token, reflecting the reviewer's **actual** model:
 
 ```
