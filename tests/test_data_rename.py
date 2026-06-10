@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from pathlib import Path
 
 import pytest
@@ -45,8 +46,11 @@ def test_rename_v1_no_gap(tmp_path):
     assert verify_dataset(out).ok
 
 
-def test_rename_v1_with_gap_fills_zero_volume(tmp_path):
-    """OLD ends 2024-09-10, NEW first archive = 2024-09-13 → 2 synthetic days."""
+def test_rename_v1_with_gap_fills_nan_price_zero_volume(tmp_path):
+    """OLD ends 2024-09-10, NEW first archive = 2024-09-13 → 2 synthetic days.
+
+    Gap price fields are NaN (qlib's suspension marker), volume/amount/trades are
+    0.0, factor is 1.0."""
     out = _seed_single_pair(tmp_path, "MATICUSDT", "MATIC", "USDT", dt.date(2024, 9, 10), status="BREAK")
     src = FakeSource()
     src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
@@ -54,15 +58,13 @@ def test_rename_v1_with_gap_fills_zero_volume(tmp_path):
     for i in range(3):
         src.add_kline("POLUSDT", "1d", dt.date(2024, 9, 13) + dt.timedelta(days=i))
 
-    # Capture MATIC's last close before rename
-    _, old_closes = read_bin(out / "features" / "maticusdt" / "close.day.bin")
-    locked = float(old_closes[-1])
-
     rename_pipeline(out, "MATICUSDT", "POLUSDT", src)
 
-    _, new_closes = read_bin(out / "features" / "polusdt" / "close.day.bin")
-    assert new_closes[-2] == pytest.approx(locked)
-    assert new_closes[-1] == pytest.approx(locked)
+    # Price fields (OHLC + VWAP) on the 2 gap days are NaN.
+    for field in ("open", "high", "low", "close", "vwap"):
+        _, vals = read_bin(out / "features" / "polusdt" / f"{field}.day.bin")
+        assert math.isnan(vals[-2]), f"{field}[-2] should be NaN"
+        assert math.isnan(vals[-1]), f"{field}[-1] should be NaN"
     _, vols = read_bin(out / "features" / "polusdt" / "volume.day.bin")
     assert vols[-2] == pytest.approx(0.0)
     assert vols[-1] == pytest.approx(0.0)
@@ -195,9 +197,12 @@ def test_rename_v2_merge_with_gap_fills(tmp_path):
     # 41 OLD + 2 gap + 8 NEW = 51 rows
     _, vols = read_bin(out / "features" / "polusdt" / "volume.day.bin")
     assert len(vols) == 51
-    # Synthetic gap is at indices 41, 42 (zero volume)
+    # Synthetic gap is at indices 41, 42: zero volume, NaN close.
     assert vols[41] == pytest.approx(0.0)
     assert vols[42] == pytest.approx(0.0)
+    _, closes = read_bin(out / "features" / "polusdt" / "close.day.bin")
+    assert math.isnan(closes[41])
+    assert math.isnan(closes[42])
     assert verify_dataset(out).ok
 
 
