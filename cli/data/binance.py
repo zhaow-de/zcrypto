@@ -10,6 +10,9 @@ from typing import Protocol
 
 from cli.constants import CliConstants
 from cli.data.config import BASE_URL, EXCHANGE_INFO_URL
+from cli.logging import get_logger
+
+logger = get_logger("data.binance")
 
 
 class Source(Protocol):
@@ -59,18 +62,61 @@ def _retryable_urlopen(
     """
     if attempts is None:
         attempts = CliConstants.HTTP_RETRY_ATTEMPTS
+    if isinstance(req_or_url, urllib.request.Request):
+        _url = req_or_url.full_url
+        _method = req_or_url.get_method()
+    else:
+        _url = str(req_or_url)
+        _method = "GET"
     last_exc = None
     for attempt in range(attempts):
+        logger.debug(
+            "HTTP %s %s (attempt %d/%d, timeout=%ss)",
+            _method,
+            _url,
+            attempt + 1,
+            attempts,
+            timeout,
+        )
+        _start = time.monotonic()
         try:
-            return urllib.request.urlopen(req_or_url, timeout=timeout)
+            resp = urllib.request.urlopen(req_or_url, timeout=timeout)
+            _ms = (time.monotonic() - _start) * 1000
+            logger.debug("HTTP %s %s → %d in %.0fms", _method, _url, resp.status, _ms)
+            return resp
         except urllib.error.HTTPError as e:
+            _ms = (time.monotonic() - _start) * 1000
             if 400 <= e.code < 500:
+                logger.debug(
+                    "HTTP %s %s → %d in %.0fms (4xx, propagating)",
+                    _method,
+                    _url,
+                    e.code,
+                    _ms,
+                )
                 raise  # client error; don't retry
+            logger.debug(
+                "HTTP %s %s → %d in %.0fms (5xx, will retry)",
+                _method,
+                _url,
+                e.code,
+                _ms,
+            )
             last_exc = e  # 5xx — retry
         except (TimeoutError, socket.timeout, urllib.error.URLError, OSError) as e:
+            _ms = (time.monotonic() - _start) * 1000
+            logger.debug(
+                "HTTP %s %s → %s in %.0fms (will retry)",
+                _method,
+                _url,
+                type(e).__name__,
+                _ms,
+            )
             last_exc = e
         if attempt < attempts - 1:
-            time.sleep(base_delay * (2**attempt))
+            _delay = base_delay * (2**attempt)
+            logger.debug("retrying %s %s in %.1fs", _method, _url, _delay)
+            time.sleep(_delay)
     raise last_exc
 
 
