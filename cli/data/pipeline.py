@@ -180,7 +180,9 @@ def find_first_available(source: Source, symbol: str, interval: str, lo: dt.date
     return hi
 
 
-def _bisect_first_available(source: Source, symbol: str, interval: str, lo: dt.date, anchor: dt.date) -> dt.date:
+def _bisect_first_available(
+    source: Source, symbol: str, interval: str, lo: dt.date, anchor: dt.date, *, lo_known_missing: bool = False
+) -> dt.date:
     """Find the earliest date in [lo, anchor] with data. anchor is known good.
 
     Assumes data is **contiguous** within [lo, anchor]: a single uninterrupted
@@ -188,8 +190,11 @@ def _bisect_first_available(source: Source, symbol: str, interval: str, lo: dt.d
     holds (a pair trades continuously while listed; delisted pairs preserve
     a contiguous historical range). If data has internal gaps, the bisect
     may stop at a gap boundary and miss earlier data.
+
+    `lo_known_missing=True` skips the initial probe of `lo` when the caller
+    already verified it is absent.
     """
-    if source.exists_kline(symbol, interval, lo):
+    if not lo_known_missing and source.exists_kline(symbol, interval, lo):
         return lo
     # Invariant: lo missing, anchor present.
     while lo + dt.timedelta(days=1) < anchor:
@@ -201,15 +206,20 @@ def _bisect_first_available(source: Source, symbol: str, interval: str, lo: dt.d
     return anchor
 
 
-def _bisect_last_available(source: Source, symbol: str, interval: str, anchor: dt.date, hi: dt.date) -> dt.date:
+def _bisect_last_available(
+    source: Source, symbol: str, interval: str, anchor: dt.date, hi: dt.date, *, hi_known_missing: bool = False
+) -> dt.date:
     """Find the latest date in [anchor, hi] with data. anchor is known good.
 
     Assumes data is **contiguous** within [anchor, hi]: a single uninterrupted
     block starting at-or-after anchor. Same caveat as `_bisect_first_available`
     — a real Binance kline archive satisfies this; a gappy synthetic source
     could trip the bisect into stopping at the gap.
+
+    `hi_known_missing=True` skips the initial probe of `hi` when the caller
+    already verified it is absent.
     """
-    if source.exists_kline(symbol, interval, hi):
+    if not hi_known_missing and source.exists_kline(symbol, interval, hi):
         return hi
     # Invariant: anchor present, hi missing.
     while anchor + dt.timedelta(days=1) < hi:
@@ -231,31 +241,38 @@ def find_available_range(
     """Return (first_available, last_available) within [lo, hi], or None
     if no kline zip exists in that range.
 
-    Implementation: find an anchor (any date in [lo, hi] that has data),
-    then bisect leftward for first_available and rightward for last_available.
+    Implementation: probe endpoints, then bisect to find first/last available,
+    passing known endpoint states to avoid duplicate probes.
     """
     if lo > hi:
         return None
 
-    # Fast-path: try endpoints first.
-    if source.exists_kline(symbol, interval, hi):
-        anchor = hi
-    elif source.exists_kline(symbol, interval, lo):
-        anchor = lo
-    else:
-        # Probe scan: linear scan from lo+1 (lo and hi already checked above).
-        anchor = None
-        probe = lo + dt.timedelta(days=1)
-        while probe < hi:
-            if source.exists_kline(symbol, interval, probe):
-                anchor = probe
-                break
-            probe += dt.timedelta(days=1)
-        if anchor is None:
-            return None
+    hi_present = source.exists_kline(symbol, interval, hi)
+    if hi_present:
+        # hi works → last_available = hi; only need to find first_available.
+        if source.exists_kline(symbol, interval, lo):
+            return (lo, hi)
+        first = _bisect_first_available(source, symbol, interval, lo, hi, lo_known_missing=True)
+        return (first, hi)
 
-    first = _bisect_first_available(source, symbol, interval, lo, anchor)
-    last = _bisect_last_available(source, symbol, interval, anchor, hi)
+    # hi missing → check lo
+    if source.exists_kline(symbol, interval, lo):
+        # anchor = lo (known present); skip first-bisect, do last-bisect with hi known missing.
+        last = _bisect_last_available(source, symbol, interval, lo, hi, hi_known_missing=True)
+        return (lo, last)
+
+    # Both endpoints missing — scan for an anchor in the interior (preserve existing behavior).
+    anchor = None
+    cursor = lo + dt.timedelta(days=1)
+    while cursor < hi:
+        if source.exists_kline(symbol, interval, cursor):
+            anchor = cursor
+            break
+        cursor += dt.timedelta(days=1)
+    if anchor is None:
+        return None
+    first = _bisect_first_available(source, symbol, interval, lo, anchor, lo_known_missing=True)
+    last = _bisect_last_available(source, symbol, interval, anchor, hi, hi_known_missing=True)
     return (first, last)
 
 
