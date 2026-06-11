@@ -16,7 +16,7 @@ logger = get_logger("data.binance")
 
 # Reused across all HTTP calls so TLS handshakes are amortized.
 # num_pools=4 gives headroom (we use ~2 hosts: data.binance.vision + api.binance.com).
-# maxsize=16 covers FETCH_CONCURRENCY=5 + pre-flight + headroom.
+# maxsize=16 gives 2x headroom over FETCH_CONCURRENCY=8 + pre-flight probes.
 # retries=False so our `_retryable_request` retry loop owns the retry policy.
 _pool = urllib3.PoolManager(num_pools=4, maxsize=16, retries=False)
 
@@ -40,12 +40,22 @@ class Source(Protocol):
 
     def fetch_kline_zip(self, symbol: str, interval: str, date: dt.date) -> bytes: ...
 
-    def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str: ...
+    def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str | None: ...
+
+
+def kline_archive_parts(symbol: str, interval: str, date: dt.date) -> tuple[str, str]:
+    """(archive-relative dir, filename) for a daily kline zip.
+
+    Single source of truth for the layout, reused by both the remote URL and the local
+    mirror path (`cli.data.mirror`) so the two can never drift. Change the layout here once.
+    """
+    iso = date.strftime("%Y-%m-%d")
+    return f"spot/daily/klines/{symbol}/{interval}", f"{symbol}-{interval}-{iso}.zip"
 
 
 def kline_zip_url(symbol: str, interval: str, date: dt.date) -> str:
-    iso = date.strftime("%Y-%m-%d")
-    return f"{BASE_URL}/data/spot/daily/klines/{symbol}/{interval}/{symbol}-{interval}-{iso}.zip"
+    rel_dir, name = kline_archive_parts(symbol, interval, date)
+    return f"{BASE_URL}/data/{rel_dir}/{name}"
 
 
 def kline_checksum_url(symbol: str, interval: str, date: dt.date) -> str:
@@ -156,7 +166,16 @@ class BinanceSource:
         resp = _retryable_request("GET", url, timeout=CliConstants.HTTP_TIMEOUT_GET_SECS)
         return resp.data
 
-    def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str:  # pragma: no cover
+    def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str | None:  # pragma: no cover
+        """The published sha256 for this zip, or None if no `.CHECKSUM` exists (404).
+
+        Some recent days ship the zip without a sibling `.CHECKSUM`; a missing one is a
+        signal (fall back to structural verification), not an error."""
         url = kline_checksum_url(symbol, interval, date)
-        resp = _retryable_request("GET", url, timeout=CliConstants.HTTP_TIMEOUT_HEAD_SECS)
+        try:
+            resp = _retryable_request("GET", url, timeout=CliConstants.HTTP_TIMEOUT_HEAD_SECS)
+        except HttpStatusError as e:
+            if e.status == 404:
+                return None
+            raise
         return parse_checksum_file(resp.data.decode("utf-8"))

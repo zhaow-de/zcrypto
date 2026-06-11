@@ -74,7 +74,11 @@ zcrypto data download ./ds pairs.txt --from 2024-01-01 --to 2024-01-31
 zcrypto data download ./ds pairs.txt --dry-run          # preview only
 ```
 
-**Concurrency:** `data download` fetches up to **5** daily zips in parallel (gentle by default to avoid hammering the data archive). The cap is set by `CliConstants.FETCH_CONCURRENCY` in `cli/constants.py`; tune by editing the constant — there is no env var or CLI flag for this. The convention is that low-change operational config lives in `CliConstants`; high-change-odds config gets a Typer flag.
+**Concurrency:** `data download` fetches up to **8** daily zips in parallel (gentle by default to avoid hammering the data archive). The cap is set by `CliConstants.FETCH_CONCURRENCY` in `cli/constants.py`; tune by editing the constant — there is no env var or CLI flag for this. The convention is that low-change operational config lives in `CliConstants`; high-change-odds config gets a Typer flag.
+
+**Local mirror & recovery:** every verified zip is saved to a dataset-local mirror at `<OUT_DIR>/.raw`, under a tree that mirrors the remote archive layout plus a year subdir — e.g. `./ds/.raw/spot/daily/klines/DOTUSDT/1d/2025/DOTUSDT-1d-2025-10-14.zip`. On a later run a present zip is read from the mirror instead of re-downloaded, so a partial or failed download resumes cheaply rather than starting over. Like `.snapshots/` and `.staging/`, the `.raw/` directory lives inside `OUT_DIR` but is excluded from snapshots, verification, and the atomic commit. The mirror is trusted as immutable and read without re-checksumming; delete a file (or the tree) to force a re-fetch.
+
+**Missing `.CHECKSUM`:** some recent archive days ship the zip without a sibling `.CHECKSUM`. Rather than fail, the download verifies the zip structurally (it extracts to exactly one parse-able CSV), logs a warning, and continues.
 
 ##### `zcrypto data verify OUT_DIR`
 

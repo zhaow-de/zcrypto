@@ -53,6 +53,8 @@ class FakeSource:
         self.exchange_info: list[dict] = []
         # (symbol, interval, date) -> (zip_bytes, sha256_hex)
         self._klines: dict[tuple[str, str, dt.date], tuple[bytes, str]] = {}
+        # (symbol, interval, date) entries with no published .CHECKSUM
+        self._no_checksum: set[tuple[str, str, dt.date]] = set()
 
     def add_pair(self, symbol: str, base: str, quote: str, status: str = "TRADING") -> None:
         self.exchange_info.append({"symbol": symbol, "baseAsset": base, "quoteAsset": quote, "status": status})
@@ -75,6 +77,10 @@ class FakeSource:
         zb, _ = self._klines[(symbol, interval, date)]
         self._klines[(symbol, interval, date)] = (zb, "0" * 64)
 
+    def drop_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> None:
+        """Simulate a published zip with no sibling `.CHECKSUM` (fetch returns None)."""
+        self._no_checksum.add((symbol, interval, date))
+
     # Source protocol
     def fetch_exchange_info(self) -> list[dict]:
         return list(self.exchange_info)
@@ -85,7 +91,9 @@ class FakeSource:
     def fetch_kline_zip(self, symbol: str, interval: str, date: dt.date) -> bytes:
         return self._klines[(symbol, interval, date)][0]
 
-    def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str:
+    def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str | None:
+        if (symbol, interval, date) in self._no_checksum:
+            return None
         return self._klines[(symbol, interval, date)][1]
 
 

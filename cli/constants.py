@@ -10,7 +10,7 @@ class CliConstants:
     surface, easy to discover, no env-var or hidden-config sprawl.
     """
 
-    FETCH_CONCURRENCY = 5
+    FETCH_CONCURRENCY = 8
     """Max parallel HTTP fetches in ``zcrypto data download``. Gentle by
     default to avoid hammering ``data.binance.vision``."""
 

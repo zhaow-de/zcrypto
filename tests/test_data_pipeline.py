@@ -213,6 +213,22 @@ def test_download_checksum_mismatch_raises(tmp_path):
         download_pipeline(tmp_path / "ds", pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 3), src)
 
 
+def test_download_missing_checksum_warns_and_continues(tmp_path, caplog, monkeypatch):
+    """A zip with no published .CHECKSUM is accepted via structure+parse, with a warning."""
+    import logging
+
+    monkeypatch.setattr(logging.getLogger("zcrypto"), "propagate", True)
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 3))
+    src.drop_kline_checksum("BTCUSDT", "1d", dt.date(2024, 1, 2))
+    with caplog.at_level(logging.WARNING):
+        download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 3), src)
+    assert verify_dataset(out).ok
+    assert any("no .CHECKSUM" in r.getMessage() for r in caplog.records)
+
+
 def test_download_leaves_live_dir_pristine_on_error(tmp_path):
     pairs = tmp_path / "pairs.txt"
     pairs.write_text("BTCUSDT\nETHUSDT\n")

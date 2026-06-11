@@ -14,6 +14,7 @@ import pandas as _pd
 import typer
 
 from cli.constants import CliConstants
+from cli.data import mirror
 from cli.data.binance import Source
 from cli.data.config import FIELDS, SCHEMA_VERSION, SUPPORTED_INTERVALS
 from cli.data.index import (
@@ -436,23 +437,44 @@ def _resolve_ranges(
     return plan
 
 
-def _verify_checksum(source: Source, sym: str, interval: str, date: dt.date, zip_bytes: bytes) -> None:
-    expected = source.fetch_kline_checksum(sym, interval, date)
-    actual = _hashlib.sha256(zip_bytes).hexdigest()
-    if expected.lower() != actual.lower():
-        raise PipelineError(f"{sym} {date}: checksum mismatch")
+def _fetch_one_date(
+    source: Source, sym: str, interval: str, date: dt.date, mirror_root: Path
+) -> tuple[str, dt.date, _pd.DataFrame]:
+    """Resolve one (sym, interval, date) tuple to its parsed single-row DataFrame.
 
+    Mirror hit: read the cached zip and parse it (trusted, no re-checksum). Miss: fetch
+    from the remote, verify, save to the mirror, and parse. Verification has two modes —
+    a published `.CHECKSUM` is compared by sha256 (then save → parse); a missing one
+    (fetch returns None) makes the parse itself (extractable + exactly one csv + parse-able)
+    the integrity gate, so we parse → warn → save, never caching an unparseable zip."""
+    mpath = mirror.mirror_path(mirror_root, sym, interval, date)
+    cached = mirror.read_zip(mpath)
+    if cached is not None:
+        logger.debug("mirror hit %s %s: %s", sym, date, mpath)
+        return sym, date, parse_kline_zip(cached, sym, interval, date)
 
-def _fetch_one_date(source: Source, sym: str, interval: str, date: dt.date) -> tuple[str, dt.date, _pd.DataFrame]:
-    """Fetch + checksum + parse one (sym, interval, date) tuple. Returns the parsed single-row DataFrame."""
     zip_bytes = source.fetch_kline_zip(sym, interval, date)
-    _verify_checksum(source, sym, interval, date, zip_bytes)
-    df = parse_kline_zip(zip_bytes, sym, interval, date)
+    checksum = source.fetch_kline_checksum(sym, interval, date)
+    if checksum is None:
+        df = parse_kline_zip(zip_bytes, sym, interval, date)
+        logger.warning("%s %s: no .CHECKSUM published; verified by structure+parse only", sym, date)
+        mirror.save_zip(mpath, zip_bytes)
+    else:
+        actual = _hashlib.sha256(zip_bytes).hexdigest()
+        if actual.lower() != checksum.lower():
+            raise PipelineError(f"{sym} {date}: checksum mismatch")
+        mirror.save_zip(mpath, zip_bytes)
+        df = parse_kline_zip(zip_bytes, sym, interval, date)
     return sym, date, df
 
 
-def _fetch_all_concurrent(source: Source, plan: list[_PerPair], interval: str, max_workers: int) -> dict[str, _pd.DataFrame]:
-    """Fetch every (pair, date) tuple via a bounded thread pool. Per-pair gap-check runs after collection."""
+def _fetch_all_concurrent(
+    source: Source, plan: list[_PerPair], interval: str, max_workers: int, mirror_root: Path
+) -> dict[str, _pd.DataFrame]:
+    """Fetch every (pair, date) tuple via a bounded thread pool. Per-pair gap-check runs after collection.
+
+    `mirror_root` is the dataset-local zip mirror (`<out_dir>/.raw`); each fetch reads from
+    it on a hit and saves to it on a miss."""
     work: list[tuple[str, dt.date]] = []
     per_pair_expected: dict[str, list[dt.date]] = {}
     per_pair_rows: dict[str, list[_pd.DataFrame]] = {}
@@ -479,7 +501,7 @@ def _fetch_all_concurrent(source: Source, plan: list[_PerPair], interval: str, m
     completed = 0
     log_every = CliConstants.FETCH_PROGRESS_LOG_INTERVAL
     with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="zcrypto-fetch") as pool:
-        futures = {pool.submit(_fetch_one_date, source, sym, interval, d): (sym, d) for sym, d in work}
+        futures = {pool.submit(_fetch_one_date, source, sym, interval, d, mirror_root): (sym, d) for sym, d in work}
         try:
             for fut in as_completed(futures):
                 sym, d = futures[fut]
@@ -770,7 +792,7 @@ def _download_plan(
 def _download_apply(out_dir: Path, staging: Path, plan: DownloadPlan, source: Source) -> None:
     """Fetch + build staging. The harness handles snapshot, post-verify, commit."""
     non_empty = [p for p in plan.per_pair if p.effective_from <= p.effective_to]
-    fetched = _fetch_all_concurrent(source, non_empty, plan.interval, CliConstants.FETCH_CONCURRENCY)
+    fetched = _fetch_all_concurrent(source, non_empty, plan.interval, CliConstants.FETCH_CONCURRENCY, mirror.root_for(out_dir))
     new_rows_per_sym: dict[str, _pd.DataFrame] = {
         p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan.per_pair
     }
@@ -900,7 +922,7 @@ def _backfill_apply(out_dir: Path, staging: Path, plan: BackfillPlan, source: So
     existing = load_index(out_dir)
     assert existing is not None, "_backfill_apply called without an existing index"
 
-    fetched = _fetch_all_concurrent(source, plan.per_pair, interval, CliConstants.FETCH_CONCURRENCY)
+    fetched = _fetch_all_concurrent(source, plan.per_pair, interval, CliConstants.FETCH_CONCURRENCY, mirror.root_for(out_dir))
 
     # Collect all pairs: those being extended + those carried over unchanged.
     extended_syms = {p.symbol for p in plan.per_pair}
