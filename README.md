@@ -1,4 +1,4 @@
-![Version](https://img.shields.io/badge/version-v0.1.1-blue)
+![Version](https://img.shields.io/badge/version-v0.2.0-blue)
 ![GitHub License](https://img.shields.io/github/license/zhaow-de/zcrypto)
 ![Python Version from PEP 621 TOML](https://img.shields.io/python/required-version-toml?tomlFilePath=https://raw.githubusercontent.com/zhaow-de/zcrypto/develop/pyproject.toml)
 ![Coveralls](https://img.shields.io/coverallsCoverage/github/zhaow-de/zcrypto)

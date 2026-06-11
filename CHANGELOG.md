@@ -1,3 +1,41 @@
+## v0.2.0 (2026-06-11)
+
+### 🚀 Features
+
+#### iter-5 — backfill, delist, rename, status-aware download/backfill
+
+Completes the `zcrypto data` command suite with three new subcommands: `backfill` extends every pair in your dataset to yesterday's data, `delist` removes a pair with automatic calendar trimming, and `rename` merges a delisted pair's history into its successor (e.g. MATICUSDT → POLUSDT) with proper suspension bars for any listing gap. All four data commands now share a unified crash-recovery harness and support `--dry-run`. Download and backfill are now status-aware: delisted/halted pairs are archived automatically instead of erroring.
+
+*[#16](https://github.com/zhaow-de/zcrypto/pull/16) by @zhaow-de*
+
+### 🐛 Bug Fixes
+
+#### iter-4 — data download & verify
+
+Adds `zcrypto data download` (Binance spot daily klines → validated Qlib dataset) and `zcrypto data verify` (read-only dataset re-validation). Also includes HTTP timeout/retry hardening, concurrent fetching, snapshot-based crash recovery, and the per-commit reviewer-trailer convention.
+
+*[#14](https://github.com/zhaow-de/zcrypto/pull/14) by @zhaow-de*
+
+### 📚 Documentation
+
+#### make review mandatory for every Claude-authored feature/fix commit
+
+Codifies that every Claude-authored commit on a feature/fix branch must be reviewed by a separate subagent before push — no exceptions for "trivial" commits.
+
+*[#17](https://github.com/zhaow-de/zcrypto/pull/17) by @zhaow-de*
+
+#### track Reviewed-by per-commit with amend-while-local workflow
+
+Switches reviewer attribution from a single closeout-commit aggregation to per-commit `Reviewed-by:` trailers, preserving which reviewer covered which slice across long iterations.
+
+*[#15](https://github.com/zhaow-de/zcrypto/pull/15) by @zhaow-de*
+
+#### park pandas concat-with-empty FutureWarning as open-topic 00001
+
+Tracks a benign pandas `FutureWarning` from the backfill staging step as an open topic so it isn't lost before a future pandas upgrade.
+
+*[#19](https://github.com/zhaow-de/zcrypto/pull/19) by @zhaow-de*
+
 ## v0.1.1 (2026-06-08)
 
 ### 🐛 Bug Fixes
