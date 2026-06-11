@@ -23,6 +23,22 @@ _RAW_COLS = [
 ]
 
 
+def _open_time_to_date(open_time: int) -> dt.date:
+    """Convert a Binance kline `open_time` to its UTC date, tolerant of the unit.
+
+    Binance SPOT archives carry `open_time` in milliseconds before 2025-01-01 and
+    microseconds from 2025-01-01 onward (per the binance-public-data README), and a
+    single multi-year download spans the switch. A real bar's epoch-seconds value is
+    below ~1e10 (year 2286), while ms/µs/ns are 1000^k larger, so divide by 1000 until
+    the value lands in the seconds range. This is per-row, so ms and µs days parse
+    correctly within the same fetch without a hardcoded boundary date.
+    """
+    ts = open_time
+    while ts >= 10_000_000_000:
+        ts //= 1000
+    return dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc).date()
+
+
 def parse_kline_zip(zip_bytes: bytes, symbol: str, interval: str, date: dt.date) -> pd.DataFrame:  # noqa: ARG001
     """Decode one Binance daily kline zip → single-row DataFrame with normalized 11 fields + date.
 
@@ -44,7 +60,7 @@ def parse_kline_zip(zip_bytes: bytes, symbol: str, interval: str, date: dt.date)
         raise ValueError(f"{symbol} {date}: expected 1 row in kline csv, got {len(df)}")
 
     row = df.iloc[0]
-    obs = dt.datetime.fromtimestamp(int(row["open_time"]) / 1000, tz=dt.timezone.utc).date()
+    obs = _open_time_to_date(int(row["open_time"]))
     if obs != date:
         raise ValueError(f"{symbol} {date}: kline open_time maps to {obs}, mismatch")
 

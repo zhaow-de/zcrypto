@@ -37,13 +37,31 @@ class FieldEntry:
 
 @dc.dataclass
 class PairIntervalEntry:
-    from_date: str  # ISO YYYY-MM-DD
+    from_date: str  # ISO, verbatim first calendar entry this interval covers
+    to_date: str  # ISO, verbatim calendar entry at index(from) + rows - 1
     rows: int
     fields: dict[str, FieldEntry]
+
+    @property
+    def dates_from(self) -> str:
+        """Alias for from_date; convenience for tests and callers."""
+        return self.from_date
+
+    @property
+    def dates_to(self) -> str:
+        """Stored last date covered by this interval.
+
+        Stored (not computed) because the last date is a calendar position, not
+        a date-arithmetic result: for sub-daily intervals `rows` counts bars, so
+        `from_date + (rows - 1) days` would be wrong. The writers set this to the
+        calendar entry at `index(from) + rows - 1`; verify cross-checks it.
+        """
+        return self.to_date
 
     def to_dict(self) -> dict:
         return {
             "from": self.from_date,
+            "to": self.to_date,
             "rows": self.rows,
             "fields": {k: v.to_dict() for k, v in self.fields.items()},
         }
@@ -52,6 +70,7 @@ class PairIntervalEntry:
     def from_dict(cls, d: dict) -> "PairIntervalEntry":
         return cls(
             from_date=d["from"],
+            to_date=d["to"],
             rows=int(d["rows"]),
             fields={k: FieldEntry.from_dict(v) for k, v in d["fields"].items()},
         )

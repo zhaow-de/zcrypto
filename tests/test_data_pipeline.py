@@ -5,6 +5,7 @@ import pytest
 
 from cli.data.pipeline import (
     PipelineError,
+    find_available_range,
     find_first_available,
     parse_pairs_file,
     validate_pairs_against_exchange,
@@ -44,13 +45,46 @@ def test_parse_pairs_file_dedupes_after_case_normalization(tmp_path):
 
 def test_validate_pairs_against_exchange_returns_base_quote_map():
     info = [
-        {"symbol": "BTCUSDT", "baseAsset": "BTC", "quoteAsset": "USDT"},
-        {"symbol": "ETHUSDT", "baseAsset": "ETH", "quoteAsset": "USDT"},
+        {"symbol": "BTCUSDT", "baseAsset": "BTC", "quoteAsset": "USDT", "status": "TRADING"},
+        {"symbol": "ETHUSDT", "baseAsset": "ETH", "quoteAsset": "USDT", "status": "TRADING"},
     ]
     assert validate_pairs_against_exchange(["BTCUSDT", "ETHUSDT"], info) == {
-        "BTCUSDT": ("BTC", "USDT"),
-        "ETHUSDT": ("ETH", "USDT"),
+        "BTCUSDT": ("BTC", "USDT", "TRADING"),
+        "ETHUSDT": ("ETH", "USDT", "TRADING"),
     }
+
+
+def test_validate_pairs_classifies_trading_pair():
+    """A TRADING pair returns (base, quote, 'TRADING')."""
+    from tests.data_fixtures import FakeSource
+
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")  # default status="TRADING"
+
+    classified = validate_pairs_against_exchange(["BTCUSDT"], src.fetch_exchange_info())
+    assert classified == {"BTCUSDT": ("BTC", "USDT", "TRADING")}
+
+
+def test_validate_pairs_classifies_break_pair():
+    """A status=BREAK pair is returned with 'BREAK', not filtered out."""
+    from tests.data_fixtures import FakeSource
+
+    src = FakeSource()
+    src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
+
+    classified = validate_pairs_against_exchange(["MATICUSDT"], src.fetch_exchange_info())
+    assert classified == {"MATICUSDT": ("MATIC", "USDT", "BREAK")}
+
+
+def test_validate_pairs_unknown_symbol_errors():
+    """An unknown symbol still errors (iter-4 behavior preserved)."""
+    from tests.data_fixtures import FakeSource
+
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+
+    with pytest.raises(PipelineError):
+        validate_pairs_against_exchange(["XYZUSDT"], src.fetch_exchange_info())
 
 
 def test_validate_pairs_against_exchange_unknown_raises():
@@ -177,6 +211,22 @@ def test_download_checksum_mismatch_raises(tmp_path):
     src.tamper_kline_checksum("BTCUSDT", "1d", dt.date(2024, 1, 2))
     with pytest.raises(PipelineError, match="checksum"):
         download_pipeline(tmp_path / "ds", pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 3), src)
+
+
+def test_download_missing_checksum_warns_and_continues(tmp_path, caplog, monkeypatch):
+    """A zip with no published .CHECKSUM is accepted via structure+parse, with a warning."""
+    import logging
+
+    monkeypatch.setattr(logging.getLogger("zcrypto"), "propagate", True)
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 3))
+    src.drop_kline_checksum("BTCUSDT", "1d", dt.date(2024, 1, 2))
+    with caplog.at_level(logging.WARNING):
+        download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 3), src)
+    assert verify_dataset(out).ok
+    assert any("no .CHECKSUM" in r.getMessage() for r in caplog.records)
 
 
 def test_download_leaves_live_dir_pristine_on_error(tmp_path):
@@ -373,10 +423,11 @@ def test_download_existing_pair_delisted_mid_window_raises_actionable_error(tmp_
 
     download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)
 
-    # Simulate a mid-window delisting: re-run extending to 2024-01-08, but DON'T add the new klines.
+    # Simulate a mid-window delisting: re-run extending to 2024-02-01 (27-day gap > 7-day grace),
+    # but DON'T add the new klines.
     # The source still has the pair listed in exchange_info (so validate passes) but no klines at the right edge.
-    with pytest.raises(PipelineError, match=r"delisted|rename"):
-        download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 8), src)
+    with pytest.raises(PipelineError, match=r"delisted|renamed"):
+        download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 2, 1), src)
 
 
 def test_download_aborts_on_broken_pre_existing_dataset(tmp_path):
@@ -404,3 +455,330 @@ def test_download_proceeds_on_empty_out_dir(tmp_path):
     # Should not raise.
     download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 2), src)
     assert verify_dataset(out).ok
+
+
+def test_download_no_op_skips_snapshot(tmp_path):
+    """If pairs.txt + dates resolve to no fetches, download is a no-op: no snapshot file added."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 5))
+
+    # First download — should snapshot + commit
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)
+    snaps_before = sorted(p.name for p in (out / ".snapshots").glob("*.tar.gz"))
+    assert len(snaps_before) >= 1, "first download must take a snapshot"
+
+    # Second download with same args → no work needed → no new snapshot
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)
+    snaps_after = sorted(p.name for p in (out / ".snapshots").glob("*.tar.gz"))
+    assert snaps_before == snaps_after, (
+        f"expected no new snapshot on no-op download, got new entries: {set(snaps_after) - set(snaps_before)}"
+    )
+
+
+def test_download_dry_run_prints_plan_no_mutation(tmp_path, capsys):
+    """--dry-run skips snapshot + mutation; prints plan summary to stdout."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 5))
+
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src, dry_run=True)
+
+    # No dataset created, no snapshot
+    assert not (out / "index.json").exists()
+    snaps = list((out / ".snapshots").glob("*.tar.gz")) if (out / ".snapshots").exists() else []
+    assert not snaps
+    # Plan summary printed
+    captured = capsys.readouterr()
+    assert "DRY-RUN" in captured.out or "BTCUSDT" in captured.out
+
+
+def test_download_snapshot_uses_download_cmd_name(tmp_path):
+    """The snapshot tar.gz produced by a real download run is <stamp>-download.tar.gz."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    out = tmp_path / "ds"
+    src = _seed_source(dt.date(2024, 1, 1), dt.date(2024, 1, 2))
+
+    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 2), src)
+    snaps = list((out / ".snapshots").glob("*-download.tar.gz"))
+    assert len(snaps) == 1, (
+        f"expected one snapshot named *-download.tar.gz, got: {[s.name for s in (out / '.snapshots').glob('*')]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# _execute_mutation harness tests
+# ---------------------------------------------------------------------------
+
+
+class _StubPlan:
+    """Test-only Plan with controllable noop/summary."""
+
+    def __init__(self, *, is_noop: bool = False, summary: str = "(stub)"):
+        self.is_noop = is_noop
+        self._summary = summary
+
+    def dry_run_summary(self) -> str:
+        return self._summary
+
+
+def test_execute_mutation_pre_flight_fails_aborts_with_pipeline_error(tmp_path):
+    """If verify_dataset returns ok=False (and is_empty=False), harness raises before plan_fn runs."""
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)
+    # Partial / broken state: components without index.json → ok=False, is_empty=False
+    (out / "calendars").mkdir()
+    (out / "calendars" / "day.txt").write_text("2024-01-01\n")
+
+    plan_fn = lambda d: pytest.fail("plan_fn must not be called on broken dataset")
+    apply_fn = lambda d, s, p: pytest.fail("apply_fn must not be called")
+
+    from cli.data.pipeline import PipelineError, _execute_mutation
+
+    with pytest.raises(PipelineError, match=r"refusing to mutate"):
+        _execute_mutation(out, "fakecmd", plan_fn, apply_fn, dry_run=False)
+
+
+def test_execute_mutation_dry_run_with_marker_aborts(tmp_path):
+    """Dry-run errors if a .commit-in-progress marker is present (recovery would mutate)."""
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)
+    (out / ".commit-in-progress").write_text("some-snapshot.tar.gz\n")
+
+    from cli.data.pipeline import PipelineError, _execute_mutation
+
+    with pytest.raises(PipelineError, match=r"commit-in-progress marker"):
+        _execute_mutation(
+            out,
+            "fakecmd",
+            plan_fn=lambda d: _StubPlan(),
+            apply_fn=lambda d, s, p: None,
+            dry_run=True,
+        )
+
+
+def test_execute_mutation_noop_no_snapshot_no_marker(tmp_path):
+    """No-op plan → harness logs and returns; no snapshot, no marker, no staging dir."""
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)
+    # Empty dir is allowed (is_empty=True passes pre-flight)
+
+    from cli.data.pipeline import _execute_mutation
+
+    _execute_mutation(
+        out,
+        "fakecmd",
+        plan_fn=lambda d: _StubPlan(is_noop=True),
+        apply_fn=lambda d, s, p: pytest.fail("apply must not be called"),
+        dry_run=False,
+    )
+    assert not (out / ".snapshots").exists() or not list((out / ".snapshots").glob("*.tar.gz"))
+    assert not (out / ".commit-in-progress").exists()
+    assert not (out / ".staging").exists()
+
+
+def test_execute_mutation_dry_run_prints_summary_no_side_effects(tmp_path, capsys):
+    """--dry-run with a non-noop plan prints the summary; no snapshot."""
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)
+
+    from cli.data.pipeline import _execute_mutation
+
+    _execute_mutation(
+        out,
+        "fakecmd",
+        plan_fn=lambda d: _StubPlan(is_noop=False, summary="DRY-RUN: would do stuff"),
+        apply_fn=lambda d, s, p: pytest.fail("apply must not run under dry-run"),
+        dry_run=True,
+    )
+    captured = capsys.readouterr()
+    assert "DRY-RUN: would do stuff" in captured.out
+    assert not (out / ".snapshots").exists() or not list((out / ".snapshots").glob("*.tar.gz"))
+
+
+def test_execute_mutation_real_run_invokes_apply_and_commits(tmp_path):
+    """Real run: apply_fn writes a minimal valid dataset into staging; harness commits it.
+
+    Uses _execute_mutation directly with an apply_fn that copies the iter-4 download output
+    (built via a quick download_pipeline call) into staging — sidesteps re-implementing the
+    full staging-build in this test.
+    """
+    # Build a known-good dataset first via the iter-4 download path.
+    import shutil
+
+    from cli.data.pipeline import _execute_mutation, download_pipeline
+    from tests.data_fixtures import FakeSource
+
+    src_out = tmp_path / "src_ds"
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    for i in range(3):
+        src.add_kline("BTCUSDT", "1d", dt.date(2024, 1, 1) + dt.timedelta(days=i))
+    download_pipeline(src_out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 3), src)
+
+    # Now run _execute_mutation on a fresh out_dir, apply_fn just copies the
+    # known-good dataset's components into staging.
+    out = tmp_path / "ds"
+    out.mkdir(parents=True)
+
+    def apply_copy(out_dir, staging, plan):
+        for name in ("calendars", "instruments", "features", "index.json"):
+            src_path = src_out / name
+            dst_path = staging / name
+            if src_path.is_dir():
+                shutil.copytree(src_path, dst_path)
+            else:
+                shutil.copy2(src_path, dst_path)
+
+    _execute_mutation(
+        out,
+        "fakecmd",
+        plan_fn=lambda d: _StubPlan(is_noop=False),
+        apply_fn=apply_copy,
+        dry_run=False,
+    )
+
+    assert (out / "index.json").exists()
+    assert (out / "features" / "btcusdt").is_dir()
+    # Snapshot exists and is named with cmd_name
+    snaps = list((out / ".snapshots").glob("*-fakecmd.tar.gz"))
+    assert len(snaps) == 1, f"expected one snapshot tagged with cmd_name, got {[s.name for s in (out / '.snapshots').glob('*')]}"
+    # Marker cleaned up
+    assert not (out / ".commit-in-progress").exists()
+    assert not (out / ".staging").exists()
+
+
+# ---------------------------------------------------------------------------
+# find_available_range tests (Task 4)
+# ---------------------------------------------------------------------------
+
+
+def test_find_available_range_finds_first_and_last():
+    """A pair with data on [2024-09-13, 2024-09-15] returns that exact range."""
+    src = FakeSource()
+    src.add_pair("POLUSDT", "POL", "USDT")
+    for d in (dt.date(2024, 9, 13), dt.date(2024, 9, 14), dt.date(2024, 9, 15)):
+        src.add_kline("POLUSDT", "1d", d)
+
+    rng = find_available_range(src, "POLUSDT", "1d", dt.date(2024, 9, 10), dt.date(2024, 9, 20))
+    assert rng == (dt.date(2024, 9, 13), dt.date(2024, 9, 15))
+
+
+def test_find_available_range_no_data_returns_none():
+    src = FakeSource()
+    src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
+    # no add_kline calls
+
+    assert find_available_range(src, "MATICUSDT", "1d", dt.date(2020, 1, 1), dt.date(2024, 12, 31)) is None
+
+
+def test_find_available_range_lo_gt_hi_returns_none():
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    src.add_kline("BTCUSDT", "1d", dt.date(2024, 1, 1))
+
+    assert find_available_range(src, "BTCUSDT", "1d", dt.date(2024, 1, 5), dt.date(2024, 1, 1)) is None
+
+
+def test_find_available_range_single_day_with_data():
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    src.add_kline("BTCUSDT", "1d", dt.date(2024, 1, 1))
+
+    rng = find_available_range(src, "BTCUSDT", "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 1))
+    assert rng == (dt.date(2024, 1, 1), dt.date(2024, 1, 1))
+
+
+def test_find_available_range_delisted_pair_finds_historical():
+    """MATIC-shaped case: real Binance MATIC traded 2019-04-26..2024-09-10
+    before the POL rename. Search window straddles both ends. The dual-direction
+    doubling anchor finder should hit the data block during the backward pass
+    from `hi` within ~10 probes."""
+    src = FakeSource()
+    src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
+    cur = dt.date(2019, 4, 26)
+    while cur <= dt.date(2024, 9, 10):
+        src.add_kline("MATICUSDT", "1d", cur)
+        cur += dt.timedelta(days=1)
+
+    rng = find_available_range(src, "MATICUSDT", "1d", dt.date(2018, 1, 1), dt.date(2026, 6, 9))
+    assert rng is not None
+    assert rng[0] == dt.date(2019, 4, 26)
+    assert rng[1] == dt.date(2024, 9, 10)
+
+
+def test_find_available_range_late_start_pair_uses_bisect_not_linear_scan(monkeypatch):
+    """APT-shaped case: TRADING pair listed years after arg_from, with publishing
+    lag on the right edge. Both endpoints (2020-01-01 and 2026-06-09) are 404; the
+    data block is [2022-10-19, 2026-06-08]. The interior-anchor finder must use
+    recursive midpoint bisect (~O(log²N) worst-case probes), NOT a day-by-day
+    linear scan (which would do ~1000 probes before the first hit)."""
+    src = FakeSource()
+    src.add_pair("APTUSDT", "APT", "USDT")
+    cur = dt.date(2022, 10, 19)
+    while cur <= dt.date(2026, 6, 8):
+        src.add_kline("APTUSDT", "1d", cur)
+        cur += dt.timedelta(days=1)
+
+    # Wrap exists_kline to count HEAD-equivalent probes.
+    probes: list[dt.date] = []
+    real_exists = src.exists_kline
+
+    def counting_exists(symbol, interval, date):
+        probes.append(date)
+        return real_exists(symbol, interval, date)
+
+    monkeypatch.setattr(src, "exists_kline", counting_exists)
+
+    rng = find_available_range(src, "APTUSDT", "1d", dt.date(2020, 1, 1), dt.date(2026, 6, 9))
+    assert rng is not None
+    assert rng[0] == dt.date(2022, 10, 19)  # first available = listing date
+    assert rng[1] == dt.date(2026, 6, 8)  # last available = day before publishing-lag
+    # A day-by-day linear scan would do (2022-10-19 - 2020-01-01).days = 1022+ probes
+    # before the first hit. The bisect-based finder must do far fewer.
+    assert len(probes) < 50, (
+        f"expected far fewer than 50 probes via bisect; got {len(probes)} — "
+        "this suggests the day-by-day linear scan regressed back in"
+    )
+
+
+def test_find_available_range_arb_shaped_mid_window_listing_does_not_degrade_to_linear(monkeypatch):
+    """ARB-shaped regression: data block [2023-03-23..2026-06-08] inside search
+    window [2020-01-01..2026-06-09]. The midpoint (2023-03-21) lands just two
+    days before the listing date — the previous recursive midpoint bisect
+    degraded to ~1175 sequential probes in the no-data left half before finding
+    the right half. Dual-direction doubling must catch the data block during
+    the backward pass from `hi` in O(log N) probes."""
+    src = FakeSource()
+    src.add_pair("ARBUSDT", "ARB", "USDT")  # TRADING
+    cur = dt.date(2023, 3, 23)
+    while cur <= dt.date(2026, 6, 8):
+        src.add_kline("ARBUSDT", "1d", cur)
+        cur += dt.timedelta(days=1)
+
+    probes: list[dt.date] = []
+    real_exists = src.exists_kline
+
+    def counting_exists(symbol, interval, date):
+        probes.append(date)
+        return real_exists(symbol, interval, date)
+
+    monkeypatch.setattr(src, "exists_kline", counting_exists)
+
+    rng = find_available_range(src, "ARBUSDT", "1d", dt.date(2020, 1, 1), dt.date(2026, 6, 9))
+    assert rng is not None
+    assert rng[0] == dt.date(2023, 3, 23)  # listing date
+    assert rng[1] == dt.date(2026, 6, 8)  # one day before publishing-lag boundary
+    # The previous recursive bisect did ~1200 probes for this shape. The dual-
+    # direction doubling should hit `hi - 1 = 2026-06-08` immediately, then do
+    # ~11 probes for first-available bisect.
+    assert len(probes) < 40, (
+        f"expected ≤ 40 probes via dual-direction doubling; got {len(probes)} — "
+        "this suggests the algorithm regressed back to the recursive bisect that "
+        "exhausted the no-data left half on ARB-shaped pairs"
+    )

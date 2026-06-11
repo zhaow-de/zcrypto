@@ -43,14 +43,14 @@ def _seed_valid_dataset(out_dir: Path) -> None:
         write_bin(out_dir / rel, [1.0, 1.0], start_index=0)
         fields[f] = FieldEntry(bin=rel, sha256=compute_sha256(out_dir / rel), updated_at=utc_now_iso())
     idx = IndexData(
-        schema_version=1,
+        schema_version=2,
         updated_at=utc_now_iso(),
         calendar=CalendarEntry(freq="day", from_date="2024-01-01", to_date="2024-01-02", days=2),
         pairs={
             "BTCUSDT": PairEntry(
                 base_asset="BTC",
                 quote_asset="USDT",
-                intervals={"1d": PairIntervalEntry(from_date="2024-01-01", rows=2, fields=fields)},
+                intervals={"1d": PairIntervalEntry(from_date="2024-01-01", to_date="2024-01-02", rows=2, fields=fields)},
             )
         },
         other_files={
@@ -66,6 +66,16 @@ def test_data_verify_ok_exits_zero_and_prints_ok(tmp_path):
     result = runner.invoke(app, ["data", "verify", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "OK" in result.output
+
+
+def test_data_verify_prints_checklist_of_what_was_checked(tmp_path):
+    _seed_valid_dataset(tmp_path)
+    result = runner.invoke(app, ["data", "verify", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "Checked" in result.output
+    assert "[✓]" in result.output
+    assert "schema_version" in result.output
+    assert "interior calendar gap" in result.output
 
 
 def test_data_verify_empty_directory_prints_empty_message(tmp_path):
@@ -177,3 +187,97 @@ def test_data_download_smoke_with_fake_source(tmp_path):
     assert (tmp_path / "ds" / "index.json").exists()
     idx = json.loads((tmp_path / "ds" / "index.json").read_text(encoding="utf-8"))
     assert idx["calendar"]["to"] == "2024-01-03"
+
+
+def test_data_download_dry_run_flag_accepted(tmp_path, monkeypatch):
+    """`data download --dry-run` is parsed; the CLI handler passes dry_run=True to download_pipeline."""
+    captured = {}
+
+    def fake_pipeline(*args, dry_run=False, **kw):
+        captured["dry_run"] = dry_run
+
+    from cli.data import command as cmd_mod
+
+    monkeypatch.setattr(cmd_mod, "download_pipeline", fake_pipeline)
+    # Avoid touching the real network: stub BinanceSource with a no-op object
+    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda: object())
+
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "download",
+            str(tmp_path / "ds"),
+            str(pairs),
+            "--from",
+            "2024-01-01",
+            "--to",
+            "2024-01-02",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured.get("dry_run") is True
+
+
+def test_data_backfill_dry_run_flag_accepted(tmp_path, monkeypatch):
+    """`data backfill --dry-run` is parsed; the CLI handler passes dry_run=True to backfill_pipeline."""
+    captured = {}
+
+    def fake_pipeline(*args, dry_run=False, **kw):
+        captured["dry_run"] = dry_run
+
+    from cli.data import command as cmd_mod
+
+    monkeypatch.setattr(cmd_mod, "backfill_pipeline", fake_pipeline)
+    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda: object())
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "backfill",
+            str(tmp_path / "ds"),
+            "--to",
+            "2024-01-02",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured.get("dry_run") is True
+
+
+def test_data_delist_dry_run_flag_accepted(tmp_path, monkeypatch):
+    """`data delist --dry-run` is parsed; the CLI handler passes dry_run=True to delist_pipeline."""
+    captured = {}
+
+    def fake_pipeline(*args, dry_run=False, **kw):
+        captured["dry_run"] = dry_run
+
+    from cli.data import command as cmd_mod
+
+    monkeypatch.setattr(cmd_mod, "delist_pipeline", fake_pipeline)
+
+    result = runner.invoke(app, ["data", "delist", str(tmp_path / "ds"), "BTCUSDT", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert captured.get("dry_run") is True
+
+
+def test_data_rename_dry_run_flag_accepted(tmp_path, monkeypatch):
+    """`data rename --dry-run` is parsed; the CLI handler passes dry_run=True to rename_pipeline."""
+    captured = {}
+
+    def fake_pipeline(*args, dry_run=False, **kw):
+        captured["dry_run"] = dry_run
+
+    from cli.data import command as cmd_mod
+
+    monkeypatch.setattr(cmd_mod, "rename_pipeline", fake_pipeline)
+    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda: object())
+
+    result = runner.invoke(app, ["data", "rename", str(tmp_path / "ds"), "MATICUSDT", "POLUSDT", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert captured.get("dry_run") is True

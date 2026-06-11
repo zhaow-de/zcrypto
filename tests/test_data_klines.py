@@ -37,6 +37,23 @@ def test_parse_kline_zip_skips_header_row():
     assert df.iloc[0]["open"] == pytest.approx(100.0)
 
 
+@pytest.mark.parametrize(
+    ("day", "precision"),
+    [
+        (dt.date(2024, 12, 31), "ms"),  # Binance archives before 2025-01-01: milliseconds
+        (dt.date(2025, 1, 1), "us"),  # 2025-01-01 onward: microseconds
+        (dt.date(2025, 6, 1), "us"),
+    ],
+)
+def test_parse_kline_zip_open_time_ms_and_us(day, precision):
+    """Binance switched SPOT archive timestamps from ms to µs on 2025-01-01.
+    A download spanning the boundary must parse both units to the correct date."""
+    csv = synthetic_kline_csv(day, precision=precision)
+    zip_bytes, _ = make_zip_with_checksum(csv, f"ADAUSDT-1d-{day}.csv")
+    df = parse_kline_zip(zip_bytes, "ADAUSDT", "1d", day)
+    assert df.iloc[0]["date"] == day
+
+
 def test_parse_kline_zip_zero_volume_vwap_falls_back_to_close():
     open_ms = int(dt.datetime(D.year, D.month, D.day, tzinfo=dt.timezone.utc).timestamp() * 1000)
     close_ms = open_ms + 86_400_000 - 1

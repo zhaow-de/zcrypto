@@ -8,10 +8,21 @@ import io
 import zipfile
 
 
-def synthetic_kline_csv(date: dt.date, *, base_price: float = 100.0, base_vol: float = 50.0) -> str:
-    """One Binance-shaped 12-column 1d kline CSV row for the given UTC date."""
-    open_ms = int(dt.datetime(date.year, date.month, date.day, tzinfo=dt.timezone.utc).timestamp() * 1000)
-    close_ms = open_ms + 86_400_000 - 1
+def synthetic_kline_csv(date: dt.date, *, base_price: float = 100.0, base_vol: float = 50.0, precision: str = "ms") -> str:
+    """One Binance-shaped 12-column 1d kline CSV row for the given UTC date.
+
+    `precision` selects the open_time/close_time unit, matching Binance's archive
+    history: "ms" (milliseconds, before 2025-01-01) or "us" (microseconds, from
+    2025-01-01 onward — see binance-public-data README)."""
+    epoch_s = int(dt.datetime(date.year, date.month, date.day, tzinfo=dt.timezone.utc).timestamp())
+    if precision == "ms":
+        open_t = epoch_s * 1_000
+        close_t = open_t + 86_400_000 - 1
+    elif precision == "us":
+        open_t = epoch_s * 1_000_000
+        close_t = open_t + 86_400_000_000 - 1
+    else:
+        raise ValueError(f"unknown precision {precision!r}")
     open_ = base_price
     close = base_price * 1.01
     high = close * 1.02
@@ -22,7 +33,7 @@ def synthetic_kline_csv(date: dt.date, *, base_price: float = 100.0, base_vol: f
     taker_buy_base = volume * 0.5
     taker_buy_quote = quote_volume * 0.5
     return (
-        f"{open_ms},{open_},{high},{low},{close},{volume},{close_ms},{quote_volume},{trades},{taker_buy_base},{taker_buy_quote},0\n"
+        f"{open_t},{open_},{high},{low},{close},{volume},{close_t},{quote_volume},{trades},{taker_buy_base},{taker_buy_quote},0\n"
     )
 
 
@@ -42,9 +53,11 @@ class FakeSource:
         self.exchange_info: list[dict] = []
         # (symbol, interval, date) -> (zip_bytes, sha256_hex)
         self._klines: dict[tuple[str, str, dt.date], tuple[bytes, str]] = {}
+        # (symbol, interval, date) entries with no published .CHECKSUM
+        self._no_checksum: set[tuple[str, str, dt.date]] = set()
 
-    def add_pair(self, symbol: str, base: str, quote: str) -> None:
-        self.exchange_info.append({"symbol": symbol, "baseAsset": base, "quoteAsset": quote, "status": "TRADING"})
+    def add_pair(self, symbol: str, base: str, quote: str, status: str = "TRADING") -> None:
+        self.exchange_info.append({"symbol": symbol, "baseAsset": base, "quoteAsset": quote, "status": status})
 
     def add_kline(
         self,
@@ -64,6 +77,10 @@ class FakeSource:
         zb, _ = self._klines[(symbol, interval, date)]
         self._klines[(symbol, interval, date)] = (zb, "0" * 64)
 
+    def drop_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> None:
+        """Simulate a published zip with no sibling `.CHECKSUM` (fetch returns None)."""
+        self._no_checksum.add((symbol, interval, date))
+
     # Source protocol
     def fetch_exchange_info(self) -> list[dict]:
         return list(self.exchange_info)
@@ -74,7 +91,9 @@ class FakeSource:
     def fetch_kline_zip(self, symbol: str, interval: str, date: dt.date) -> bytes:
         return self._klines[(symbol, interval, date)][0]
 
-    def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str:
+    def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str | None:
+        if (symbol, interval, date) in self._no_checksum:
+            return None
         return self._klines[(symbol, interval, date)][1]
 
 

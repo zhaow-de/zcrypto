@@ -2974,6 +2974,7 @@ source = { editable = "." }
 dependencies = [
     { name = "pyqlib" },
     { name = "typer" },
+    { name = "urllib3" },
 ]
 
 [package.dev-dependencies]
@@ -2988,6 +2989,7 @@ dev = [
 requires-dist = [
     { name = "pyqlib", specifier = ">=0.9.7" },
     { name = "typer", specifier = ">=0.26.7" },
+    { name = "urllib3", specifier = ">=2.7.0" },
 ]
 
 [package.metadata.requires-dev]
