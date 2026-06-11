@@ -1,6 +1,6 @@
 [tool.commitizen]
 name = "cz_customize"
-version = "0.1.1"
+version = "0.2.0"
 tag_format = "v$version"
 major_version_zero = false
 update_changelog_on_bump = true

@@ -39,5 +39,6 @@ repos:
       files: |
         (?x)^(
             README\.md|
-            docs/open-topics/README\.md
+            docs/open-topics/README\.md|
+            docs/research/01\.binance-eea-spot-quant\.md
         )$
