@@ -63,10 +63,96 @@ def _build_valid_dataset(tmp_path: Path) -> IndexData:
     return idx
 
 
+_PRICE_FIELDS = ("open", "high", "low", "close", "vwap")
+
+
+def _mk_pair(tmp_path: Path, cal: list[dt.date], sym: str, base: str, start: int, rows: int, *, nan_offsets=()) -> PairEntry:
+    fields = {}
+    for f in FIELDS:
+        vals = [1.0] * rows
+        if f in _PRICE_FIELDS:
+            for o in nan_offsets:
+                vals[o] = float("nan")
+        bin_rel = f"features/{sym.lower()}/{f}.day.bin"
+        write_bin(tmp_path / bin_rel, vals, start_index=start)
+        fields[f] = FieldEntry(bin=bin_rel, sha256=compute_sha256(tmp_path / bin_rel), updated_at=utc_now_iso())
+    return PairEntry(
+        base_asset=base,
+        quote_asset="USDT",
+        intervals={
+            "1d": PairIntervalEntry(
+                from_date=cal[start].isoformat(),
+                to_date=cal[start + rows - 1].isoformat(),
+                rows=rows,
+                fields=fields,
+            )
+        },
+    )
+
+
+def _finalize(tmp_path: Path, cal: list[dt.date], pairs: dict[str, PairEntry]) -> None:
+    write_calendar(tmp_path, cal)
+    write_instruments(
+        tmp_path,
+        {
+            sym: (dt.date.fromisoformat(p.intervals["1d"].from_date), dt.date.fromisoformat(p.intervals["1d"].dates_to))
+            for sym, p in pairs.items()
+        },
+    )
+    idx = IndexData(
+        schema_version=2,
+        updated_at=utc_now_iso(),
+        calendar=CalendarEntry(freq="day", from_date=cal[0].isoformat(), to_date=cal[-1].isoformat(), days=len(cal)),
+        pairs=pairs,
+        other_files={
+            "calendars/day.txt": FileEntry(sha256=compute_sha256(tmp_path / "calendars" / "day.txt"), updated_at=utc_now_iso()),
+            "instruments/all.txt": FileEntry(sha256=compute_sha256(tmp_path / "instruments" / "all.txt"), updated_at=utc_now_iso()),
+        },
+    )
+    save_index(tmp_path, idx)
+
+
 def test_verify_valid_dataset(tmp_path):
     _build_valid_dataset(tmp_path)
     report = verify_dataset(tmp_path)
     assert report.ok, report.problems
+
+
+def test_verify_reports_checks_performed(tmp_path):
+    _build_valid_dataset(tmp_path)
+    report = verify_dataset(tmp_path, fail_on_gap=True)
+    assert report.ok, report.problems
+    joined = " ".join(report.checks)
+    for token in ("schema_version", "calendar", "instruments", "per-pair", "interior calendar gap", "orphan"):
+        assert token in joined, f"missing check mentioning {token!r}: {report.checks}"
+
+
+def test_verify_fails_on_interior_gap(tmp_path):
+    """Two pairs leave a middle stretch of calendar covered by no pair → gap → FAIL."""
+    cal = [dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(6)]
+    pairs = {
+        "BTCUSDT": _mk_pair(tmp_path, cal, "BTCUSDT", "BTC", start=0, rows=2),  # covers 01-01..01-02
+        "ETHUSDT": _mk_pair(tmp_path, cal, "ETHUSDT", "ETH", start=4, rows=2),  # covers 01-05..01-06
+    }
+    _finalize(tmp_path, cal, pairs)
+    # Off by default (harness-safe: the download→rename intermediate is structurally valid)...
+    assert verify_dataset(tmp_path).ok
+    # ...but the user-facing command opts in and flags it.
+    report = verify_dataset(tmp_path, fail_on_gap=True)
+    assert not report.ok
+    gap = next(p for p in report.problems if "interior calendar gap" in p)
+    assert "2024-01-03..2024-01-04" in gap  # the uncovered middle days
+
+
+def test_verify_reports_synthetic_nan_days_without_failing(tmp_path):
+    """NaN price (rename gap fill) is reported as synthetic, not treated as a problem."""
+    cal = [dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(5)]
+    pairs = {"POLUSDT": _mk_pair(tmp_path, cal, "POLUSDT", "POL", start=0, rows=5, nan_offsets=(2, 3))}
+    _finalize(tmp_path, cal, pairs)
+    report = verify_dataset(tmp_path)
+    assert report.ok, report.problems  # synthetic NaN is informational, not a failure
+    assert any("POLUSDT" in s and "synthetic" in s for s in report.synthetic)
+    assert any("2024-01-03..2024-01-04" in s for s in report.synthetic)
 
 
 def test_verify_reports_missing_index_when_components_present(tmp_path):

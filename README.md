@@ -82,7 +82,12 @@ zcrypto data download ./ds pairs.txt --dry-run          # preview only
 
 ##### `zcrypto data verify OUT_DIR`
 
-Re-validate an existing dataset against `index.json` and all invariants. Read-only.
+Re-validate an existing dataset against `index.json` and all invariants. Read-only. Unless `--silent`, it prints a checklist of exactly what was validated (schema, calendar density + sha256, instruments, per-pair bin sha256/size/header and `rows`/`to` cross-checks, orphan scan).
+
+Two dataset-level scans run here:
+
+- **Interior-gap check (fails):** every calendar day between the dataset's first and last day must be covered by at least one pair. A stretch covered by no pair (e.g. two pairs with a listing gap between them that was never bridged by `rename`) is reported and exits non-zero. (This completeness check is specific to the command; the internal post-mutation gate accepts such structurally-valid intermediate states.)
+- **Synthetic-day report (informational):** days carrying `NaN` prices — the suspension bars a `rename` writes to bridge a delist→relist gap — are listed per pair. Not a failure.
 
 | Option     | Description                                                                      |
 | ---------- | -------------------------------------------------------------------------------- |

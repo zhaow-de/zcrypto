@@ -56,16 +56,25 @@ def verify_cmd(
     silent: bool = typer.Option(False, "--silent", help="Print nothing; convey result via exit code only."),
 ) -> None:
     """Re-validate an existing dataset against `index.json` and all invariants."""
-    report = verify_dataset(out_dir)
+    report = verify_dataset(out_dir, fail_on_gap=True)
     if not silent:
         if report.is_empty:
             typer.echo(f"OK — {out_dir} is empty (no dataset to verify).")
-        elif report.ok:
-            typer.echo(f"OK — {out_dir} validates clean.")
         else:
-            typer.echo(f"FAIL — {len(report.problems)} problem(s) in {out_dir}:")
-            for p in report.problems:
-                typer.echo(f"  - {p}")
+            if report.checks:
+                typer.echo(f"Checked {out_dir}:")
+                for c in report.checks:
+                    typer.echo(f"  [✓] {c}")
+            if report.synthetic:
+                typer.echo("Synthetic data (NaN price, e.g. rename gap fill):")
+                for s in report.synthetic:
+                    typer.echo(f"  [i] {s}")
+            if report.ok:
+                typer.echo(f"OK — {out_dir} validates clean.")
+            else:
+                typer.echo(f"FAIL — {len(report.problems)} problem(s) in {out_dir}:")
+                for p in report.problems:
+                    typer.echo(f"  - {p}")
     raise typer.Exit(code=0 if report.ok else 1)
 
 

@@ -68,6 +68,16 @@ def test_data_verify_ok_exits_zero_and_prints_ok(tmp_path):
     assert "OK" in result.output
 
 
+def test_data_verify_prints_checklist_of_what_was_checked(tmp_path):
+    _seed_valid_dataset(tmp_path)
+    result = runner.invoke(app, ["data", "verify", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "Checked" in result.output
+    assert "[✓]" in result.output
+    assert "schema_version" in result.output
+    assert "interior calendar gap" in result.output
+
+
 def test_data_verify_empty_directory_prints_empty_message(tmp_path):
     empty = tmp_path / "fresh"
     empty.mkdir()
