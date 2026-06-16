@@ -1,13 +1,15 @@
 import datetime as dt
 
 from cli.data import mirror
+from cli.data.layout import DatasetPaths
 from cli.data.pipeline import _fetch_one_date, download_pipeline
 from cli.data.verify import verify_dataset
 from tests.data_fixtures import FakeSource, make_zip_with_checksum, synthetic_kline_csv
 
 
-def test_root_for_is_dataset_local_dot_raw(tmp_path):
-    assert mirror.root_for(tmp_path) == tmp_path / ".raw"
+def test_root_for_is_backup_dir_raw(tmp_path):
+    paths = DatasetPaths(data_dir=tmp_path / "data", backup_dir=tmp_path)
+    assert mirror.root_for(paths) == tmp_path / "raw"
 
 
 def test_mirror_path_inserts_year_subdir_and_reuses_layout(tmp_path):
@@ -28,7 +30,8 @@ def test_save_zip_is_atomic_and_creates_parents(tmp_path):
 
 
 def test_fetch_one_date_miss_saves_verified_zip_to_mirror(tmp_path):
-    root = mirror.root_for(tmp_path)
+    paths = DatasetPaths(data_dir=tmp_path / "data", backup_dir=tmp_path)
+    root = mirror.root_for(paths)
     date = dt.date(2025, 1, 2)
     src = FakeSource()
     src.add_pair("DOTUSDT", "DOT", "USDT")
@@ -43,7 +46,8 @@ def test_fetch_one_date_miss_saves_verified_zip_to_mirror(tmp_path):
 
 
 def test_fetch_one_date_mirror_hit_does_not_touch_source(tmp_path):
-    root = mirror.root_for(tmp_path)
+    paths = DatasetPaths(data_dir=tmp_path / "data", backup_dir=tmp_path)
+    root = mirror.root_for(paths)
     date = dt.date(2024, 1, 2)
     zip_bytes, _ = make_zip_with_checksum(synthetic_kline_csv(date), f"BTCUSDT-1d-{date}.csv")
     mirror.save_zip(mirror.mirror_path(root, "BTCUSDT", "1d", date), zip_bytes)
@@ -61,7 +65,8 @@ def test_fetch_one_date_mirror_hit_does_not_touch_source(tmp_path):
 
 
 def test_fetch_one_date_missing_checksum_caches_after_parse(tmp_path):
-    root = mirror.root_for(tmp_path)
+    paths = DatasetPaths(data_dir=tmp_path / "data", backup_dir=tmp_path)
+    root = mirror.root_for(paths)
     date = dt.date(2025, 7, 13)
     src = FakeSource()
     src.add_pair("DOTUSDT", "DOT", "USDT")
@@ -73,17 +78,19 @@ def test_fetch_one_date_missing_checksum_caches_after_parse(tmp_path):
     assert mirror.mirror_path(root, "DOTUSDT", "1d", date).exists()  # structurally verified, then cached
 
 
-def test_download_creates_dataset_local_mirror_without_breaking_verify(tmp_path):
-    """End-to-end: the mirror lands at <out_dir>/.raw and does not trip verify."""
+def test_download_creates_backup_dir_mirror_without_breaking_verify(tmp_path):
+    """End-to-end: the mirror lands at <backup_dir>/raw and does not trip verify."""
     pairs = tmp_path / "pairs.txt"
     pairs.write_text("BTCUSDT\n")
-    out = tmp_path / "ds"
+    data_dir = tmp_path / "data"
+    backup_dir = tmp_path / "bk"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     src = FakeSource()
     src.add_pair("BTCUSDT", "BTC", "USDT")
     for i in range(3):
         src.add_kline("BTCUSDT", "1d", dt.date(2024, 1, 1) + dt.timedelta(days=i))
-    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 3), src)
+    download_pipeline(paths, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 3), src)
 
-    assert (out / ".raw").is_dir()
-    assert mirror.mirror_path(mirror.root_for(out), "BTCUSDT", "1d", dt.date(2024, 1, 2)).exists()
-    assert verify_dataset(out).ok  # a .raw dir in out_dir must not break verification
+    assert (backup_dir / "raw").is_dir()
+    assert mirror.mirror_path(mirror.root_for(paths), "BTCUSDT", "1d", dt.date(2024, 1, 2)).exists()
+    assert verify_dataset(data_dir).ok  # the mirror lives outside data_dir; verify is unaffected
