@@ -7,11 +7,13 @@
 
 Learning-for-Fun project to experience Microsoft Qlib.
 
-<!-- mdformat-toc start --slug=github --maxlevel=3 --minlevel=2 -->
+<!-- mdformat-toc start --slug=github --maxlevel=4 --minlevel=2 -->
 
 - [Requirements](#requirements)
 - [Usage](#usage)
   - [Commands](#commands)
+    - [`zcrypto data`](#zcrypto-data)
+    - [`zcrypto experiment`](#zcrypto-experiment)
 
 <!-- mdformat-toc end -->
 
@@ -57,7 +59,7 @@ zcrypto example                # run the demo backtest
 zcrypto example --show-data    # also print the prepared feature-frame head
 ```
 
-#### `zcrypto data`
+#### `zcrypto data`<a name="zcrypto-data"></a>
 
 Prepare a Qlib-ready dataset from Binance spot klines. Bare `zcrypto data` prints this group's help and exits.
 
@@ -176,7 +178,7 @@ zcrypto data rename ./bk MATICUSDT POLUSDT
 zcrypto data rename ./bk MATICUSDT POLUSDT --dry-run   # preview only
 ```
 
-#### `zcrypto experiment`
+#### `zcrypto experiment`<a name="zcrypto-experiment"></a>
 
 Run an end-to-end Qlib pipeline — Alpha158 features (158-factor library, default 2-day-forward label) → LightGBM ranker → TopkDropout long/cash daily backtest → 3-panel Plotly report — and write a predict-ready run bundle. The **recipe is the single swappable moving part**: swap `cli/experiment/recipes/<name>.py` to change the universe, features, model, or strategy parameters and iterate.
 
