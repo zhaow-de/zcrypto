@@ -22,6 +22,14 @@ Learning-for-Fun project to experience Microsoft Qlib.
 - **macOS:** `brew install libomp`
 - **Debian/Ubuntu:** `sudo apt-get install libgomp1`
 
+`zcrypto experiment` additionally needs a local **Redis** instance — qlib's on-disk feature/dataset cache (DiskExpressionCache / DiskDatasetCache) uses Redis for its read/write locks. Start one with:
+
+```bash
+./scripts/redis.sh start   # Docker; localhost-only, no auth; data persisted to ../zcrypto-redis-data
+./scripts/redis.sh probe   # check that Redis is answering
+./scripts/redis.sh stop    # stop the container (data retained)
+```
+
 ## Usage<a name="usage"></a>
 
 ```bash
@@ -166,4 +174,46 @@ Refuses with an error when: `OLD_SYMBOL` is not in the index, `OLD_SYMBOL` equal
 ```bash
 zcrypto data rename ./bk MATICUSDT POLUSDT
 zcrypto data rename ./bk MATICUSDT POLUSDT --dry-run   # preview only
+```
+
+#### `zcrypto experiment`
+
+Run an end-to-end Qlib pipeline — Alpha158 features (158-factor library, default 2-day-forward label) → LightGBM ranker → TopkDropout long/cash daily backtest → 3-panel Plotly report — and write a predict-ready run bundle. The **recipe is the single swappable moving part**: swap `cli/experiment/recipes/<name>.py` to change the universe, features, model, or strategy parameters and iterate.
+
+> **Prerequisite:** Redis must be running before you invoke this command (`./scripts/redis.sh start`). The command performs a Redis pre-flight check and exits with a clear error if Redis is unreachable.
+
+```bash
+zcrypto experiment [--recipe skeleton] [--data-dir ./data] [--out ./runs] [--svg] [--refresh-cache] [--open/--no-open]
+```
+
+| Option             | Default                 | Description                                                                             |
+| ------------------ | ----------------------- | --------------------------------------------------------------------------------------- |
+| `--recipe`         | `skeleton`              | Recipe name to run (see `cli/experiment/recipes/`).                                     |
+| `--data-dir`       | `./data`                | Qlib provider directory (the `index.json` / `features/` / `calendars/` tree).           |
+| `--out`            | `./runs`                | Root directory for run bundles; each bundle lands at `<out>/<recipe>/<UTC timestamp>/`. |
+| `--svg/--no-svg`   | off                     | Also render `report.svg` (requires kaleido).                                            |
+| `--refresh-cache`  | off                     | Force-wipe qlib's on-disk feature/dataset cache before the run.                         |
+| `--open/--no-open` | on when stdout is a TTY | Open `report.html` in a browser when done. Auto-detected from whether stdout is a TTY.  |
+
+**Run bundle layout** — each run writes a timestamped directory `runs/<recipe>/<UTC-timestamp>/`:
+
+| File                   | Description                                                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `report.html`          | 3-panel Plotly report: equity vs BTCUSDT buy-and-hold over the test window / trade timeline / full-history context with LUNA+FTX crash periods shaded. |
+| `report.svg`           | Static SVG export of the same report (only with `--svg`).                                                                                              |
+| `metrics.json`         | Annualized return, max drawdown, information ratio and other backtest metrics.                                                                         |
+| `trades.csv`           | Flat trade log (one row per executed order).                                                                                                           |
+| `run_meta.json`        | Manifest: recipe, git commit, qlib/lightgbm versions, segments, universe, fee preset, index fingerprint.                                               |
+| `recipe_snapshot.json` | Full recipe parameters as a JSON dict (reproducibility).                                                                                               |
+| `model.pkl`            | Predict-ready serialized LightGBM model (copied from the per-run MLflow store).                                                                        |
+| `mlruns/`              | Per-run MLflow experiment store; inspect with `mlflow ui --backend-store-uri runs/<recipe>/<ts>/mlruns`.                                               |
+
+> **Realistic-expectations caveat:** The default `skeleton` recipe is a naive baseline, **not** a profitable strategy. A cold run over the 2025–2026 test window currently turns 10,000 → ~3,700 USDT and underperforms BTCUSDT buy-and-hold. It exists to validate the pipeline and to be iterated on — see `docs/open-topics/` for the deferred robustness topics (validation rigor, regime overlay, realistic execution, point-in-time universe, paper trading).
+
+```bash
+./scripts/redis.sh start                          # ensure Redis is up
+zcrypto experiment                                # run with the skeleton recipe
+zcrypto experiment --recipe my_recipe             # run a custom recipe
+zcrypto experiment --refresh-cache --no-open      # bust the cache; no browser
+mlflow ui --backend-store-uri runs/skeleton/<ts>/mlruns   # inspect the MLflow run
 ```
