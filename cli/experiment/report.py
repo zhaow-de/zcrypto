@@ -23,8 +23,8 @@ _SELL_COLOR = "red"
 _STRESS_FILLCOLOR = "rgba(255, 165, 0, 0.15)"  # translucent orange
 
 
-def build_report(result, *, stress_windows=None) -> go.Figure:
-    """Build and return a 3-panel Plotly Figure from a RunResult.
+def build_report(result, *, stress_windows=None, cv=None) -> go.Figure:
+    """Build and return a 3- or 4-panel Plotly Figure from a RunResult.
 
     Parameters
     ----------
@@ -33,6 +33,10 @@ def build_report(result, *, stress_windows=None) -> go.Figure:
         benchmark_curve, positions, context_prices, recipe, ending_value.
     stress_windows:
         List of (label, start, end) ISO strings.  Defaults to STRESS_WINDOWS.
+    cv:
+        Optional dict with keys ``path_sharpes`` (list[float]) and
+        ``holdout_sharpe`` (float).  When provided, a 4th panel is appended
+        showing the CPCV out-of-sample Sharpe distribution.
     """
     if stress_windows is None:
         stress_windows = STRESS_WINDOWS
@@ -41,12 +45,11 @@ def build_report(result, *, stress_windows=None) -> go.Figure:
     ending = float(result.account_curve.iloc[-1])
     title = f"{recipe.name}: {recipe.account:,.0f} → {ending:,.0f} USDT"
 
-    fig = make_subplots(
-        rows=3,
-        cols=1,
-        subplot_titles=("Equity (test window)", "Trade timeline", "Market context (rebased)"),
-        vertical_spacing=0.08,
-    )
+    n_rows = 4 if cv else 3
+    titles = ["Equity (test window)", "Trade timeline", "Market context (rebased)"]
+    if cv:
+        titles.append("CPCV out-of-sample Sharpe distribution")
+    fig = make_subplots(rows=n_rows, cols=1, subplot_titles=tuple(titles), vertical_spacing=0.06)
 
     # ------------------------------------------------------------------
     # Panel 1 — equity curves
@@ -139,7 +142,26 @@ def build_report(result, *, stress_windows=None) -> go.Figure:
             col=1,
         )
 
-    fig.update_layout(title=title, height=900, template="plotly_white")
+    # ------------------------------------------------------------------
+    # Panel 4 — CPCV Sharpe distribution (only when cv results are provided)
+    # ------------------------------------------------------------------
+    if cv:
+        sharpes = list(cv["path_sharpes"])
+        fig.add_trace(
+            go.Histogram(x=sharpes, name="path Sharpe", showlegend=False, marker={"color": "steelblue"}),
+            row=4,
+            col=1,
+        )
+        fig.add_vline(
+            x=cv["holdout_sharpe"],
+            line={"color": _SELL_COLOR, "width": 2, "dash": "dash"},
+            annotation_text="holdout",
+            annotation_position="top",
+            row=4,
+            col=1,
+        )
+
+    fig.update_layout(title=title, height=300 * n_rows, template="plotly_white")
     return fig
 
 
