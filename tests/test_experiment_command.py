@@ -38,6 +38,13 @@ def test_experiment_help():
     assert result.exit_code == 0
 
 
+def test_experiment_errors_when_no_data_dir_configured(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # no zcrypto.toml; no --data-dir flag
+    result = runner.invoke(app, ["experiment", "--recipe", "skeleton"])
+    assert result.exit_code != 0
+    assert "no data_dir configured" in result.output
+
+
 # --------------------------------------------------------------------------
 # End-to-end, redis-gated (~100s).
 # --------------------------------------------------------------------------
