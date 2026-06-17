@@ -6,15 +6,16 @@ from pathlib import Path
 import pytest
 
 from cli.data.index import load_index
+from cli.data.layout import DatasetPaths
 from cli.data.pipeline import PipelineError, backfill_pipeline, download_pipeline
 from cli.data.verify import verify_dataset
 from tests.data_fixtures import FakeSource
 
 
-def _bootstrap_two_pairs(tmp_path: Path, dates_through: dt.date) -> tuple[Path, FakeSource]:
+def _bootstrap_two_pairs(tmp_path: Path, dates_through: dt.date) -> tuple[DatasetPaths, FakeSource]:
     pairs = tmp_path / "pairs.txt"
     pairs.write_text("BTCUSDT\nETHUSDT\n")
-    out = tmp_path / "ds"
+    paths = DatasetPaths(data_dir=tmp_path / "data", backup_dir=tmp_path / "bk")
     src = FakeSource()
     src.add_pair("BTCUSDT", "BTC", "USDT")
     src.add_pair("ETHUSDT", "ETH", "USDT")
@@ -23,32 +24,32 @@ def _bootstrap_two_pairs(tmp_path: Path, dates_through: dt.date) -> tuple[Path, 
         d = dt.date(2024, 1, 1) + dt.timedelta(days=i)
         src.add_kline("BTCUSDT", "1d", d)
         src.add_kline("ETHUSDT", "1d", d)
-    download_pipeline(out, pairs, "1d", dt.date(2024, 1, 1), dates_through, src)
-    return out, src
+    download_pipeline(paths, pairs, "1d", dt.date(2024, 1, 1), dates_through, src)
+    return paths, src
 
 
 def test_backfill_happy_extends_to_arg_to(tmp_path):
-    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+    paths, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
     for d in (dt.date(2024, 1, 6), dt.date(2024, 1, 7), dt.date(2024, 1, 8)):
         src.add_kline("BTCUSDT", "1d", d)
         src.add_kline("ETHUSDT", "1d", d)
-    backfill_pipeline(out, "1d", dt.date(2024, 1, 8), src)
-    idx = load_index(out)
+    backfill_pipeline(paths, "1d", dt.date(2024, 1, 8), src)
+    idx = load_index(paths.data_dir)
     assert idx is not None
     for p in idx.pairs.values():
         assert p.intervals["1d"].dates_to == "2024-01-08"
 
 
 def test_backfill_noop_when_all_caught_up_no_snapshot(tmp_path):
-    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
-    snaps_before = sorted((out / ".snapshots").glob("*.tar.gz"))
-    backfill_pipeline(out, "1d", dt.date(2024, 1, 5), src)
-    snaps_after = sorted((out / ".snapshots").glob("*.tar.gz"))
+    paths, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+    snaps_before = sorted((paths.backup_dir / "snapshots").glob("*.tar.gz"))
+    backfill_pipeline(paths, "1d", dt.date(2024, 1, 5), src)
+    snaps_after = sorted((paths.backup_dir / "snapshots").glob("*.tar.gz"))
     assert snaps_before == snaps_after, "no-op backfill must not write a snapshot"
 
 
 def test_backfill_silently_skips_break_status_pair(tmp_path):
-    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+    paths, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
     # Flip BTCUSDT to BREAK on the source's exchange_info list
     for entry in src.exchange_info:
         if entry["symbol"] == "BTCUSDT":
@@ -56,8 +57,8 @@ def test_backfill_silently_skips_break_status_pair(tmp_path):
             break
     for d in (dt.date(2024, 1, 6), dt.date(2024, 1, 7)):
         src.add_kline("ETHUSDT", "1d", d)
-    backfill_pipeline(out, "1d", dt.date(2024, 1, 7), src)
-    idx = load_index(out)
+    backfill_pipeline(paths, "1d", dt.date(2024, 1, 7), src)
+    idx = load_index(paths.data_dir)
     assert idx is not None
     btc = next(p for sym, p in idx.pairs.items() if sym == "BTCUSDT").intervals["1d"]
     eth = next(p for sym, p in idx.pairs.items() if sym == "ETHUSDT").intervals["1d"]
@@ -67,67 +68,69 @@ def test_backfill_silently_skips_break_status_pair(tmp_path):
 
 def test_backfill_silently_skips_break_pair_dataset_still_valid(tmp_path):
     """Verify that after a partial backfill (BREAK skipped), verify_dataset passes."""
-    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+    paths, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
     for entry in src.exchange_info:
         if entry["symbol"] == "BTCUSDT":
             entry["status"] = "BREAK"
             break
     for d in (dt.date(2024, 1, 6), dt.date(2024, 1, 7)):
         src.add_kline("ETHUSDT", "1d", d)
-    backfill_pipeline(out, "1d", dt.date(2024, 1, 7), src)
-    report = verify_dataset(out)
+    backfill_pipeline(paths, "1d", dt.date(2024, 1, 7), src)
+    report = verify_dataset(paths.data_dir)
     assert report.ok, f"verify_dataset failed after partial backfill: {report.problems}"
 
 
 def test_backfill_trading_pair_unreachable_raises_pipeline_error(tmp_path):
-    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+    paths, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
     # BTCUSDT still TRADING but no new klines added; backfill --to 2024-02-04 (30-day gap > 7-day grace)
     # → sustained absence beyond grace fires the actionable delist/rename error
     with pytest.raises(PipelineError, match=r"delisted|renamed"):
-        backfill_pipeline(out, "1d", dt.date(2024, 2, 4), src)
+        backfill_pipeline(paths, "1d", dt.date(2024, 2, 4), src)
 
 
 def test_backfill_dry_run_no_snapshot_prints_plan(tmp_path, capsys):
-    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+    paths, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
     for d in (dt.date(2024, 1, 6), dt.date(2024, 1, 7)):
         src.add_kline("BTCUSDT", "1d", d)
         src.add_kline("ETHUSDT", "1d", d)
-    snaps_before = sorted((out / ".snapshots").glob("*.tar.gz"))
-    backfill_pipeline(out, "1d", dt.date(2024, 1, 7), src, dry_run=True)
-    snaps_after = sorted((out / ".snapshots").glob("*.tar.gz"))
+    snaps_before = sorted((paths.backup_dir / "snapshots").glob("*.tar.gz"))
+    backfill_pipeline(paths, "1d", dt.date(2024, 1, 7), src, dry_run=True)
+    snaps_after = sorted((paths.backup_dir / "snapshots").glob("*.tar.gz"))
     assert snaps_before == snaps_after
     captured = capsys.readouterr()
     assert "DRY-RUN" in captured.out
 
 
 def test_backfill_empty_index_raises(tmp_path):
-    out = tmp_path / "ds"
-    out.mkdir(parents=True)
+    data_dir = tmp_path / "data"
+    backup_dir = tmp_path / "bk"
+    data_dir.mkdir(parents=True)
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     src = FakeSource()
     with pytest.raises(PipelineError, match=r"no pairs"):
-        backfill_pipeline(out, "1d", dt.date(2024, 1, 5), src)
+        backfill_pipeline(paths, "1d", dt.date(2024, 1, 5), src)
 
 
 def test_backfill_trading_pair_publishing_lag_within_grace_no_op(tmp_path):
     """When archive lags by <= GRACE_DAYS, backfill is a silent no-op (no snapshot)."""
-    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
-    snaps_before = sorted((out / ".snapshots").glob("*.tar.gz"))
+    paths, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+    snaps_before = sorted((paths.backup_dir / "snapshots").glob("*.tar.gz"))
     # No new klines added; arg_to = index.to + 3 days (within 7-day grace)
-    backfill_pipeline(out, "1d", dt.date(2024, 1, 8), src)
-    snaps_after = sorted((out / ".snapshots").glob("*.tar.gz"))
+    backfill_pipeline(paths, "1d", dt.date(2024, 1, 8), src)
+    snaps_after = sorted((paths.backup_dir / "snapshots").glob("*.tar.gz"))
     assert snaps_before == snaps_after, "publishing-lag backfill must not snapshot"
     # Pairs unchanged
-    idx = load_index(out)
+    idx = load_index(paths.data_dir)
     for p in idx.pairs.values():
         assert p.intervals["1d"].dates_to == "2024-01-05"
 
 
 def test_backfill_trading_pair_sustained_absence_beyond_grace_raises(tmp_path):
     """When the absence exceeds GRACE_DAYS, fire the actionable error."""
-    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+    paths, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
     # No new klines; arg_to = index.to + 30 days (well beyond 7-day grace)
     with pytest.raises(PipelineError, match=r"delisted|renamed|publishing-lag grace"):
-        backfill_pipeline(out, "1d", dt.date(2024, 2, 4), src)
+        backfill_pipeline(paths, "1d", dt.date(2024, 2, 4), src)
 
 
 def test_backfill_extends_ragged_pair_that_ends_before_calendar(tmp_path):
@@ -141,7 +144,7 @@ def test_backfill_extends_ragged_pair_that_ends_before_calendar(tmp_path):
     existing bin spanned to the calendar end and raised
     "existing BTCUSDT open bin inconsistent with index: header=0, len=5"."""
     # Phase 1: BTC + ETH both through 2024-01-05.
-    out, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
+    paths, src = _bootstrap_two_pairs(tmp_path, dt.date(2024, 1, 5))
 
     # Phase 2: BTC goes BREAK; ETH extends to 01-07. BTC is now ragged (ends
     # 01-05) while the calendar reaches 01-07.
@@ -151,8 +154,8 @@ def test_backfill_extends_ragged_pair_that_ends_before_calendar(tmp_path):
             break
     for d in (dt.date(2024, 1, 6), dt.date(2024, 1, 7)):
         src.add_kline("ETHUSDT", "1d", d)
-    backfill_pipeline(out, "1d", dt.date(2024, 1, 7), src)
-    idx = load_index(out)
+    backfill_pipeline(paths, "1d", dt.date(2024, 1, 7), src)
+    idx = load_index(paths.data_dir)
     assert idx.pairs["BTCUSDT"].intervals["1d"].dates_to == "2024-01-05"  # ragged
     assert idx.pairs["ETHUSDT"].intervals["1d"].dates_to == "2024-01-07"
 
@@ -164,12 +167,12 @@ def test_backfill_extends_ragged_pair_that_ends_before_calendar(tmp_path):
             break
     for d in (dt.date(2024, 1, 6), dt.date(2024, 1, 7)):
         src.add_kline("BTCUSDT", "1d", d)
-    backfill_pipeline(out, "1d", dt.date(2024, 1, 7), src)
+    backfill_pipeline(paths, "1d", dt.date(2024, 1, 7), src)
 
-    idx = load_index(out)
+    idx = load_index(paths.data_dir)
     btc = idx.pairs["BTCUSDT"].intervals["1d"]
     eth = idx.pairs["ETHUSDT"].intervals["1d"]
     assert btc.dates_to == "2024-01-07", "ragged pair extended to calendar end"
     assert btc.rows == 7
     assert eth.dates_to == "2024-01-07"
-    assert verify_dataset(out).ok
+    assert verify_dataset(paths.data_dir).ok

@@ -274,3 +274,35 @@ def test_verify_detects_orphan_in_instruments_dir(tmp_path):
     report = verify_dataset(tmp_path)
     assert not report.ok
     assert any("orphan" in p and "stray.txt" in p for p in report.problems)
+
+
+def test_verify_ignores_cache_and_staging_dirs(tmp_path):
+    """cache/ (qlib disk cache) and .staging/ (pipeline work dir) must not trip the orphan scan.
+
+    Boundary: the orphan scan only walks features/**/*.bin, calendars/, and instruments/ — top-level
+    dirs like cache/ (written by qlib in iter-7) and .staging/ are intentionally outside that scope.
+    """
+    _build_valid_dataset(tmp_path)
+
+    # qlib writes its disk cache here — these bins are NOT inside features/ so the scan ignores them
+    cache_dir = tmp_path / "cache" / "feature"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "x.bin").write_bytes(b"\x01\x02\x03\x04")
+
+    # pipeline staging area — also outside the scanned dirs
+    staging_dir = tmp_path / ".staging"
+    staging_dir.mkdir()
+    (staging_dir / "leftover.txt").write_text("leftover")
+
+    # Guard: stray top-level dirs must NOT trip the orphan scan
+    report = verify_dataset(tmp_path, fail_on_gap=True)
+    assert report.ok is True, report.problems
+    assert report.problems == []
+
+    # Teeth: prove the orphan scan is actually live — a .bin inside features/ that is NOT indexed
+    # must be caught. Without this, the guard above passes vacuously even if the scan is broken.
+    orphan = tmp_path / "features" / "btcusdt" / "orphan.day.bin"
+    orphan.write_bytes(b"\x00" * 4)
+    report2 = verify_dataset(tmp_path, fail_on_gap=True)
+    assert report2.ok is False
+    assert any("orphan" in p for p in report2.problems)

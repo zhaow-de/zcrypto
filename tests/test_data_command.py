@@ -63,14 +63,14 @@ def _seed_valid_dataset(out_dir: Path) -> None:
 
 def test_data_verify_ok_exits_zero_and_prints_ok(tmp_path):
     _seed_valid_dataset(tmp_path)
-    result = runner.invoke(app, ["data", "verify", str(tmp_path)])
+    result = runner.invoke(app, ["data", "verify", "--data-dir", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "OK" in result.output
 
 
 def test_data_verify_prints_checklist_of_what_was_checked(tmp_path):
     _seed_valid_dataset(tmp_path)
-    result = runner.invoke(app, ["data", "verify", str(tmp_path)])
+    result = runner.invoke(app, ["data", "verify", "--data-dir", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "Checked" in result.output
     assert "[✓]" in result.output
@@ -81,7 +81,7 @@ def test_data_verify_prints_checklist_of_what_was_checked(tmp_path):
 def test_data_verify_empty_directory_prints_empty_message(tmp_path):
     empty = tmp_path / "fresh"
     empty.mkdir()
-    result = runner.invoke(app, ["data", "verify", str(empty)])
+    result = runner.invoke(app, ["data", "verify", "--data-dir", str(empty)])
     assert result.exit_code == 0, result.output
     assert "empty" in result.output.lower()
 
@@ -89,7 +89,7 @@ def test_data_verify_empty_directory_prints_empty_message(tmp_path):
 def test_data_verify_silent_empty_directory_exits_zero(tmp_path):
     empty = tmp_path / "fresh"
     empty.mkdir()
-    result = runner.invoke(app, ["data", "verify", "--silent", str(empty)])
+    result = runner.invoke(app, ["data", "verify", "--silent", "--data-dir", str(empty)])
     assert result.exit_code == 0
     assert result.output.strip() == ""
 
@@ -98,14 +98,14 @@ def test_data_verify_fail_exits_nonzero(tmp_path):
     _seed_valid_dataset(tmp_path)
     # Corrupt the calendar
     (tmp_path / "calendars" / "day.txt").write_text("2024-01-01\n")
-    result = runner.invoke(app, ["data", "verify", str(tmp_path)])
+    result = runner.invoke(app, ["data", "verify", "--data-dir", str(tmp_path)])
     assert result.exit_code != 0
     assert "FAIL" in result.output
 
 
 def test_data_verify_silent_prints_nothing(tmp_path):
     _seed_valid_dataset(tmp_path)
-    result = runner.invoke(app, ["data", "verify", "--silent", str(tmp_path)])
+    result = runner.invoke(app, ["data", "verify", "--silent", "--data-dir", str(tmp_path)])
     assert result.exit_code == 0
     assert result.output.strip() == ""
 
@@ -125,7 +125,7 @@ def test_data_download_rejects_bad_date_at_parse_time(tmp_path):
     pairs = _pairs_file(tmp_path, ["BTCUSDT"])
     result = runner.invoke(
         app,
-        ["data", "download", str(tmp_path / "ds"), str(pairs), "--from", "20240101"],
+        ["data", "download", str(tmp_path / "bk"), str(pairs), "--data-dir", str(tmp_path / "data"), "--from", "20240101"],
     )
     assert result.exit_code != 0
     assert "YYYY-MM-DD" in result.output
@@ -135,7 +135,7 @@ def test_data_download_rejects_non_calendar_date(tmp_path):
     pairs = _pairs_file(tmp_path, ["BTCUSDT"])
     result = runner.invoke(
         app,
-        ["data", "download", str(tmp_path / "ds"), str(pairs), "--from", "2024-13-40"],
+        ["data", "download", str(tmp_path / "bk"), str(pairs), "--data-dir", str(tmp_path / "data"), "--from", "2024-13-40"],
     )
     assert result.exit_code != 0
     assert "calendar" in result.output.lower()
@@ -148,8 +148,10 @@ def test_data_download_unsupported_interval_exits_nonzero(tmp_path):
         [
             "data",
             "download",
-            str(tmp_path / "ds"),
+            str(tmp_path / "bk"),
             str(pairs),
+            "--data-dir",
+            str(tmp_path / "data"),
             "--interval",
             "1h",
             "--from",
@@ -164,6 +166,7 @@ def test_data_download_unsupported_interval_exits_nonzero(tmp_path):
 
 def test_data_download_smoke_with_fake_source(tmp_path):
     pairs = _pairs_file(tmp_path, ["BTCUSDT"])
+    data_dir = tmp_path / "data"
     src = FakeSource()
     src.add_pair("BTCUSDT", "BTC", "USDT")
     for d in (dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(3)):
@@ -175,8 +178,10 @@ def test_data_download_smoke_with_fake_source(tmp_path):
             [
                 "data",
                 "download",
-                str(tmp_path / "ds"),
+                str(tmp_path / "bk"),
                 str(pairs),
+                "--data-dir",
+                str(data_dir),
                 "--from",
                 "2024-01-01",
                 "--to",
@@ -184,8 +189,8 @@ def test_data_download_smoke_with_fake_source(tmp_path):
             ],
         )
     assert result.exit_code == 0, result.output
-    assert (tmp_path / "ds" / "index.json").exists()
-    idx = json.loads((tmp_path / "ds" / "index.json").read_text(encoding="utf-8"))
+    assert (data_dir / "index.json").exists()
+    idx = json.loads((data_dir / "index.json").read_text(encoding="utf-8"))
     assert idx["calendar"]["to"] == "2024-01-03"
 
 
@@ -210,8 +215,10 @@ def test_data_download_dry_run_flag_accepted(tmp_path, monkeypatch):
         [
             "data",
             "download",
-            str(tmp_path / "ds"),
+            str(tmp_path / "bk"),
             str(pairs),
+            "--data-dir",
+            str(tmp_path / "data"),
             "--from",
             "2024-01-01",
             "--to",
@@ -240,7 +247,9 @@ def test_data_backfill_dry_run_flag_accepted(tmp_path, monkeypatch):
         [
             "data",
             "backfill",
-            str(tmp_path / "ds"),
+            str(tmp_path / "bk"),
+            "--data-dir",
+            str(tmp_path / "data"),
             "--to",
             "2024-01-02",
             "--dry-run",
@@ -261,7 +270,9 @@ def test_data_delist_dry_run_flag_accepted(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cmd_mod, "delist_pipeline", fake_pipeline)
 
-    result = runner.invoke(app, ["data", "delist", str(tmp_path / "ds"), "BTCUSDT", "--dry-run"])
+    result = runner.invoke(
+        app, ["data", "delist", str(tmp_path / "bk"), "BTCUSDT", "--data-dir", str(tmp_path / "data"), "--dry-run"]
+    )
     assert result.exit_code == 0, result.output
     assert captured.get("dry_run") is True
 
@@ -278,6 +289,8 @@ def test_data_rename_dry_run_flag_accepted(tmp_path, monkeypatch):
     monkeypatch.setattr(cmd_mod, "rename_pipeline", fake_pipeline)
     monkeypatch.setattr(cmd_mod, "BinanceSource", lambda: object())
 
-    result = runner.invoke(app, ["data", "rename", str(tmp_path / "ds"), "MATICUSDT", "POLUSDT", "--dry-run"])
+    result = runner.invoke(
+        app, ["data", "rename", str(tmp_path / "bk"), "MATICUSDT", "POLUSDT", "--data-dir", str(tmp_path / "data"), "--dry-run"]
+    )
     assert result.exit_code == 0, result.output
     assert captured.get("dry_run") is True
