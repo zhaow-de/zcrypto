@@ -38,6 +38,12 @@ class Recipe:
     account: float = field(default=10_000.0)
     benchmark: str = field(default="BTCUSDT")
     fee_preset: str = field(default="vip2_bnb")
+    # CPCV / purge-embargo knobs (see docs/specs/00008). Defaults match Alpha158's
+    # default label horizon and longest feature window; behavior-preserving.
+    label_horizon_days: int = field(default=2)
+    feature_lookback_days: int = field(default=60)
+    cv_n_groups: int = field(default=6)
+    cv_test_groups: int = field(default=2)
 
 
 def resolve_recipe(name: str) -> Recipe:
