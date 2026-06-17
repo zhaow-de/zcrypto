@@ -297,11 +297,10 @@ def test_download_extend_contiguous_no_adjust(tmp_path):
 from tests.data_fixtures import CountingSource  # noqa: E402
 
 
-def test_download_fetches_concurrently_within_cap(tmp_path, monkeypatch):
-    """Peak concurrent fetches stays <= CliConstants.FETCH_CONCURRENCY AND parallelism actually happens."""
-    from cli.constants import CliConstants
+def test_download_fetches_concurrently_within_cap(tmp_path):
+    """Peak concurrent fetches stays <= the injected fetch_concurrency AND parallelism actually happens."""
+    from cli.config import FetchConfig
 
-    monkeypatch.setattr(CliConstants, "FETCH_CONCURRENCY", 3)
     pairs = tmp_path / "pairs.txt"
     pairs.write_text("BTCUSDT\n")
     paths = DatasetPaths(data_dir=tmp_path / "data", backup_dir=tmp_path / "bk")
@@ -316,6 +315,7 @@ def test_download_fetches_concurrently_within_cap(tmp_path, monkeypatch):
         dt.date(2024, 1, 1),
         dt.date(2024, 1, 15),
         src,
+        fetch=FetchConfig(fetch_concurrency=3),
     )
     assert src.peak_concurrent <= 3, f"expected peak <= 3, got {src.peak_concurrent}"
     assert src.peak_concurrent >= 2, f"expected concurrent fetches, peak was only {src.peak_concurrent}"
