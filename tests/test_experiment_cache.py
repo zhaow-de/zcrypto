@@ -13,7 +13,7 @@ def _sha256_bytes(data: bytes) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 1. Stale wipe: stored fingerprint differs → cache dir wiped
+# 1. Stale wipe: stored fingerprint differs → BOTH qlib cache dirs wiped
 # ---------------------------------------------------------------------------
 def test_stale_fingerprint_wipes_cache(tmp_path):
     data_dir = tmp_path / "data"
@@ -22,16 +22,27 @@ def test_stale_fingerprint_wipes_cache(tmp_path):
     index_json = data_dir / "index.json"
     index_json.write_bytes(b"A")
 
-    cache_dir = data_dir / "cache"
-    cache_dir.mkdir()
-    (cache_dir / ".dataset_fingerprint").write_text(_sha256_bytes(b"B"))  # wrong sha
-    junk = cache_dir / "foo"
-    junk.write_text("junk")
+    # Plant stale fingerprint
+    (data_dir / ".experiment_cache_fingerprint").write_text(_sha256_bytes(b"B"))  # wrong sha
+
+    # Put junk in BOTH real qlib cache dirs
+    features_cache = data_dir / "features_cache"
+    features_cache.mkdir()
+    junk_f = features_cache / "foo"
+    junk_f.write_text("junk")
+
+    dataset_cache = data_dir / "dataset_cache"
+    dataset_cache.mkdir()
+    junk_d = dataset_cache / "bar"
+    junk_d.write_text("junk")
 
     ensure_cache_fresh(data_dir)
 
-    # The wipe must have happened — junk file gone (proves rmtree ran)
-    assert not junk.exists(), "cache/foo should have been wiped but still exists"
+    # Both dirs must be gone (proves rmtree targeted the right paths)
+    assert not junk_f.exists(), "features_cache/foo should have been wiped but still exists"
+    assert not junk_d.exists(), "dataset_cache/bar should have been wiped but still exists"
+    assert not features_cache.exists(), "features_cache should have been removed entirely"
+    assert not dataset_cache.exists(), "dataset_cache should have been removed entirely"
 
 
 # ---------------------------------------------------------------------------
@@ -44,17 +55,17 @@ def test_fresh_fingerprint_leaves_cache(tmp_path):
     index_json = data_dir / "index.json"
     index_json.write_bytes(b"A")
 
-    # Use record_fingerprint to plant a correct fingerprint, then add junk
-    cache_dir = data_dir / "cache"
-    cache_dir.mkdir()
+    # Plant correct fingerprint, then add junk in features_cache
     record_fingerprint(data_dir)
 
-    junk = cache_dir / "foo"
+    features_cache = data_dir / "features_cache"
+    features_cache.mkdir()
+    junk = features_cache / "foo"
     junk.write_text("junk")
 
     ensure_cache_fresh(data_dir)
 
-    assert junk.exists(), "cache/foo should NOT have been wiped but it was removed"
+    assert junk.exists(), "features_cache/foo should NOT have been wiped but it was removed"
 
 
 # ---------------------------------------------------------------------------
@@ -67,32 +78,32 @@ def test_refresh_flag_forces_wipe(tmp_path):
     index_json = data_dir / "index.json"
     index_json.write_bytes(b"A")
 
-    cache_dir = data_dir / "cache"
-    cache_dir.mkdir()
     record_fingerprint(data_dir)
 
-    junk = cache_dir / "foo"
+    features_cache = data_dir / "features_cache"
+    features_cache.mkdir()
+    junk = features_cache / "foo"
     junk.write_text("junk")
 
     ensure_cache_fresh(data_dir, refresh=True)
 
-    assert not junk.exists(), "cache/foo should have been wiped by refresh=True but still exists"
+    assert not junk.exists(), "features_cache/foo should have been wiped by refresh=True but still exists"
 
 
 # ---------------------------------------------------------------------------
-# 4. Missing cache dir: must not raise
+# 4. Missing cache dirs: must not raise
 # ---------------------------------------------------------------------------
-def test_missing_cache_dir_no_raise(tmp_path):
+def test_missing_cache_dirs_no_raise(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     (data_dir / "index.json").write_bytes(b"A")
-    # no cache/ dir
+    # no features_cache/ or dataset_cache/
 
     ensure_cache_fresh(data_dir)  # should not raise
 
 
 # ---------------------------------------------------------------------------
-# 5. record_fingerprint writes the correct sha
+# 5. record_fingerprint writes the correct sha to top-level dotfile
 # ---------------------------------------------------------------------------
 def test_record_fingerprint_writes_correct_sha(tmp_path):
     data_dir = tmp_path / "data"
@@ -101,10 +112,9 @@ def test_record_fingerprint_writes_correct_sha(tmp_path):
     index_json = data_dir / "index.json"
     index_json.write_bytes(b"hello world")
 
-    (data_dir / "cache").mkdir()
     record_fingerprint(data_dir)
 
-    fp_file = data_dir / "cache" / ".dataset_fingerprint"
+    fp_file = data_dir / ".experiment_cache_fingerprint"
     assert fp_file.exists()
     stored = fp_file.read_text().strip()
     expected = compute_sha256(index_json)

@@ -69,5 +69,5 @@ def test_run_experiment_against_fixture(tmp_path):
     assert len(result.positions) > 0
 
     assert (out_dir / "mlruns").exists()
-    assert (data_dir / "cache").exists()
-    assert (data_dir / "cache" / ".dataset_fingerprint").exists()
+    assert (data_dir / "features_cache").exists() or (data_dir / "dataset_cache").exists()
+    assert (data_dir / ".experiment_cache_fingerprint").exists()
