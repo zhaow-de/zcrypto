@@ -1,0 +1,1450 @@
+{
+  "schema_version": 2,
+  "updated_at": "2024-06-29T00:00:00Z",
+  "calendar": {
+    "freq": "day",
+    "from": "2023-01-02",
+    "to": "2024-06-28",
+    "days": 544
+  },
+  "pairs": {
+    "BTCUSDT": {
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/btcusdt/open.day.bin",
+              "sha256": "9e4f3a3e7313c323acb7bf020cb9428126ef3d66ca5dc6c7da297270fa7b3595",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/btcusdt/high.day.bin",
+              "sha256": "c28524ffed5de3b15008738fb90f3a2c08a0957c5525cbfb5a423a16e9c46a61",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/btcusdt/low.day.bin",
+              "sha256": "9d2eec64be02f48c20470ec1b3c0c44561d1bb727365e5a97874f4da6e5f9cec",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/btcusdt/close.day.bin",
+              "sha256": "e5576f5394e5c0db6bcaacf783fdf74a6e162f220facbe61f2bbd7e343011964",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/btcusdt/volume.day.bin",
+              "sha256": "564fba4537a34878a6637048329970f49cb3d6daab46982243b6db7669223c1f",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/btcusdt/amount.day.bin",
+              "sha256": "3214da64ce6268893ed62c3b02b85eded6ad45efa09a4fc01ff90b4340c9d749",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/btcusdt/trades.day.bin",
+              "sha256": "425dc27441c31b7af14a035afea8e1c6f3d72920ba639679fd91d66a7c25f5d8",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/btcusdt/taker_buy_base.day.bin",
+              "sha256": "c70401f5675def5abad3af8be2694ed59912065e3a00243bce5c8a07d66488ef",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/btcusdt/taker_buy_amount.day.bin",
+              "sha256": "9cd31bb8c32d47ab283f97d157580bcf4b1f9cebbaeff685ffdbc37cac4a1441",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/btcusdt/vwap.day.bin",
+              "sha256": "0817a6aa03a555c721f4f138633d000244dd8fb8617be7bc3aaf5b1368ef904a",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/btcusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "ETHUSDT": {
+      "base_asset": "ETH",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/ethusdt/open.day.bin",
+              "sha256": "5483943214041ffd8b5f1ab405a8efdf77be2ad4a06e69239c6f16dbf7e015b4",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/ethusdt/high.day.bin",
+              "sha256": "59be29ab644aa644db61aa8d5abec38602f397bc7a6fd80d2209e2ed3048c4ed",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/ethusdt/low.day.bin",
+              "sha256": "61b8cd7a60f2c781b98c7cf2bb0123cd20a21cec29b9776dd7575ad144fc4053",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/ethusdt/close.day.bin",
+              "sha256": "61d218700b8f3f7ec4b4564450b085c96259b7333fca782b9b43591895077a74",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/ethusdt/volume.day.bin",
+              "sha256": "bc1ae9b3c12222e42ee9a3a2d26386c76bb41e0b14e2efd965e0f028d453f3a0",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/ethusdt/amount.day.bin",
+              "sha256": "7268780bdc7a29739f4883afc32d775747ecf9563226de11bbf726e335783a62",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/ethusdt/trades.day.bin",
+              "sha256": "4bb98279bf9f883e0b6fc260486e413c48461b7620f7d5f042ed524d0b940447",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/ethusdt/taker_buy_base.day.bin",
+              "sha256": "556f8a2d7ba2de874ed47eee484ac881248baf8f8a27c03b0017b99e7d0b610c",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/ethusdt/taker_buy_amount.day.bin",
+              "sha256": "2f207f9d1cab7997e8a024f96823b60ab0000e57844a1d14d6ab5adfc7d6eb6e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/ethusdt/vwap.day.bin",
+              "sha256": "d439f5d733acc1a74cb9fd15b1382634edf90ba31a21f2ba8eba2c6931011606",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/ethusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "BNBUSDT": {
+      "base_asset": "BNB",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/bnbusdt/open.day.bin",
+              "sha256": "89b7a70229a24dcb6ae63b13037f87c36b723bed6b48166d3f6ea245fda04071",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/bnbusdt/high.day.bin",
+              "sha256": "3b2dc933676b7cf0305437711df160c0ba4fe46e979404431e333a237d91c929",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/bnbusdt/low.day.bin",
+              "sha256": "bccdb3cf6b674e0bedbc955fc431c212c702e453ac5c635c217e8b5464e5cb63",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/bnbusdt/close.day.bin",
+              "sha256": "a7ba10358865ad363ec432557ca9b8a9ce482dab3092983d80ce1c3afdd116ae",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/bnbusdt/volume.day.bin",
+              "sha256": "a6fc504664a146e56142cbd6f6162076d094a95e5bb51806e08facd22bab0061",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/bnbusdt/amount.day.bin",
+              "sha256": "8842cf0d44e75840a82815cc958f040ff775367253d54c8eab495222d46e3672",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/bnbusdt/trades.day.bin",
+              "sha256": "a7a0beb7bf3ee288803fc8d22e4594b04ed9fea1d6a8b5c0b7f10c2777838615",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/bnbusdt/taker_buy_base.day.bin",
+              "sha256": "ab654ebd56a3408935f1656adf1e1b0a617fed6fa82c6150ffea9e1ba7bc3bae",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/bnbusdt/taker_buy_amount.day.bin",
+              "sha256": "c3f64485047415e3c7c5eda87ba5a60e05dadcb2a3fcb1bb906b53e82b392b46",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/bnbusdt/vwap.day.bin",
+              "sha256": "0170bf7160164df9e29bb997fbdf75482177cea7417c7372974c215614f9e81b",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/bnbusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "SOLUSDT": {
+      "base_asset": "SOL",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/solusdt/open.day.bin",
+              "sha256": "a98d63418eff14a2b60f770546d04db92aa94532b16afd6636f3ab98865ef254",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/solusdt/high.day.bin",
+              "sha256": "5493034652ce0780388d42d2a91e3df040f8a59514656c77e54b33bba1ba62cf",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/solusdt/low.day.bin",
+              "sha256": "3d5360906c3bc90061ad7faa72d4c30fbe6086a1e5baa44d331ffe4ef0b3e900",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/solusdt/close.day.bin",
+              "sha256": "725e461b1c4224da76a458bcc9ecb96c2fffc344e0962e35b8e6f3ea09c29f08",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/solusdt/volume.day.bin",
+              "sha256": "2cc7acd83e8c6fad50c6b00a2ac9db717bb840ee7db4534ffece424f2bf73531",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/solusdt/amount.day.bin",
+              "sha256": "cd9a46e9c002d7a813fee9c44ca5139ee0bdecc6552a5d0763566ea2f4cc626b",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/solusdt/trades.day.bin",
+              "sha256": "5749592261819c058cafbe8b979d65776362b61551699552e0bb022e76d16afc",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/solusdt/taker_buy_base.day.bin",
+              "sha256": "bbf2b0fb9610fbac7b2a406a951b037bfac0549bb090edef4b9c0f9fe2d2afe1",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/solusdt/taker_buy_amount.day.bin",
+              "sha256": "2441fe132d1bc99ae76665dbe3252807ae88f9836e6e66acc4b46805212554e5",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/solusdt/vwap.day.bin",
+              "sha256": "06394600015f251fea634a4240b4aaf32a8540428466b16a00992701d3d06d1b",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/solusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "XRPUSDT": {
+      "base_asset": "XRP",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/xrpusdt/open.day.bin",
+              "sha256": "b422b384c4924631ab1358ee95cf2dc196ce2ec22fac4872c5c7e4c758c03d8f",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/xrpusdt/high.day.bin",
+              "sha256": "60a21dc6b31a253c09c00691125dd9bde23c3b11d19c6f4fa40ac3d5d39c930a",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/xrpusdt/low.day.bin",
+              "sha256": "cbc2c6eed2886bb09ab493daf89607ffaa0756e14a43d6c8979508aa2b3d52df",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/xrpusdt/close.day.bin",
+              "sha256": "3d35fef1c5ef2db05179acee14be97d87adf7aab880887d7aa591146cdb51359",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/xrpusdt/volume.day.bin",
+              "sha256": "52f51e99a592fd71175ab954dfd21a421e3fd1ff7e55017e53e4d98dc70c193a",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/xrpusdt/amount.day.bin",
+              "sha256": "5be3c79917ace61735afdad6d1d5bb1313efbfac8a1bc9be49d4b980fef93ac5",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/xrpusdt/trades.day.bin",
+              "sha256": "0a7a21c4ccf3f5c1b128338ab89da3a278c01399e6dc43f28091180004a13ebc",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/xrpusdt/taker_buy_base.day.bin",
+              "sha256": "2a0747e3b22c495a3491d0111c8cd84adae2ecb9a14948a7ab4163f006afa26c",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/xrpusdt/taker_buy_amount.day.bin",
+              "sha256": "977ae07e9ad9ee9976c6740908a3d377c80fef332aeb44848982e62b61203b75",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/xrpusdt/vwap.day.bin",
+              "sha256": "cb555a8822cdb7d92cdb07c1f27bfedf47825bff397eb01c9ebbeab9dd645bc9",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/xrpusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "ADAUSDT": {
+      "base_asset": "ADA",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/adausdt/open.day.bin",
+              "sha256": "484a1f99db14328d79c593d3b024c82c616346c63f8bf8ec168ad453e63372b6",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/adausdt/high.day.bin",
+              "sha256": "b0eb757d5fa817914e8fab4be6d8990e30a396ccdad77b222075cec1e47d9b08",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/adausdt/low.day.bin",
+              "sha256": "c345ddf699221a688a8142c043f485ada06a33d5b2bb8b0d419519ba3a5d0d09",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/adausdt/close.day.bin",
+              "sha256": "5f5dadd6bfcdd5536e76c46ce4ab3856878379312cb9b7a180d4a190493ce381",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/adausdt/volume.day.bin",
+              "sha256": "5ed30ff9b9fbed67f5226224d0365edb6228b7fa1495e772c8d11a463628a71d",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/adausdt/amount.day.bin",
+              "sha256": "c1f2ad1b38f27dd0a587cee1ec0f76bee21b8abe063968d966692e9c8d64f8e5",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/adausdt/trades.day.bin",
+              "sha256": "5c521bd667ce4940c4c7a0cb64709f92c13a734b42ffb4c33cadaab96c5c4dd9",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/adausdt/taker_buy_base.day.bin",
+              "sha256": "80b310eff1cf75c225ed1d7f665c6d1c9b7766b4fa2ce9f4921d20de19fec140",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/adausdt/taker_buy_amount.day.bin",
+              "sha256": "5bdc1d119c1d7a2efc253c1c69fef11a66f57b1bd597e37e95195cf7f5bf327e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/adausdt/vwap.day.bin",
+              "sha256": "c5558d07470848c019e8b858c5e1162d9d23759d29a75eb98e7bd9dd77223382",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/adausdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "AVAXUSDT": {
+      "base_asset": "AVAX",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/avaxusdt/open.day.bin",
+              "sha256": "b76beb5d5d5f8bd8612779afb2755a1352b2d14f5bcc530b38a2818e23cfb425",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/avaxusdt/high.day.bin",
+              "sha256": "32dcbb91afc09c5ecbedd818eaad4680e21790ced8a781e42af37c925d7cdae0",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/avaxusdt/low.day.bin",
+              "sha256": "e06fcf5154c58de726746ec39513015c5077e31ccc182c12a45cdab7e953cdda",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/avaxusdt/close.day.bin",
+              "sha256": "d72f72de08e7f0821b0dda826e786735a078e1766829a807a4080c252d6c9d27",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/avaxusdt/volume.day.bin",
+              "sha256": "b39e6be307e9e21dd934e106de0358c0be3f804d16b91575cbfd6d2db8abb632",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/avaxusdt/amount.day.bin",
+              "sha256": "f3ab39bae926ec0241db79f787240fb89f59d391fac1b7c1aa0eca850729b62b",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/avaxusdt/trades.day.bin",
+              "sha256": "a90812d444cb62213d1b6ba2ce8deed0e61dfa1ebeca114d5d48d9ea78726d21",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/avaxusdt/taker_buy_base.day.bin",
+              "sha256": "a6c048853f542642a8576ed675355f6481a82f49ec410ad7ae155a73f47bcfb4",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/avaxusdt/taker_buy_amount.day.bin",
+              "sha256": "5cb7c38ae1487e9ad61b33aa4e929e43460847f7e6f72bc6b195f33fa6cbcc8e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/avaxusdt/vwap.day.bin",
+              "sha256": "95b891dd71198fb92eb4df93f0164e9bcdb1b0a13743809768e8ecc31d65fafb",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/avaxusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "LINKUSDT": {
+      "base_asset": "LINK",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/linkusdt/open.day.bin",
+              "sha256": "5d17ce93f226c7a449ac56dd1206c7917a0ec97583b1b7d601e79ddf135702d2",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/linkusdt/high.day.bin",
+              "sha256": "3d7ff248a16bfee9a64a233b9f031a22421912154fbd99ed6133aa97ba002b12",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/linkusdt/low.day.bin",
+              "sha256": "209be3c46f790f5a3d3ecdc5bddae8f470a9a004aa479f90cf729c1a7193e16f",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/linkusdt/close.day.bin",
+              "sha256": "893880da9a881b0c30d4f97b0f10e3525847b9c84c0a014fc4ec5f7377aa0522",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/linkusdt/volume.day.bin",
+              "sha256": "66ac844e35ebf37fbd1d4533a80d59b067a82024dcbbc1465f25f1321c109428",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/linkusdt/amount.day.bin",
+              "sha256": "fcf3d5921440ab666795e365104be3f0fd77d06c5ee49fed250b5ed831bf3c68",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/linkusdt/trades.day.bin",
+              "sha256": "397f4e57cc85297375be3ec6404b8626f9480612094eae1d9a698aebf8cc243a",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/linkusdt/taker_buy_base.day.bin",
+              "sha256": "11aa1ce25d1cb8f89c63d77ecb6e556d687c8adc51774b1f74fa9bd16889b013",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/linkusdt/taker_buy_amount.day.bin",
+              "sha256": "8cf68fcd6a8d1f8e38b7c5fbd534994cf8edf51e2f053c91dc4788d35173a9d2",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/linkusdt/vwap.day.bin",
+              "sha256": "0703a6a0908e6b5cb5e0bf46863ed0b50bc3f81369a0346fc5bd386fc0928f2d",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/linkusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "DOGEUSDT": {
+      "base_asset": "DOGE",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/dogeusdt/open.day.bin",
+              "sha256": "6b057a3ae20dd345d5f13afc6bf8162ce9deb4dfa6d10fc6695da4a110cef0c1",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/dogeusdt/high.day.bin",
+              "sha256": "c919460ecd9b62f9e5937e597b6ecd41188453685818dbc6e7c4f810566f34d2",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/dogeusdt/low.day.bin",
+              "sha256": "c70b5e04bb28b46a8535d085f66ef34819d2482f18f60be1c11feb0d9212ce7e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/dogeusdt/close.day.bin",
+              "sha256": "8ef58376d070f0fcfdea42709ff740b0ebbb14cbc3ea6a24c078ad913f797012",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/dogeusdt/volume.day.bin",
+              "sha256": "e7b4cc81dcc171b9665d23c8b9fa82f20f91c64097374d9fde37832cc1d5caad",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/dogeusdt/amount.day.bin",
+              "sha256": "e8f0ddacfc5626855fdfe21ece54e19b5bec2760e41b4c121fc4826e76c438d6",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/dogeusdt/trades.day.bin",
+              "sha256": "1366fb9bc2e02967863fa6b2f7e14e7f421f13de04ee756811a3d3c2fe6ad39e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/dogeusdt/taker_buy_base.day.bin",
+              "sha256": "af16f9d0d3c8690c43a7099798fe9009e35ea6ab1fca86b4522f79a20a9da64d",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/dogeusdt/taker_buy_amount.day.bin",
+              "sha256": "0eec9732691b46fc9eea29b4a6b295bb4d4c954d64d6cfcdd5a4ef16da538ec4",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/dogeusdt/vwap.day.bin",
+              "sha256": "ce68bf88fbafc070fc67c16d4d0b8bd6a1a62af9cc9cc41ca68115154246ca7c",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/dogeusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "TRXUSDT": {
+      "base_asset": "TRX",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/trxusdt/open.day.bin",
+              "sha256": "1ccd49cb6aefe41164e6a8830504a64b6cb5fdd88196382de2f1fd80fcd8ea77",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/trxusdt/high.day.bin",
+              "sha256": "86c29ed1c48a2083f281c22a9e5801ef7f09ffba68cd148ca0ef482866f9a529",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/trxusdt/low.day.bin",
+              "sha256": "0d283d66514cfdf12ff6f554892f1c7f640a738a5ee99514ad9f292b39f86ed9",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/trxusdt/close.day.bin",
+              "sha256": "066c459843bfa0577df7c8bba767406dddd20ab01bb8778b55295189e84aed9b",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/trxusdt/volume.day.bin",
+              "sha256": "dd113f822f3cbc0c6d11121c6ca0a26958a34def9cfa1c33162060115d95269d",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/trxusdt/amount.day.bin",
+              "sha256": "d071f47da13890a69ebe9fe938bdf77289aa1d1dd1f0bac471c57df3f1027de0",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/trxusdt/trades.day.bin",
+              "sha256": "780712c9aeb96f2aad97713a00d04949a928b22be614cbee9dbda77023820f4e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/trxusdt/taker_buy_base.day.bin",
+              "sha256": "9c3dd1eb7d6fc7b1970b676119e955c54fc0f69b1f04956600486111392efcfc",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/trxusdt/taker_buy_amount.day.bin",
+              "sha256": "d6080d6a024e2ff60b44daa646089e08aa3a964431f82b33dac210d8780386da",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/trxusdt/vwap.day.bin",
+              "sha256": "1a3e1c97570e87562cfadc64bc62a9abeb70eb8e9bde0556a4fbb8432065383e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/trxusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "DOTUSDT": {
+      "base_asset": "DOT",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/dotusdt/open.day.bin",
+              "sha256": "144c9167729fd21bf34ab5195d9ffa1aef69bef6369bac1ffbb4c0803ebf9736",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/dotusdt/high.day.bin",
+              "sha256": "ab5581b679692fb787ffdb72695cccef20fd199401e7bc85a20f0f7b8f80e435",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/dotusdt/low.day.bin",
+              "sha256": "83eee534e36e2a979ccad252c1a3ce4a158fea9a57ef13ce17616ab515b6acfc",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/dotusdt/close.day.bin",
+              "sha256": "67de490ffda02a59ab0c23246906bcc29610c702527c89356f03ccb23ad0da4b",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/dotusdt/volume.day.bin",
+              "sha256": "197801d94378dc827f3e1bb5e689e3e7721a85e14edbc9e1b42622e154f4ddc2",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/dotusdt/amount.day.bin",
+              "sha256": "29d462013983a09ae19d50b93633d0899e04059a7c2bad1d11e04d3d8e01b68b",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/dotusdt/trades.day.bin",
+              "sha256": "26ffb7c0b6fd41122224b3e579072136954b6fd7ce6d8b2cc116d1faf92ef850",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/dotusdt/taker_buy_base.day.bin",
+              "sha256": "2543e6084c81f37c6372d6aa869bc3f26ac908100feb3dac324e9476794f7501",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/dotusdt/taker_buy_amount.day.bin",
+              "sha256": "92f2bf2a8233f5f71d3e8ff4fd364954244e9ace09145c44c2d49bb2d95cbe28",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/dotusdt/vwap.day.bin",
+              "sha256": "2fa05de1e57c1c6ede4ea2e76150ee8638f16cb8df3519b9bb1ff6807382d0e0",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/dotusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "POLUSDT": {
+      "base_asset": "POL",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/polusdt/open.day.bin",
+              "sha256": "184e99ccb6396fe0ba40b90305c37f6783a40e7495b2e89fea32e4a21ca807cc",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/polusdt/high.day.bin",
+              "sha256": "a4c6f3d5f5e19aff43c438eef57184871d50ebf5c825eae950d85e6463b27ae4",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/polusdt/low.day.bin",
+              "sha256": "a921c124012d04c1aee06a3554cb1c73a700d7c739b56de88e2c9a511b00f3af",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/polusdt/close.day.bin",
+              "sha256": "e49108023e1a857ef871cef8a8154d54cbc39332b38a2ee039a276569e48f8b9",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/polusdt/volume.day.bin",
+              "sha256": "b9b9c224c68bf5e8d58e8b2d7de6e6936eeb0fb45b2b5cf4048e055eef7ef531",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/polusdt/amount.day.bin",
+              "sha256": "bb6ae4bbe0d71c9133318cc7044bc925883cbd8494b25f32a855b13d21eb1747",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/polusdt/trades.day.bin",
+              "sha256": "081961f06405ef1da767fdbc0253837918ac010a28d6d7961852b356157abc36",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/polusdt/taker_buy_base.day.bin",
+              "sha256": "495c85e4a77eb7001a65dbae9bdb06a05907413e81c4ec12f2e72ee2f24c9464",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/polusdt/taker_buy_amount.day.bin",
+              "sha256": "f87b8ccaa4dead5c6cbd4b8220b384e45e4ae80ba2bcab2b759f6d22b0132230",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/polusdt/vwap.day.bin",
+              "sha256": "888f9769358928e7c16741601eedccccc83240bda73e328318ed47b1711b6852",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/polusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "LTCUSDT": {
+      "base_asset": "LTC",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/ltcusdt/open.day.bin",
+              "sha256": "e656484c202577b17cbf14abf38b81866c2c5280e493e1f83dd5f4c36f0205f9",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/ltcusdt/high.day.bin",
+              "sha256": "5d57242ab6dc3f0662e7502d36368d985dc372ff99839b132c0fdb7404ec2815",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/ltcusdt/low.day.bin",
+              "sha256": "2d3457523f09f2dd865c1978a64772b4eb293629004dd54f1cdc690cf7437cd8",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/ltcusdt/close.day.bin",
+              "sha256": "e3b5c1c826614dfae07d7800e56195bfad2f5eba7be24d5b48f4e482513ccd5e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/ltcusdt/volume.day.bin",
+              "sha256": "85834cd85dae04d363e60f26a84f4c18ab3d0c2a0ed1b246447fb407359a94c1",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/ltcusdt/amount.day.bin",
+              "sha256": "87e16139146634ef87fb3d81e4589e18087997b214336f24df1176b111fed92c",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/ltcusdt/trades.day.bin",
+              "sha256": "b408ef7ba4cd18988bffeb6c66865ceac5ab72b5792eb123e9677ebf16f42374",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/ltcusdt/taker_buy_base.day.bin",
+              "sha256": "b229fa6e2ba469b31d107c0864d5694db81688ad9605d5dd506709f0b914b5a4",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/ltcusdt/taker_buy_amount.day.bin",
+              "sha256": "40f1610f4db3c27dcc16995479dd391d2cf8528b49c9ab239225a28a4c45dc9a",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/ltcusdt/vwap.day.bin",
+              "sha256": "da13c0f71db8b10dfdd4cd7226bf5469b7ebd292ce3f403a51ebffd668a89a0e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/ltcusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "ATOMUSDT": {
+      "base_asset": "ATOM",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/atomusdt/open.day.bin",
+              "sha256": "1143fe6752468790230e3dc1d178a72b4435ab8932439483d39dba54c8ff3792",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/atomusdt/high.day.bin",
+              "sha256": "9fbc976210ffb050552b46d360dfd31f732c4db9dd7e06986b210ab1ece02da0",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/atomusdt/low.day.bin",
+              "sha256": "a4cfd6e80328a81b5862d0c2d7afec117dd4e3217ecdc9df5cb3af78657cdaa1",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/atomusdt/close.day.bin",
+              "sha256": "a8b3961f2d9db4038c1c758f0491cb3594fe745bbcc4a8b7b4d9b7111d2df973",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/atomusdt/volume.day.bin",
+              "sha256": "7b671315a2589b996ba5d23067640d6ff190039c0d89a71654ac2f896a4eb357",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/atomusdt/amount.day.bin",
+              "sha256": "730437d2ba21ae8bbfac3a95edc4f9f4aa993fb9049ef2bcb2dacd83eef09428",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/atomusdt/trades.day.bin",
+              "sha256": "b4204f5cebf8ba940776e2a77324e3e5db3dc47c8cd35f757978b19377c34c4a",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/atomusdt/taker_buy_base.day.bin",
+              "sha256": "bb2c5280a1ecf3d0ce4d92c49f96dc7c62b8b0429634f21f7651502bbb8af094",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/atomusdt/taker_buy_amount.day.bin",
+              "sha256": "dc3e150fff072506d57b9b8b0d94d9a3736857487cca17f7c202210e6acb9df5",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/atomusdt/vwap.day.bin",
+              "sha256": "40abbda63cf17267b90bf79d74d6ba3f31d3d567c3fc1a8e00bbfc52522208c0",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/atomusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "UNIUSDT": {
+      "base_asset": "UNI",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/uniusdt/open.day.bin",
+              "sha256": "0dfec3ef3529bde6e50eef621ecf6310c6bf5e4bd12806fde20a07ad37332737",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/uniusdt/high.day.bin",
+              "sha256": "ba72d6a43daa1522f026a6742c4b810da440686af9f73fa3290f191e9745b251",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/uniusdt/low.day.bin",
+              "sha256": "7a90f67e18b7c84f9aeddc6a92820639e50d4b92e9fb2d3548bfddac0f185f5b",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/uniusdt/close.day.bin",
+              "sha256": "19c28b37959ee34a4c718416f42f19f8300b7b1ea0e866780a93bdbdc952f289",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/uniusdt/volume.day.bin",
+              "sha256": "10eeed7bd04e06c8898af311be70f80e7a89b2d0565a57875ab775398518a0b0",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/uniusdt/amount.day.bin",
+              "sha256": "d6ef6a7a09b7c8764baf6f1542d310edfaeee7447088a7337917c4f8ad5da565",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/uniusdt/trades.day.bin",
+              "sha256": "18c1193fdb3d25debf76026718e865c2e2a632937ef669dbf48b421e30167f11",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/uniusdt/taker_buy_base.day.bin",
+              "sha256": "b1d46627dbdeefba2310582b1ecd960413c8e919c3679167272bd1290816683d",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/uniusdt/taker_buy_amount.day.bin",
+              "sha256": "3f2ebc86ccc3c6538c0bbd7df5fb5edf7df985905872f988f664e2b26f1c8ff5",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/uniusdt/vwap.day.bin",
+              "sha256": "56a2ec6f99cfbe3f309afcb9924855e3d3085436f3180649b0a4771959a21afb",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/uniusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "NEARUSDT": {
+      "base_asset": "NEAR",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/nearusdt/open.day.bin",
+              "sha256": "102ee19e717c667e0d50dbe8e7164c9396a1762fc39c3811e23967d28a4c0ce3",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/nearusdt/high.day.bin",
+              "sha256": "b89e8dfe8a9b710f1d375f50bdcc59d7665df69bd4b529f096a6eede041e750d",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/nearusdt/low.day.bin",
+              "sha256": "bdd439cda0f1ab362cac94c8f00b0d282e8c61955175dc3f1485586497378c94",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/nearusdt/close.day.bin",
+              "sha256": "1478969f9e7b478fdf54a2ad895f7ade6d7ff22c8608faaf722e30e638b04b30",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/nearusdt/volume.day.bin",
+              "sha256": "09be31b521dcb2e614def5633e2d852b3d76f39cd3af995904828849ee433cc0",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/nearusdt/amount.day.bin",
+              "sha256": "be3b6283cd9a5fab7c0b3244536d2be9f76a1c5fced8b9cdbe942dd4938d6834",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/nearusdt/trades.day.bin",
+              "sha256": "2297f7759986ea6b86abf26b4874deb8181ad877d83c606cbeb393e014be0193",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/nearusdt/taker_buy_base.day.bin",
+              "sha256": "88cf502aa913c60f4f371a2dd168e96de395d05120293cf68cc47809b56e8122",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/nearusdt/taker_buy_amount.day.bin",
+              "sha256": "298d6646f3fa6d951507e2a7bf02313e326d0e41977b1f403f9a9c2a41f8e4cd",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/nearusdt/vwap.day.bin",
+              "sha256": "7b69b6a23f68b1172773f781ae5808badac08d6a9b02c8923ec963a05f260b87",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/nearusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "ARBUSDT": {
+      "base_asset": "ARB",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/arbusdt/open.day.bin",
+              "sha256": "2964c78197f330b62e42d210263cdb87af182f5d7d64e10018235e33c4b82956",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/arbusdt/high.day.bin",
+              "sha256": "2e1cd5a967208eb17740cbfb1ff639d4839b4cdedf96ebbc0814581af48c20af",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/arbusdt/low.day.bin",
+              "sha256": "9986efeba855508f5f6173cb2ebdf48a736395bd23558a2093856ba643dcdcf1",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/arbusdt/close.day.bin",
+              "sha256": "87dd3c576922387939108eb45a58d30915b98b567d61aa6f32e8919149d3195a",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/arbusdt/volume.day.bin",
+              "sha256": "dfadd218c5f37ab3c6b4aece1e81af8e4e43b870f0842033d5db40ffd45cdb4d",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/arbusdt/amount.day.bin",
+              "sha256": "e669751214bdf6fb66f5c5d74e24bd196d1b3cc4f42dd4e510f435215a605885",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/arbusdt/trades.day.bin",
+              "sha256": "ec21fd3444a42a6bd9824f0ed893349277263749f7e296a088605f3b3b4cfca1",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/arbusdt/taker_buy_base.day.bin",
+              "sha256": "5607b8951315939fefe18c249dff7cb39d587680dbddbb4f5c1d08307203bc9e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/arbusdt/taker_buy_amount.day.bin",
+              "sha256": "4438703c6c434ed367612d338833a4b41a502e5efe54035cddcb05dc626b8040",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/arbusdt/vwap.day.bin",
+              "sha256": "38276dddec37482b09d783f62c27ae62d13f4ea8bbb8a2c269a3bf075c02d729",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/arbusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "APTUSDT": {
+      "base_asset": "APT",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/aptusdt/open.day.bin",
+              "sha256": "13fb8910d061e0802b8afe5b835b9cfa88695a995e3b35d4a7c4225adbc5158f",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/aptusdt/high.day.bin",
+              "sha256": "edb2c5d5643a0c29c169ec7505575098a8bf0ab9518c67b09c18a68b5267b336",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/aptusdt/low.day.bin",
+              "sha256": "f2da4572d707fb3f9a26147c88452305e32d9e7e69be0cb80336eeefd3d86ca3",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/aptusdt/close.day.bin",
+              "sha256": "4954c5453cc707574079deacee1d9022e31a9642fd074ef809a97cf3733caafd",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/aptusdt/volume.day.bin",
+              "sha256": "a281150c98fb047b2dc4b38c00129c7c0f1f916fc8e5d3232276aa4684ac7f4d",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/aptusdt/amount.day.bin",
+              "sha256": "5e8eede94999254aef82a8fe03ca76376dc802c559d615938106c596e860c477",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/aptusdt/trades.day.bin",
+              "sha256": "2a120b7bb12ca150e37ea23c3b2c33250179c1908b2d34d0200a03d0c6cb087c",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/aptusdt/taker_buy_base.day.bin",
+              "sha256": "3f9b25408ce2d7495506d1f24e23e1068f4ff193420534eda6efa4138376b81d",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/aptusdt/taker_buy_amount.day.bin",
+              "sha256": "fd9a0b34e9134cb9300116f3737114acbe597d0a5acc1a1fb6e8ce013986fa6d",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/aptusdt/vwap.day.bin",
+              "sha256": "0521c658b909c8ecd9664a5ca0e82ff76edb0f1e217f47f1823f06d9f9ad9304",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/aptusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "PEPEUSDT": {
+      "base_asset": "PEPE",
+      "quote_asset": "USDT",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/pepeusdt/open.day.bin",
+              "sha256": "2442ea902484375c989d6f8306392d48a08ac7885931831a1c47242344dcca74",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/pepeusdt/high.day.bin",
+              "sha256": "9380e153a8f442c99d7fffcb977839f856b4b639b1a219bcee01523291b1e436",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/pepeusdt/low.day.bin",
+              "sha256": "2ab79d236f689350762f59db7c3c3a26deebeccd1eb1488fd2c6ce80ac114a7f",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/pepeusdt/close.day.bin",
+              "sha256": "bcbeabf21c337f4f7dc0faa51e560ec73299afde68e259b114b176eeeb5734e9",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/pepeusdt/volume.day.bin",
+              "sha256": "b3e4c84129f9105be0e01be9ed790fbc28f3c03290afa1f0cd0e7852566f3b96",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/pepeusdt/amount.day.bin",
+              "sha256": "550f4ad9ad333819b5ee121287a0fa3dc41d77be78af803ee44f95d5bb4861f2",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/pepeusdt/trades.day.bin",
+              "sha256": "0369c4157fd3bb7f0d448f6372836df1d7afa24acd4733ec044b7aa0ca8ff78f",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/pepeusdt/taker_buy_base.day.bin",
+              "sha256": "bcddf8fd48b6b72fd35c4a9077c740f212e223d1626892bebcf2c6d27d4fee70",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/pepeusdt/taker_buy_amount.day.bin",
+              "sha256": "3298af1940724b2e25daba1e312a3058593bf90c73b1c25bbd7865760c05679e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/pepeusdt/vwap.day.bin",
+              "sha256": "5ff5b9a758d7cd0f650fd675e04a3d1a7f644df378f9c07abc45ec1aa2a62625",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/pepeusdt/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "BTCEUR": {
+      "base_asset": "BTC",
+      "quote_asset": "EUR",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/btceur/open.day.bin",
+              "sha256": "a2d9ff7d6519bfdd5ed9d3d0d89ba735b4d17f54683eb8fb048d33afa7c72928",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/btceur/high.day.bin",
+              "sha256": "dc81a759f3d1cff6e6e75cb94e20b0d89bcd253be5b382088abe26d0a3b009ec",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/btceur/low.day.bin",
+              "sha256": "1896824dea68707d60eb240047ac7ca16f5b8cd9a0ca2f268c6dfacd150f9269",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/btceur/close.day.bin",
+              "sha256": "672e616599733ef0959ed486fe33f26e84f43a301800862baaaee5e3d427567f",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/btceur/volume.day.bin",
+              "sha256": "620cd72742681670a72a27975744ecc2fa1851fcf1071ddf96b14f37e314a0d3",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/btceur/amount.day.bin",
+              "sha256": "1bc8a174561434325e6f4c8faff2b935b26a7452f5c34f6ba1bb91bcf421ba88",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/btceur/trades.day.bin",
+              "sha256": "f0c541d18e3b3855d7981c1dfd2a6a3a1a5dc459731826b9a0cdc145b8928a78",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/btceur/taker_buy_base.day.bin",
+              "sha256": "65b8fc010b7b32f12258062111f13e620dc1d98b11c0762ff85c9b0358e351a7",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/btceur/taker_buy_amount.day.bin",
+              "sha256": "52d98afa5c80ca93d6d9a5cd3aadb856788be1bb633b26018dff7809afa8e15c",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/btceur/vwap.day.bin",
+              "sha256": "5fadf67640abba36d1ea4db3d180c5f005510ce19ac058323edfb9454eb67658",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/btceur/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "ETHBTC": {
+      "base_asset": "ETH",
+      "quote_asset": "BTC",
+      "intervals": {
+        "1d": {
+          "from": "2023-01-02",
+          "to": "2024-06-28",
+          "rows": 544,
+          "fields": {
+            "open": {
+              "bin": "features/ethbtc/open.day.bin",
+              "sha256": "1540e6286d6afbc441b8b9de8e6b2f520163c3ec0b513fd67cf0bcedfb07c3e2",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "high": {
+              "bin": "features/ethbtc/high.day.bin",
+              "sha256": "7fde3112c052f5687b4325a01511584de43b391a1284edd2597aa6f274b11f8e",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "low": {
+              "bin": "features/ethbtc/low.day.bin",
+              "sha256": "5062c2a19e3b42b432468fa6db18db2274437adc8a4a70763d9c972a22be2d12",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "close": {
+              "bin": "features/ethbtc/close.day.bin",
+              "sha256": "210fed11f93509012d08c8907a362c368d78159537f843a5e2e35debc0eb4f74",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "volume": {
+              "bin": "features/ethbtc/volume.day.bin",
+              "sha256": "5c4e99d07625a0558e00c86a4b7485886ef942bdbf6016b51385a9e8270d2ff3",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "amount": {
+              "bin": "features/ethbtc/amount.day.bin",
+              "sha256": "4237777edd57dfc30124d88d5e1cbabed2a452b26d7657b914f6323c6a17a440",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "trades": {
+              "bin": "features/ethbtc/trades.day.bin",
+              "sha256": "ec130f296a5305d989d8ffa41c6de3dfdcaedb4dfebbe306888c6357164a8eb5",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_base": {
+              "bin": "features/ethbtc/taker_buy_base.day.bin",
+              "sha256": "da9b46e70898f613bd6e7296547dd42394664a23e3fdd099b875ae62965dbbf9",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "taker_buy_amount": {
+              "bin": "features/ethbtc/taker_buy_amount.day.bin",
+              "sha256": "9a91d4745d2ae4093224136de560fe6cb037ba1b8663df7ac171b6a1462ebc48",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "vwap": {
+              "bin": "features/ethbtc/vwap.day.bin",
+              "sha256": "b200c7801510b68f939f3a884817100330780dc46e2fd6b46e396b16a70e3972",
+              "updated_at": "2024-06-29T00:00:00Z"
+            },
+            "factor": {
+              "bin": "features/ethbtc/factor.day.bin",
+              "sha256": "0c79ae302ee06f1a90604c500bdb5ad8e7ae9c3518371faaf36a4dd9ba16b856",
+              "updated_at": "2024-06-29T00:00:00Z"
+            }
+          }
+        }
+      }
+    }
+  },
+  "other_files": {
+    "calendars/day.txt": {
+      "sha256": "f5bc8c7c1ed3a47d010c9b4220b1ece63e93652586fe5b50a25055ca72927cf7",
+      "updated_at": "2024-06-29T00:00:00Z"
+    },
+    "instruments/all.txt": {
+      "sha256": "3da95f1b935e8a7af8701dd46eb9c650d95b51ef806bb4b872fa8bb23dc53a9e",
+      "updated_at": "2024-06-29T00:00:00Z"
+    }
+  }
+}
