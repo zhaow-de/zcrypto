@@ -57,3 +57,13 @@ Per-iteration changelog of the zcrypto project. New entries are appended at the 
 - Snapshot tar.gz files named `<UTCstamp>-<cmd>.tar.gz` consistently for every mutator.
 - `CliConstants.RENAME_SYNTH_WARN_DAYS = 7` controls when a rename gap warning is elevated.
 - Test count: **162 passed** (104 iter-4 baseline + 58 iter-5 across `test_data_backfill.py`, `test_data_delist.py`, `test_data_rename.py`, `test_data_e2e.py`, and extensions to `test_data_pipeline.py` / `test_data_command.py` / `test_data_download.py`).
+
+## 2026-06-17 — iter-6: data relayout (`./data` vs `BACKUP_DIR`)
+
+- The `cli/data` on-disk layout is split into two roots: the compiled qlib dataset (`calendars/`, `instruments/`, `features/`, `index.json`) lives under `--data-dir` (default in-repo, gitignored `./data`); the durable backup — the downloaded-zip mirror (`raw/`, de-dotted from `.raw`) and rollback `snapshots/` (de-dotted from `.snapshots`) — lives under the new positional `BACKUP_DIR`.
+- New `cli/data/layout.py` `DatasetPaths(data_dir, backup_dir)` value object (props `raw_root`, `snapshots_dir`, `staging`, `marker`), threaded through the mutation harness; `mirror.root_for` and `snapshots.create_snapshot`/`prune_snapshots` reparametrized.
+- Atomic-commit invariant preserved: `.staging/` and the `.commit-in-progress` marker stay on `data_dir` so `shutil.move(staging -> live)` remains a same-filesystem rename; snapshots cross to `BACKUP_DIR` via tar (copy). Crash-recovery reads the marker from `data_dir` and restores from `BACKUP_DIR/snapshots`.
+- **Breaking CLI change:** `zcrypto data download/backfill/delist/rename`'s positional is now `BACKUP_DIR` (was `OUT_DIR`); `--data-dir` (default `./data`) names the compiled dataset; `zcrypto data verify` drops its positional for `--data-dir`.
+- `data/.gitignore` (`*` + `!.gitignore`) retains the dir while ignoring its contents; README `## Usage` updated; one-time manual migration documented.
+- `verify_dataset` signature unchanged (the marker it checks is on `data_dir`); stale `.snapshots/` operator messages reworded.
+- Test count: **192 passed** (162 iter-5 baseline + 30 iter-6 tests updated/added across `test_data_pipeline.py`, `test_data_command.py`, `test_data_download.py`, `test_data_backfill.py`, `test_data_delist.py`, `test_data_rename.py`, `test_data_e2e.py`, and the new `test_data_layout.py`).
