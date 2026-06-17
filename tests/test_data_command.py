@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
+import cli.data.command as cmd_mod
 from cli.__main__ import app
 from cli.data.config import FIELDS
 from cli.data.index import (
@@ -125,7 +126,17 @@ def test_data_download_rejects_bad_date_at_parse_time(tmp_path):
     pairs = _pairs_file(tmp_path, ["BTCUSDT"])
     result = runner.invoke(
         app,
-        ["data", "download", str(tmp_path / "bk"), str(pairs), "--data-dir", str(tmp_path / "data"), "--from", "20240101"],
+        [
+            "data",
+            "download",
+            str(pairs),
+            "--data-dir",
+            str(tmp_path / "data"),
+            "--backup-dir",
+            str(tmp_path / "bk"),
+            "--from",
+            "20240101",
+        ],
     )
     assert result.exit_code != 0
     assert "YYYY-MM-DD" in result.output
@@ -135,7 +146,17 @@ def test_data_download_rejects_non_calendar_date(tmp_path):
     pairs = _pairs_file(tmp_path, ["BTCUSDT"])
     result = runner.invoke(
         app,
-        ["data", "download", str(tmp_path / "bk"), str(pairs), "--data-dir", str(tmp_path / "data"), "--from", "2024-13-40"],
+        [
+            "data",
+            "download",
+            str(pairs),
+            "--data-dir",
+            str(tmp_path / "data"),
+            "--backup-dir",
+            str(tmp_path / "bk"),
+            "--from",
+            "2024-13-40",
+        ],
     )
     assert result.exit_code != 0
     assert "calendar" in result.output.lower()
@@ -148,10 +169,11 @@ def test_data_download_unsupported_interval_exits_nonzero(tmp_path):
         [
             "data",
             "download",
-            str(tmp_path / "bk"),
             str(pairs),
             "--data-dir",
             str(tmp_path / "data"),
+            "--backup-dir",
+            str(tmp_path / "bk"),
             "--interval",
             "1h",
             "--from",
@@ -178,10 +200,11 @@ def test_data_download_smoke_with_fake_source(tmp_path):
             [
                 "data",
                 "download",
-                str(tmp_path / "bk"),
                 str(pairs),
                 "--data-dir",
                 str(data_dir),
+                "--backup-dir",
+                str(tmp_path / "bk"),
                 "--from",
                 "2024-01-01",
                 "--to",
@@ -201,11 +224,9 @@ def test_data_download_dry_run_flag_accepted(tmp_path, monkeypatch):
     def fake_pipeline(*args, dry_run=False, **kw):
         captured["dry_run"] = dry_run
 
-    from cli.data import command as cmd_mod
-
     monkeypatch.setattr(cmd_mod, "download_pipeline", fake_pipeline)
     # Avoid touching the real network: stub BinanceSource with a no-op object
-    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda: object())
+    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda **_kw: object())
 
     pairs = tmp_path / "pairs.txt"
     pairs.write_text("BTCUSDT\n")
@@ -215,10 +236,11 @@ def test_data_download_dry_run_flag_accepted(tmp_path, monkeypatch):
         [
             "data",
             "download",
-            str(tmp_path / "bk"),
             str(pairs),
             "--data-dir",
             str(tmp_path / "data"),
+            "--backup-dir",
+            str(tmp_path / "bk"),
             "--from",
             "2024-01-01",
             "--to",
@@ -237,19 +259,18 @@ def test_data_backfill_dry_run_flag_accepted(tmp_path, monkeypatch):
     def fake_pipeline(*args, dry_run=False, **kw):
         captured["dry_run"] = dry_run
 
-    from cli.data import command as cmd_mod
-
     monkeypatch.setattr(cmd_mod, "backfill_pipeline", fake_pipeline)
-    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda: object())
+    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda **_kw: object())
 
     result = runner.invoke(
         app,
         [
             "data",
             "backfill",
-            str(tmp_path / "bk"),
             "--data-dir",
             str(tmp_path / "data"),
+            "--backup-dir",
+            str(tmp_path / "bk"),
             "--to",
             "2024-01-02",
             "--dry-run",
@@ -266,12 +287,10 @@ def test_data_delist_dry_run_flag_accepted(tmp_path, monkeypatch):
     def fake_pipeline(*args, dry_run=False, **kw):
         captured["dry_run"] = dry_run
 
-    from cli.data import command as cmd_mod
-
     monkeypatch.setattr(cmd_mod, "delist_pipeline", fake_pipeline)
 
     result = runner.invoke(
-        app, ["data", "delist", str(tmp_path / "bk"), "BTCUSDT", "--data-dir", str(tmp_path / "data"), "--dry-run"]
+        app, ["data", "delist", "BTCUSDT", "--data-dir", str(tmp_path / "data"), "--backup-dir", str(tmp_path / "bk"), "--dry-run"]
     )
     assert result.exit_code == 0, result.output
     assert captured.get("dry_run") is True
@@ -284,13 +303,53 @@ def test_data_rename_dry_run_flag_accepted(tmp_path, monkeypatch):
     def fake_pipeline(*args, dry_run=False, **kw):
         captured["dry_run"] = dry_run
 
-    from cli.data import command as cmd_mod
-
     monkeypatch.setattr(cmd_mod, "rename_pipeline", fake_pipeline)
-    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda: object())
+    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda **_kw: object())
 
     result = runner.invoke(
-        app, ["data", "rename", str(tmp_path / "bk"), "MATICUSDT", "POLUSDT", "--data-dir", str(tmp_path / "data"), "--dry-run"]
+        app,
+        [
+            "data",
+            "rename",
+            "MATICUSDT",
+            "POLUSDT",
+            "--data-dir",
+            str(tmp_path / "data"),
+            "--backup-dir",
+            str(tmp_path / "bk"),
+            "--dry-run",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert captured.get("dry_run") is True
+
+
+def test_download_errors_when_no_dirs_configured(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # no zcrypto.toml here, so config supplies nothing
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    result = runner.invoke(app, ["data", "download", str(pairs)])
+    assert result.exit_code != 0
+    assert "no data_dir configured" in result.output or "no backup_dir configured" in result.output
+
+
+def test_download_uses_config_dirs_when_flags_absent(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "zcrypto.toml").write_text(f'[zcrypto]\ndata_dir = "{tmp_path / "data"}"\nbackup_dir = "{tmp_path / "bk"}"\n')
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda **_kw: object())
+    monkeypatch.setattr(cmd_mod, "download_pipeline", lambda *a, **k: None)
+    result = runner.invoke(app, ["data", "download", str(pairs), "--dry-run"])
+    assert result.exit_code == 0
+
+
+def test_download_malformed_config_exits_cleanly(tmp_path, monkeypatch):
+    # A malformed zcrypto.toml must surface ERROR + non-zero exit, not an unhandled traceback.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "zcrypto.toml").write_text("this is = = not toml")
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    result = runner.invoke(app, ["data", "download", str(pairs)])
+    assert result.exit_code != 0
+    assert "ERROR" in result.output and "not valid TOML" in result.output
