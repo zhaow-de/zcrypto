@@ -41,6 +41,11 @@ def experiment(
         "--refresh-cache/--no-refresh-cache",
         help="Force-wipe qlib's on-disk feature/dataset cache before the run.",
     ),
+    quick: bool = typer.Option(
+        False,
+        "--quick/--no-quick",
+        help="Skip CPCV; run only the single train→backtest holdout (today's fast path).",
+    ),
     open_report: bool = typer.Option(
         None,
         "--open/--no-open",
@@ -83,6 +88,14 @@ def experiment(
     bundle = out / recipe.name / created.strftime("%Y%m%dT%H%M%SZ")
     bundle.mkdir(parents=True, exist_ok=True)
 
+    # --- CPCV (before holdout, skipped under --quick) ------------------------
+    cv_result = None
+    if not quick:
+        from cli.experiment.cpcv import run_cpcv
+
+        cv_result = run_cpcv(recipe, data_dir=data_dir, refresh_cache=refresh_cache)
+        logger.info("cpcv-done", extra={"n_paths": cv_result.meta["n_paths"]})
+
     # Heavy: imports + runs qlib. Deferred until after the cheap unknown-recipe path.
     from cli.experiment.scaffold import run_experiment
 
@@ -90,7 +103,11 @@ def experiment(
     logger.info("run-done", extra={"run_id": result.run_id, "ending_value": result.ending_value})
 
     # --- report.html (+ report.svg) ------------------------------------------
-    fig = build_report(result)
+    holdout_sharpe = result.metrics.get("strategy_absolute", {}).get("information_ratio", float("nan"))
+    cv_arg = None
+    if cv_result is not None:
+        cv_arg = {"path_sharpes": [p["sharpe"] for p in cv_result.paths], "holdout_sharpe": holdout_sharpe}
+    fig = build_report(result, cv=cv_arg)
     write_report(fig, bundle, svg=svg)
 
     # --- metrics.json --------------------------------------------------------
@@ -100,6 +117,28 @@ def experiment(
             indent=2,
         )
     )
+
+    # --- cv_results.json (only when CPCV ran) --------------------------------
+    if cv_result is not None:
+        holdout = {
+            **{m: result.metrics.get("strategy_absolute", {}).get(m, float("nan")) for m in ("annualized_return", "max_drawdown")},
+            "sharpe": holdout_sharpe,  # strategy_absolute IR (cost-adj, rf=0) — matches the CPCV path Sharpes
+            # excess-return-vs-benchmark IR
+            "information_ratio": result.metrics.get("excess_return_with_cost", {}).get("information_ratio", float("nan")),
+            "ending_value": result.ending_value,
+        }
+        (bundle / "cv_results.json").write_text(
+            json.dumps(
+                {
+                    "cv": cv_result.meta,
+                    "paths": cv_result.paths,
+                    "distribution": cv_result.distribution,
+                    "rank_ic": cv_result.rank_ic,
+                    "holdout": holdout,
+                },
+                indent=2,
+            )
+        )
 
     # --- trades.csv ----------------------------------------------------------
     trades = trades_from_positions(result.positions)
@@ -168,6 +207,13 @@ def experiment(
     typer.echo(f"  max_drawdown      : {excess.get('max_drawdown', float('nan')):+.4f}")
     typer.echo(f"  information_ratio : {excess.get('information_ratio', float('nan')):+.4f}")
     typer.echo(f"  trades            : {summary['total']} ({summary['buys']} buy / {summary['sells']} sell)")
+    if cv_result is not None:
+        d = cv_result.distribution
+        typer.echo(
+            f"  CPCV ({cv_result.meta['n_paths']} paths, train+valid): "
+            f"Sharpe {d['sharpe_mean']:.2f} ± {d['sharpe_std']:.2f} (worst {d['sharpe_worst']:.2f}) · "
+            f"rank-IC {cv_result.rank_ic['mean']:.3f}"
+        )
     typer.echo(f"  bundle            : {bundle}")
 
     if open_report:
