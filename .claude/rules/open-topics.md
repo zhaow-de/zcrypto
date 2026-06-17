@@ -1,6 +1,6 @@
 # Open topics
 
-A **park-for-later** convention for topics worth follow-up — recurring warnings, deferred fixes, "we should investigate X" tangents — that surface during regular work but shouldn't derail the current iteration. Each topic lives in its own markdown file under `docs/open-topics/`; the directory's `README.md` is the index, split into `## Open` and `## Resolved` subsections.
+A **park-for-later** convention for topics worth follow-up — recurring warnings, deferred fixes, "we should investigate X" tangents — that surface during regular work but shouldn't derail the current iteration. Each topic lives in its own markdown file under `docs/open-topics/`; the directory's `README.md` is the index, split into `## Open`, `## Partially done`, and `## Resolved` subsections.
 
 ## When to open a topic
 
@@ -27,7 +27,7 @@ The agent shows its proposed file body (the H1, all sections, and the bullet tex
 
 ```yaml
 ---
-status: open
+status: open   # one of: open | partial | resolved
 ---
 ```
 
@@ -39,16 +39,29 @@ status: open
 - `## Findings so far` — what is already known (link relevant commits, PRs, files, log lines). `_(none)_` is acceptable when the topic is opened cold.
 - `## Suggested next steps` — bullet list of concrete actions a future investigator could take.
 
+A `partial` topic carries a `## Done so far` section between `## Findings so far` and `## Suggested next steps`, recording what landed (link commits/PRs/spec). Its `## Suggested next steps` then lists only the still-open remainder.
+
+## Partially completing a topic
+
+A topic is partially completed by flipping its front-matter `status: open` → `status: partial` **in place**. Then:
+
+- Insert a `## Done so far` section immediately after `## Findings so far`, linking the relevant commits, PRs, and spec that delivered the completed work.
+- Trim `## Suggested next steps` to list only the still-open remainder.
+- In `docs/open-topics/README.md`, move the topic's bullet from `## Open` to the end of the `## Partially done` section (transition order).
+
+A partially completed topic later closes the normal way (see below).
+
 ## Closing a topic
 
-A topic is closed by flipping its front-matter `status: open` → `status: resolved` **in place**. The file stays where it is — `docs/open-topics/` is a longitudinal record of investigations and their outcomes. The closing commit (or PR) is where the resolution lives.
+A topic is closed by flipping its front-matter `status` (`open` or `partial`) → `status: resolved` **in place**. The file stays where it is — `docs/open-topics/` is a longitudinal record of investigations and their outcomes. The closing commit (or PR) is where the resolution lives.
 
 ## Index sync (every change)
 
-In the same change as opening or closing a topic, edit `docs/open-topics/README.md`:
+In the same change as opening, partially completing, or closing a topic, edit `docs/open-topics/README.md`:
 
 - **Opening:** append a new bullet at the **end of the `## Open` section**. Within `## Open`, entries stay in serial / creation order (append-only).
-- **Closing:** **move** the bullet from `## Open` to the **end of the `## Resolved` section**. Within `## Resolved`, entries are in resolution order (append-only at close time), which may differ from serial order.
+- **Partially completing:** **move** the bullet from `## Open` to the **end of the `## Partially done` section** (transition order).
+- **Closing:** **move** the bullet from `## Open` or `## Partially done` to the **end of the `## Resolved` section**. Within `## Resolved`, entries are in resolution order (append-only at close time), which may differ from serial order.
 
 Each bullet is a markdown link to the topic file followed by a one-sentence description, e.g. `- [00000 — qlib empty-slice warnings](00000-qlib-empty-slice-warnings.md) — benign numpy diagnostic from qlib's per-step aggregation; revisit when the logger gains warning filters.`
 

@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 priority: high
 ---
 
@@ -27,9 +27,25 @@ the simple split deliberately for a first end-to-end run. This topic tracks the
 upgrade. References: `docs/research/01.binance-eea-spot-quant.md` §6 (purged
 k-fold + embargo), §12 (overfitting), §13 Stage 2–3.
 
+## Done so far
+
+Landed in iter-9 (spec `docs/specs/00008-validation-rigor-cpcv-design.md`):
+
+- Purged k-fold CV with an embargo sized to label-horizon + feature-lookback,
+  closing the flagged train/valid/test boundary leakage (`cli/experiment/cv.py`).
+- Combinatorial purged CV (CPCV) as the **default** `experiment` run: many
+  purged + embargoed splits stitched into multiple backtest paths → a per-recipe
+  distribution of out-of-sample Sharpe / return / max-DD (+ rank-IC), with the
+  `test` window kept as an untouched final holdout (`cli/experiment/cpcv.py`,
+  `cv_results.json`, the 4th report panel). `--quick` keeps the single run.
+
 ## Suggested next steps
 
-- Add purged k-fold CV with an embargo sized to label-horizon + feature-lookback.
-- Prefer combinatorial purged CV (CPCV) where compute allows.
-- Apply the deflated Sharpe ratio when ranking recipes.
+Still open — deferred from iter-9:
+
+- Apply the deflated Sharpe ratio (and PBO, probability of backtest overfitting)
+  on top of the CPCV path distribution.
+- Build the multi-recipe comparison / ranking surface deflated Sharpe needs (it
+  must track the number of trials N across recipe runs) — the reason this slice
+  was deferred.
 - Consider Hudson & Thames MLFinLab for reference implementations.
