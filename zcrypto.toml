@@ -1,0 +1,16 @@
+[zcrypto]
+# Compiled qlib dataset dir (calendars/, instruments/, features/, index.json).
+data_dir = "data"
+# Durable backup root holding raw/ (downloaded-zip mirror) and snapshots/.
+backup_dir = "../zcrypto-data"
+
+# Operational tuning for `zcrypto data` fetching/pipelines. Each key overrides a
+# built-in default; omit a key (or this whole table) to use the default shown.
+[zcrypto.fetch]
+fetch_concurrency = 8              # max parallel HTTP fetches in `data download`
+http_timeout_head_secs = 5         # socket timeout for HEAD / small-body requests
+http_timeout_get_secs = 60         # socket timeout for daily-zip GETs
+http_retry_attempts = 3            # total attempts per HTTP call (transient failures)
+fetch_progress_log_interval = 50   # emit a progress log every N completed (pair, date)
+backfill_right_edge_grace_days = 7 # right-edge absence tolerated before delist/rename hint
+rename_synth_warn_days = 7         # synthetic-gap-fill threshold for a louder rename warning
