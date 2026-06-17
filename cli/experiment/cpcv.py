@@ -60,6 +60,12 @@ def _materialize(recipe: Recipe):
     infer_df (DK_I): normalized features + label — used for prediction.
     learn_df (DK_L): normalized features + per-day-normalized label, NaN-label rows
     dropped — used for training and rank-IC.
+
+    Leakage precondition: normalization (RobustZScoreNorm) is fit ONCE over the full
+    train+valid span (fit_start_time..fit_end_time above), which is leakage-free for
+    GBDT models because they are invariant to per-feature monotone affine transforms.
+    A future linear/NN recipe or a feature-mixing processor would need per-fold
+    normalization to stay leakage-free.
     """
     from qlib.data.dataset.handler import DataHandlerLP
     from qlib.utils import init_instance_by_config
@@ -156,7 +162,15 @@ def run_cpcv(recipe: Recipe, *, data_dir: Path, refresh_cache: bool = False) -> 
             purge_days=recipe.label_horizon_days,
             embargo_days=recipe.feature_lookback_days,
         )
-        logger.info("cpcv-start", extra={"n_splits": len(plan.splits), "n_paths": plan.n_paths})
+        logger.info(
+            "cpcv-start",
+            extra={
+                "n_groups": plan.n_groups,
+                "test_groups": plan.test_groups,
+                "n_splits": len(plan.splits),
+                "n_paths": plan.n_paths,
+            },
+        )
 
         params, num_boost_round = _lgb_params(recipe)
         predictions: dict = {}

@@ -43,6 +43,11 @@ def test_invalid_params_raise():
         build_cv_plan(list(range(3)), n_groups=6, test_groups=2, purge_days=0, embargo_days=0)
 
 
+def test_purge_embargo_exhausting_train_raises():
+    with pytest.raises(ValueError):
+        build_cv_plan(list(range(12)), n_groups=6, test_groups=2, purge_days=10, embargo_days=10)
+
+
 def test_assemble_paths_full_coverage_and_provenance():
     cal = list(pd.date_range("2020-01-01", periods=60, freq="D"))
     plan = build_cv_plan(cal, n_groups=6, test_groups=2, purge_days=0, embargo_days=0)

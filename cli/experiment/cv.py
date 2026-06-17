@@ -92,6 +92,14 @@ def build_cv_plan(calendar, *, n_groups: int, test_groups: int, purge_days: int,
             )
         )
 
+    starved = [s.test_group_ids for s in splits if not s.train_dates]
+    if starved:
+        raise ValueError(
+            f"purge_days={purge_days} + embargo_days={embargo_days} leave no training data in "
+            f"{len(starved)} of {len(splits)} split(s) (groups too short); reduce purge/embargo, "
+            f"use fewer groups, or provide a longer calendar"
+        )
+
     return CVPlan(
         n_groups=n_groups,
         test_groups=test_groups,

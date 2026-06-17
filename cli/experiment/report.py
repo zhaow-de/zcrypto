@@ -1,9 +1,11 @@
-"""3-panel Plotly report for a zcrypto experiment run.
+"""3- or 4-panel Plotly report for a zcrypto experiment run.
 
 Panel 1 — equity curves (test window): strategy vs BTCUSDT buy-and-hold.
 Panel 2 — trade timeline: buy/sell markers on a date × symbol scatter.
 Panel 3 — full-history market context: BTCUSDT + reference instruments rebased to 100,
           with shaded vertical regions for LUNA and FTX stress windows.
+Panel 4 — (optional) CPCV out-of-sample Sharpe distribution, appended when cv data
+          is provided to build_report.
 """
 
 from __future__ import annotations
