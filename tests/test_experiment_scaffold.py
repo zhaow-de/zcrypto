@@ -68,6 +68,26 @@ def test_run_experiment_against_fixture(tmp_path):
 
     assert len(result.positions) > 0
 
+    # Fractional-trading sanity: with trade_unit=None, at least one holding should
+    # have a non-integer amount.  Under the old trade_unit=1 bug every amount was
+    # floored to a whole number (BTC/ETH would be zeroed on a $10k account).
+    # Each value in result.positions is a qlib Position object; the inner dict of
+    # holdings lives at pos.position (keyed by symbol + "cash"/"now_account_value").
+    all_amounts: list[float] = []
+    for pos in result.positions.values():
+        inner = getattr(pos, "position", None)
+        if not isinstance(inner, dict):
+            continue
+        for sym, details in inner.items():
+            if sym in ("cash", "now_account_value") or not isinstance(details, dict):
+                continue
+            amt = details.get("amount")
+            if amt is not None:
+                all_amounts.append(float(amt))
+    assert any(abs(a - round(a)) > 1e-6 for a in all_amounts), (
+        "Expected at least one fractional holding; got only whole-number amounts — trade_unit may have reverted to 1"
+    )
+
     assert (out_dir / "mlruns").exists()
     assert (data_dir / "features_cache").exists() or (data_dir / "dataset_cache").exists()
     assert (data_dir / ".experiment_cache_fingerprint").exists()

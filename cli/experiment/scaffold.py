@@ -110,8 +110,11 @@ def _port_analysis_config(recipe: Recipe, model, dataset) -> dict:
                 "open_cost": fee_open,
                 "close_cost": fee_close,
                 "min_cost": 0,
-                # Do NOT set trade_unit: default None enables fractional amounts,
-                # required for a $10k fractional-crypto account.
+                # Must be set explicitly: qlib.init(region=REG_US) sets C.trade_unit=1,
+                # and Exchange.__init__ does kwargs.pop("trade_unit", C.trade_unit), so
+                # omitting this key would floor order amounts to whole coins and zero out
+                # BTC/ETH on a $10k account.  None → fractional crypto trading.
+                "trade_unit": None,
             },
         },
     }
@@ -159,7 +162,7 @@ def run_experiment(
     Heavy qlib imports are deferred into the function body so importing this
     module stays cheap (mirrors ``cli/example/workflow.py``).
     """
-    data_dir = Path(data_dir)
+    data_dir = Path(data_dir).resolve()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
