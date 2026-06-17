@@ -55,7 +55,7 @@ Prepare a Qlib-ready dataset from Binance spot klines. Bare `zcrypto data` print
 
 **Status-aware behavior:** Pairs with Binance status `TRADING` are extended to `--to`; non-`TRADING` pairs (e.g. delisted — status `BREAK`, `HALT`, etc.) are downloaded as historical archive only or skipped during backfill.
 
-##### Layout & migration
+##### Layout
 
 The dataset uses a **two-root layout**:
 
@@ -63,19 +63,6 @@ The dataset uses a **two-root layout**:
 - **`BACKUP_DIR`** (positional) — the durable external backup: `raw/` (downloaded-zip mirror, formerly `.raw`) and `snapshots/` (rollback tar.gz archives, formerly `.snapshots`). The de-dotted names reflect that they live outside `./data` entirely.
 
 The staging directory and commit marker stay on `./data` to preserve the same-filesystem atomic-rename invariant; snapshots cross to `BACKUP_DIR` via tar (cross-filesystem safe).
-
-**One-time manual migration** (assuming an existing combined dataset at `../zcrypto-data` that becomes the `BACKUP_DIR`):
-
-```bash
-mkdir -p ./data
-mv ../zcrypto-data/calendars ../zcrypto-data/instruments \
-   ../zcrypto-data/features  ../zcrypto-data/index.json   ./data/
-mv ../zcrypto-data/.raw        ../zcrypto-data/raw
-mv ../zcrypto-data/.snapshots  ../zcrypto-data/snapshots
-uv run zcrypto data verify                 # validates ./data
-```
-
-Note: `.raw` and `.snapshots` are de-dotted to `raw` and `snapshots` in the new layout. If a `.staging/` or `.commit-in-progress` exists (an interrupted prior run), recover or remove it before migrating.
 
 ##### `zcrypto data download BACKUP_DIR PAIRS_FILE`
 
