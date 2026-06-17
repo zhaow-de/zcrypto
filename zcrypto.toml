@@ -1,0 +1,50 @@
+[zcrypto]
+# Compiled qlib dataset dir (calendars/, instruments/, features/, index.json).
+data_dir = "data"
+# Durable backup root holding raw/ (downloaded-zip mirror) and snapshots/.
+backup_dir = "../zcrypto-data"
+
+# Operational tuning for `zcrypto data` fetching/pipelines. Each key overrides a
+# built-in default; omit a key (or this whole [zcrypto.fetch] table) to use the
+# default shown. These are low-change knobs — per-invocation behavior lives on
+# CLI flags instead.
+[zcrypto.fetch]
+
+# Max parallel HTTP fetches in `zcrypto data download`. Gentle by default to
+# avoid hammering data.binance.vision.
+fetch_concurrency = 8
+
+# Socket timeout (seconds) for HEAD / small-body (~kB) requests against
+# data.binance.vision and api.binance.com. urllib defaults to unbounded — a
+# stalled TLS handshake or network blip would otherwise hang forever. A HEAD
+# against the S3-style archive is typically sub-second; 5s is a generous upper
+# bound that fails fast on stalled connections (the retry loop then re-attempts).
+http_timeout_head_secs = 5
+
+# Socket timeout (seconds) for daily-zip GETs (~MB). Larger budget than the HEAD
+# timeout to accommodate the body transfer.
+http_timeout_get_secs = 60
+
+# Total attempts per HTTP call before giving up. Retries transient failures only
+# (timeouts, connection resets, 5xx); a 4xx such as 404 propagates immediately.
+# Exponential backoff between attempts: base_delay * 2**attempt — so 1s then 2s
+# for the default 3 attempts (no sleep after the final attempt).
+http_retry_attempts = 3
+
+# How often to emit a progress info-log line during the concurrent fetch phase
+# (every N completed (pair, date) tuples). Per-pair completion is logged
+# additionally. Low enough to feel alive on long downloads, high enough not to
+# flood the structured log.
+fetch_progress_log_interval = 50
+
+# How many days a TRADING pair's right edge can be absent from the archive before
+# backfill treats it as a likely delist/rename rather than archive publishing lag.
+# Within this window: silent skip with an info log. Beyond it: a PipelineError
+# pointing at `zcrypto data delist` / `zcrypto data rename`.
+backfill_right_edge_grace_days = 7
+
+# Synthetic-gap-fill threshold (days) for rename. A gap larger than this emits a
+# louder warning (urging you to verify data integrity); a smaller gap emits a
+# plainer one. Both log at WARNING level; the filled days carry NaN OHLC (a
+# suspension placeholder).
+rename_synth_warn_days = 7

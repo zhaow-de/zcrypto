@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Optional
 
 import typer
 
 # Light import (base.py only pulls importlib/dataclasses/pathlib) — kept at module
 # level so tests can monkeypatch `cli.experiment.command.resolve_recipe`, and so the
 # unknown-recipe path never touches qlib/redis.
+from cli.config import ConfigError, load_config, resolve_data_dir
 from cli.experiment.recipes.base import resolve_recipe
 
 
@@ -19,10 +21,10 @@ def experiment(
         "--recipe",
         help="Recipe name to run (see cli/experiment/recipes).",
     ),
-    data_dir: Path = typer.Option(
-        Path("data"),
+    data_dir: Optional[Path] = typer.Option(  # noqa: UP007
+        None,
         "--data-dir",
-        help="Qlib provider directory (the index.json / features / calendars tree).",
+        help="Qlib provider directory. Defaults to [zcrypto].data_dir in zcrypto.toml.",
     ),
     out: Path = typer.Option(
         Path("runs"),
@@ -67,6 +69,12 @@ def experiment(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     logger.info("recipe-resolved", extra={"recipe": recipe.name})
+
+    try:
+        data_dir = resolve_data_dir(data_dir, load_config()).resolve()
+    except ConfigError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
     if open_report is None:
         open_report = sys.stdout.isatty()

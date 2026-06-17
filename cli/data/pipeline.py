@@ -13,7 +13,7 @@ from typing import Callable, Protocol
 import pandas as _pd
 import typer
 
-from cli.constants import CliConstants
+from cli.config import FetchConfig
 from cli.data import mirror
 from cli.data.binance import Source
 from cli.data.config import FIELDS, SCHEMA_VERSION, SUPPORTED_INTERVALS
@@ -344,6 +344,7 @@ def _resolve_ranges(
     interval: str,
     arg_from: dt.date,
     arg_to: dt.date,
+    fetch: FetchConfig,
 ) -> list[_PerPair]:
     plan: list[_PerPair] = []
     existing_to: dt.date | None = dt.date.fromisoformat(existing.calendar.to_date) if existing else None
@@ -379,10 +380,10 @@ def _resolve_ranges(
             rng = find_available_range(source, sym, interval, effective_from, arg_to)
             if rng is None:
                 days_since = (arg_to - existing_to).days
-                if days_since > CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS:
+                if days_since > fetch.backfill_right_edge_grace_days:
                     raise PipelineError(
                         f"{sym}: no new archive data since {existing_to} ({days_since} days > "
-                        f"{CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS}-day publishing-lag grace); "
+                        f"{fetch.backfill_right_edge_grace_days}-day publishing-lag grace); "
                         "likely delisted or renamed. Reconcile with `zcrypto data delist` or "
                         "`zcrypto data rename`."
                     )
@@ -469,12 +470,13 @@ def _fetch_one_date(
 
 
 def _fetch_all_concurrent(
-    source: Source, plan: list[_PerPair], interval: str, max_workers: int, mirror_root: Path
+    source: Source, plan: list[_PerPair], interval: str, fetch: FetchConfig, mirror_root: Path
 ) -> dict[str, _pd.DataFrame]:
     """Fetch every (pair, date) tuple via a bounded thread pool. Per-pair gap-check runs after collection.
 
     `mirror_root` is the backup-dir zip mirror (`<backup_dir>/raw`); each fetch reads from
     it on a hit and saves to it on a miss."""
+    max_workers = fetch.fetch_concurrency
     work: list[tuple[str, dt.date]] = []
     per_pair_expected: dict[str, list[dt.date]] = {}
     per_pair_rows: dict[str, list[_pd.DataFrame]] = {}
@@ -499,7 +501,7 @@ def _fetch_all_concurrent(
 
     total = len(work)
     completed = 0
-    log_every = CliConstants.FETCH_PROGRESS_LOG_INTERVAL
+    log_every = fetch.fetch_progress_log_interval
     with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="zcrypto-fetch") as pool:
         futures = {pool.submit(_fetch_one_date, source, sym, interval, d, mirror_root): (sym, d) for sym, d in work}
         try:
@@ -770,6 +772,7 @@ def _download_plan(
     arg_from: dt.date,
     arg_to: dt.date,
     source: Source,
+    fetch: FetchConfig,
 ) -> DownloadPlan:
     """Read-only: parse + validate + resolve ranges. The harness has already run
     mkdir + recovery + pre-flight verify before calling this."""
@@ -783,16 +786,16 @@ def _download_plan(
     pair_to_assets = validate_pairs_against_exchange(requested, exchange_info)
 
     existing = load_index(out_dir)
-    per_pair = _resolve_ranges(pair_to_assets, existing, source, interval, arg_from, arg_to)
+    per_pair = _resolve_ranges(pair_to_assets, existing, source, interval, arg_from, arg_to, fetch)
 
     is_noop = all(p.effective_from > p.effective_to for p in per_pair)
     return DownloadPlan(per_pair=per_pair, existing=existing, arg_to=arg_to, interval=interval, is_noop=is_noop)
 
 
-def _download_apply(paths: DatasetPaths, staging: Path, plan: DownloadPlan, source: Source) -> None:
+def _download_apply(paths: DatasetPaths, staging: Path, plan: DownloadPlan, source: Source, fetch: FetchConfig) -> None:
     """Fetch + build staging. The harness handles snapshot, post-verify, commit."""
     non_empty = [p for p in plan.per_pair if p.effective_from <= p.effective_to]
-    fetched = _fetch_all_concurrent(source, non_empty, plan.interval, CliConstants.FETCH_CONCURRENCY, mirror.root_for(paths))
+    fetched = _fetch_all_concurrent(source, non_empty, plan.interval, fetch, mirror.root_for(paths))
     new_rows_per_sym: dict[str, _pd.DataFrame] = {
         p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan.per_pair
     }
@@ -807,11 +810,12 @@ def download_pipeline(
     to_date: dt.date,
     source: Source,
     *,
+    fetch: FetchConfig = FetchConfig(),
     dry_run: bool = False,
 ) -> None:
     """Orchestrate: parse → validate → resolve → fetch → stage → verify → commit."""
-    plan_fn = lambda d: _download_plan(d, pairs_file, interval, from_date, to_date, source)
-    apply_fn = lambda paths, s, p: _download_apply(paths, s, p, source)
+    plan_fn = lambda d: _download_plan(d, pairs_file, interval, from_date, to_date, source, fetch)
+    apply_fn = lambda paths, s, p: _download_apply(paths, s, p, source, fetch)
     _execute_mutation(paths, "download", plan_fn, apply_fn, dry_run=dry_run)
 
 
@@ -845,7 +849,7 @@ class BackfillPlan:
         return "\n".join(lines)
 
 
-def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source) -> BackfillPlan:
+def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source, fetch: FetchConfig) -> BackfillPlan:
     """Read-only: load index, route each pair by status, build fetch plan."""
     existing = load_index(out_dir)
     if existing is None or not existing.pairs:
@@ -876,10 +880,10 @@ def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source
         rng = find_available_range(source, sym, interval, effective_from, arg_to)
         if rng is None:
             days_since = (arg_to - current_to).days
-            if days_since > CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS:
+            if days_since > fetch.backfill_right_edge_grace_days:
                 raise PipelineError(
                     f"{sym}: no new archive data since {current_to} ({days_since} days > "
-                    f"{CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS}-day publishing-lag grace); "
+                    f"{fetch.backfill_right_edge_grace_days}-day publishing-lag grace); "
                     "likely delisted or renamed. Reconcile with "
                     "'zcrypto data delist' or 'zcrypto data rename'."
                 )
@@ -917,12 +921,14 @@ def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source
     return BackfillPlan(per_pair=per_pair, new_calendar=new_calendar, skipped_pairs=skipped, is_noop=is_noop)
 
 
-def _backfill_apply(paths: DatasetPaths, staging: Path, plan: BackfillPlan, source: Source, interval: str) -> None:
+def _backfill_apply(
+    paths: DatasetPaths, staging: Path, plan: BackfillPlan, source: Source, interval: str, fetch: FetchConfig
+) -> None:
     """Fetch new rows and rebuild staging with old + new data merged per pair."""
     existing = load_index(paths.data_dir)
     assert existing is not None, "_backfill_apply called without an existing index"
 
-    fetched = _fetch_all_concurrent(source, plan.per_pair, interval, CliConstants.FETCH_CONCURRENCY, mirror.root_for(paths))
+    fetched = _fetch_all_concurrent(source, plan.per_pair, interval, fetch, mirror.root_for(paths))
 
     # Collect all pairs: those being extended + those carried over unchanged.
     extended_syms = {p.symbol for p in plan.per_pair}
@@ -955,11 +961,12 @@ def backfill_pipeline(
     arg_to: dt.date,
     source: Source,
     *,
+    fetch: FetchConfig = FetchConfig(),
     dry_run: bool = False,
 ) -> None:
     """Extend every TRADING pair in the index to arg_to. Non-TRADING pairs are silently skipped."""
-    plan_fn = lambda d: _backfill_plan(d, interval, arg_to, source)
-    apply_fn = lambda paths, s, p: _backfill_apply(paths, s, p, source, interval)
+    plan_fn = lambda d: _backfill_plan(d, interval, arg_to, source, fetch)
+    apply_fn = lambda paths, s, p: _backfill_apply(paths, s, p, source, interval, fetch)
     _execute_mutation(paths, "backfill", plan_fn, apply_fn, dry_run=dry_run)
 
 
@@ -1204,7 +1211,7 @@ class RenamePlan:
         return "\n".join(lines)
 
 
-def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source) -> RenamePlan:
+def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source, fetch: FetchConfig) -> RenamePlan:
     """Read-only pre-flight: validate, detect variant, probe NEW archive availability."""
     import struct
 
@@ -1251,7 +1258,7 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
             gap_dates_v2.append(cur)
             cur += dt.timedelta(days=1)
 
-        if len(gap_dates_v2) > CliConstants.RENAME_SYNTH_WARN_DAYS:
+        if len(gap_dates_v2) > fetch.rename_synth_warn_days:
             logger.warning(
                 "rename %s → %s (Variant 2): large synthetic gap fill: %d days (%s .. %s), OHLC = NaN (suspension). Verify data integrity after rename.",
                 old,
@@ -1311,7 +1318,7 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
 
     new_to = new_first - dt.timedelta(days=1)
 
-    if len(gap_dates) > CliConstants.RENAME_SYNTH_WARN_DAYS:
+    if len(gap_dates) > fetch.rename_synth_warn_days:
         logger.warning(
             "rename %s → %s: large synthetic gap fill: %d days (%s .. %s), OHLC = NaN (suspension). Verify data integrity after rename.",
             old,
@@ -1674,9 +1681,10 @@ def rename_pipeline(
     new_symbol: str,
     source: Source,
     *,
+    fetch: FetchConfig = FetchConfig(),
     dry_run: bool = False,
 ) -> None:
     """Re-label OLD → NEW under the snapshot+commit discipline (Variant 1 and Variant 2)."""
-    plan_fn = lambda d: _rename_plan(d, old_symbol, new_symbol, source)
+    plan_fn = lambda d: _rename_plan(d, old_symbol, new_symbol, source, fetch)
     apply_fn = lambda paths, s, p: _rename_apply(paths, s, p)
     _execute_mutation(paths, "rename", plan_fn, apply_fn, dry_run=dry_run)
