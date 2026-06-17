@@ -86,7 +86,7 @@ Fetch Binance spot 1d klines from `data.binance.vision`, sha256-validate them, a
 | `BACKUP_DIR` (positional, required) | —               | Backup directory holding the downloaded-zip mirror (`raw/`) and rollback `snapshots/`; created if absent.                     |
 | `PAIRS_FILE` (positional, required) | —               | Plain text — one Binance symbol per line (blank lines allowed; symbols are case-normalized to uppercase; ≥1 symbol required). |
 | `--data-dir`                        | `./data`        | Compiled qlib dataset directory (default `./data`).                                                                           |
-| `--interval`                        | `1d`            | Kline interval. Only `1d` is supported in iter-5.                                                                             |
+| `--interval`                        | `1d`            | Kline interval. Only `1d` is supported.                                                                                       |
 | `--from`                            | `2020-01-01`    | Lower bound (ISO `YYYY-MM-DD`).                                                                                               |
 | `--to`                              | yesterday (UTC) | Upper bound (ISO `YYYY-MM-DD`).                                                                                               |
 | `--dry-run`                         | off             | Print the fetch plan and exit without writing anything.                                                                       |
