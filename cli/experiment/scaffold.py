@@ -45,7 +45,7 @@ class RunResult:
     data_fingerprint: str
 
 
-def _redis_preflight() -> None:
+def redis_preflight() -> None:
     """Ensure Redis is reachable; qlib's Disk*Cache locks require it."""
     import redis
 
@@ -173,7 +173,7 @@ def run_experiment(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    _redis_preflight()
+    redis_preflight()
     logger.info("redis-ok", extra={"port": int(os.environ.get("ZCRYPTO_REDIS_PORT", "6379"))})
 
     ensure_cache_fresh(data_dir, refresh=refresh_cache)
