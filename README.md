@@ -12,8 +12,8 @@ Learning-for-Fun project to experience Microsoft Qlib.
 - [Requirements](#requirements)
 - [Usage](#usage)
   - [Configuration](#configuration)
-    - [`[zcrypto]` — dataset paths](#zcrypto-%E2%80%94-dataset-paths)
-    - [`[zcrypto.fetch]` — operational tuning](#zcryptofetch-%E2%80%94-operational-tuning)
+    - [`[zcrypto]`: dataset paths](#zcrypto-dataset-paths)
+    - [`[zcrypto.fetch]`: operational tuning](#zcryptofetch-operational-tuning)
   - [Commands](#commands)
     - [`zcrypto data`](#zcrypto-data)
     - [`zcrypto experiment`](#zcrypto-experiment)
@@ -54,7 +54,7 @@ Running with no options prints the help.
 
 `zcrypto` reads configuration from **`zcrypto.toml`** in the current working directory (the repo root when running from the checkout). The file is committed with working defaults.
 
-#### `[zcrypto]` — dataset paths<a name="zcrypto-%E2%80%94-dataset-paths"></a>
+#### `[zcrypto]`: dataset paths<a name="zcrypto-dataset-paths"></a>
 
 ```toml
 [zcrypto]
@@ -64,7 +64,7 @@ backup_dir = "../zcrypto-data"  # durable backup root (raw/ mirror + snapshots/)
 
 Paths resolve via **flag → config → error**: if a path is neither passed as a CLI flag nor set in `zcrypto.toml`, the command exits immediately with a clear error message (`ERROR: no <name> configured — set [zcrypto].<name> in zcrypto.toml or pass --<flag> <path>`). There is no built-in fallback.
 
-#### `[zcrypto.fetch]` — operational tuning<a name="zcryptofetch-%E2%80%94-operational-tuning"></a>
+#### `[zcrypto.fetch]`: operational tuning<a name="zcryptofetch-operational-tuning"></a>
 
 ```toml
 [zcrypto.fetch]
