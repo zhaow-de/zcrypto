@@ -2,7 +2,6 @@
 name: dependabot
 description: Manage Dependabot dependency-update PRs — list, check out, rebase onto develop, run uv tests + ruff, auto-fix lint/format, push, wait for CI, merge with squash
 disable-model-invocation: true
-model: haiku
 allowed-tools: Bash(git fetch:*), Bash(git checkout:*), Bash(git rebase:*), Bash(git status:*), Bash(git stash:*), Bash(git push:*), Bash(git add:*), Bash(git commit:*), Bash(git log:*), Bash(git branch:*), Bash(gh pr:*), Bash(uv:*), Bash(python3:*), Bash(sleep:*), Read, Glob, Grep, Edit, Write, AskUserQuestion
 ---
 

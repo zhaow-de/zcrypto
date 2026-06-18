@@ -216,42 +216,47 @@ zcrypto data rename MATICUSDT POLUSDT --dry-run                             # pr
 
 #### `zcrypto experiment`<a name="zcrypto-experiment"></a>
 
-Run an end-to-end Qlib pipeline — Alpha158 features (158-factor library, default 2-day-forward label) → LightGBM ranker → TopkDropout long/cash daily backtest → 3-panel Plotly report — and write a predict-ready run bundle. The **recipe is the single swappable moving part**: swap `cli/experiment/recipes/<name>.py` to change the universe, features, model, or strategy parameters and iterate.
+Run an end-to-end Qlib pipeline — Alpha158 features (158-factor library, default 2-day-forward label) → LightGBM ranker → TopkDropout long/cash daily backtest → 3- or 4-panel Plotly report — and write a predict-ready run bundle. The **recipe is the single swappable moving part**: swap `cli/experiment/recipes/<name>.py` to change the universe, features, model, or strategy parameters and iterate.
 
 > **Prerequisite:** Redis must be running before you invoke this command (`./scripts/redis.sh start`). The command performs a Redis pre-flight check and exits with a clear error if Redis is unreachable.
 
 ```bash
-zcrypto experiment [--recipe skeleton] [--data-dir ./data] [--out ./runs] [--svg] [--refresh-cache] [--open/--no-open]
+zcrypto experiment [--recipe skeleton] [--data-dir ./data] [--out ./runs] [--svg] [--refresh-cache] [--quick] [--open/--no-open]
 ```
 
-| Option             | Default                      | Description                                                                             |
-| ------------------ | ---------------------------- | --------------------------------------------------------------------------------------- |
-| `--recipe`         | `skeleton`                   | Recipe name to run (see `cli/experiment/recipes/`).                                     |
-| `--data-dir`       | `[zcrypto].data_dir` in toml | Qlib provider directory (the `index.json` / `features/` / `calendars/` tree).           |
-| `--out`            | `./runs`                     | Root directory for run bundles; each bundle lands at `<out>/<recipe>/<UTC timestamp>/`. |
-| `--svg/--no-svg`   | off                          | Also render `report.svg` (requires kaleido).                                            |
-| `--refresh-cache`  | off                          | Force-wipe qlib's on-disk feature/dataset cache before the run.                         |
-| `--open/--no-open` | on when stdout is a TTY      | Open `report.html` in a browser when done. Auto-detected from whether stdout is a TTY.  |
+By default `experiment` runs combinatorial purged cross-validation (CPCV) over `train+valid` — writing `cv_results.json` (per-path Sharpe distribution + rank-IC) and a 4th report panel — then the single holdout backtest on `test`. `--quick` skips CPCV.
+
+| Option               | Default                      | Description                                                                             |
+| -------------------- | ---------------------------- | --------------------------------------------------------------------------------------- |
+| `--recipe`           | `skeleton`                   | Recipe name to run (see `cli/experiment/recipes/`).                                     |
+| `--data-dir`         | `[zcrypto].data_dir` in toml | Qlib provider directory (the `index.json` / `features/` / `calendars/` tree).           |
+| `--out`              | `./runs`                     | Root directory for run bundles; each bundle lands at `<out>/<recipe>/<UTC timestamp>/`. |
+| `--svg/--no-svg`     | off                          | Also render `report.svg` (requires kaleido).                                            |
+| `--refresh-cache`    | off                          | Force-wipe qlib's on-disk feature/dataset cache before the run.                         |
+| `--quick/--no-quick` | off                          | Skip CPCV; run only the single train→backtest holdout.                                  |
+| `--open/--no-open`   | on when stdout is a TTY      | Open `report.html` in a browser when done. Auto-detected from whether stdout is a TTY.  |
 
 **Run bundle layout** — each run writes a timestamped directory `runs/<recipe>/<UTC-timestamp>/`:
 
-| File                   | Description                                                                                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `report.html`          | 3-panel Plotly report: equity vs BTCUSDT buy-and-hold over the test window / trade timeline / full-history context with LUNA+FTX crash periods shaded. |
-| `report.svg`           | Static SVG export of the same report (only with `--svg`).                                                                                              |
-| `metrics.json`         | Annualized return, max drawdown, information ratio and other backtest metrics.                                                                         |
-| `trades.csv`           | Flat trade log (one row per executed order).                                                                                                           |
-| `run_meta.json`        | Manifest: recipe, git commit, qlib/lightgbm versions, segments, universe, fee preset, index fingerprint.                                               |
-| `recipe_snapshot.json` | Full recipe parameters as a JSON dict (reproducibility).                                                                                               |
-| `model.pkl`            | Predict-ready serialized LightGBM model (copied from the per-run MLflow store).                                                                        |
-| `mlruns/`              | Per-run MLflow experiment store; inspect with `mlflow ui --backend-store-uri runs/<recipe>/<ts>/mlruns`.                                               |
+| File                   | Description                                                                                                                                                    |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `report.html`          | 3- or 4-panel Plotly report: equity vs BTCUSDT buy-and-hold / trade timeline / full-history context / CPCV Sharpe distribution (4th panel, default only).      |
+| `report.svg`           | Static SVG export of the same report (only with `--svg`).                                                                                                      |
+| `metrics.json`         | Annualized return, max drawdown, information ratio and other backtest metrics.                                                                                 |
+| `cv_results.json`      | CPCV out-of-sample results: per-path Sharpe/return/drawdown, Sharpe distribution stats, rank-IC, and holdout summary (written by default, not with `--quick`). |
+| `trades.csv`           | Flat trade log (one row per executed order).                                                                                                                   |
+| `run_meta.json`        | Manifest: recipe, git commit, qlib/lightgbm versions, segments, universe, fee preset, index fingerprint.                                                       |
+| `recipe_snapshot.json` | Full recipe parameters as a JSON dict (reproducibility).                                                                                                       |
+| `model.pkl`            | Predict-ready serialized LightGBM model (copied from the per-run MLflow store).                                                                                |
+| `mlruns/`              | Per-run MLflow experiment store; inspect with `mlflow ui --backend-store-uri runs/<recipe>/<ts>/mlruns`.                                                       |
 
 > **Realistic-expectations caveat:** The default `skeleton` recipe is a naive baseline, **not** a profitable strategy. A cold run over the 2025–2026 test window currently turns 10,000 → ~3,700 USDT and underperforms BTCUSDT buy-and-hold. It exists to validate the pipeline and to be iterated on — see `docs/open-topics/` for the deferred robustness topics (validation rigor, regime overlay, realistic execution, point-in-time universe, paper trading).
 
 ```bash
-./scripts/redis.sh start                          # ensure Redis is up
-zcrypto experiment                                # run with the skeleton recipe
-zcrypto experiment --recipe my_recipe             # run a custom recipe
-zcrypto experiment --refresh-cache --no-open      # bust the cache; no browser
-mlflow ui --backend-store-uri runs/skeleton/<ts>/mlruns   # inspect the MLflow run
+./scripts/redis.sh start                                   # ensure Redis is up
+zcrypto experiment                                         # run with CPCV + holdout (default)
+zcrypto experiment --quick                                 # holdout only; skip CPCV
+zcrypto experiment --recipe my_recipe                      # run a custom recipe
+zcrypto experiment --refresh-cache --no-open               # bust the cache; no browser
+mlflow ui --backend-store-uri runs/skeleton/<ts>/mlruns    # inspect the MLflow run
 ```

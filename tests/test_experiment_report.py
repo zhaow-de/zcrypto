@@ -183,3 +183,22 @@ def test_write_report_svg(tmp_path):
     svg_path = tmp_path / "report.svg"
     assert svg_path.exists()
     assert svg_path.stat().st_size > 0
+
+
+def test_build_report_adds_cv_panel():
+    idx = pd.date_range("2020-01-01", periods=5, freq="D")
+    result = types.SimpleNamespace(
+        recipe=types.SimpleNamespace(name="t", account=10000.0),
+        account_curve=pd.Series(range(5), index=idx, dtype="float64"),
+        benchmark_curve=pd.Series(range(5), index=idx, dtype="float64"),
+        positions={},
+        context_prices={},
+    )
+    cv = {"path_sharpes": [0.2, 0.5, 0.8], "holdout_sharpe": 0.6}
+    fig = build_report(result, cv=cv)
+    # 4 rows now (vs 3); the CV histogram trace is present.
+    assert len(fig._grid_ref) == 4
+    assert any(getattr(t, "type", None) == "histogram" for t in fig.data)
+    fig_none = build_report(result)  # backward compatible: still 3 panels, no histogram
+    assert len(fig_none._grid_ref) == 3
+    assert not any(getattr(t, "type", None) == "histogram" for t in fig_none.data)

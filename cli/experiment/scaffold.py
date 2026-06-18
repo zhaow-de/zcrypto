@@ -45,7 +45,7 @@ class RunResult:
     data_fingerprint: str
 
 
-def _redis_preflight() -> None:
+def redis_preflight() -> None:
     """Ensure Redis is reachable; qlib's Disk*Cache locks require it."""
     import redis
 
@@ -86,8 +86,26 @@ def _dataset_config(recipe: Recipe) -> dict:
     }
 
 
-def _port_analysis_config(recipe: Recipe, model, dataset) -> dict:
+def exchange_kwargs(recipe: Recipe) -> dict:
+    """Shared exchange config for both the holdout backtest and CPCV path backtests.
+
+    `trade_unit=None` enables fractional crypto fills. qlib.init(region=REG_US) sets
+    C.trade_unit=1 and Exchange.__init__ does kwargs.pop("trade_unit", C.trade_unit),
+    so omitting this key would floor order amounts to whole coins and zero out
+    BTC/ETH on a $10k account.
+    """
     fee_open, fee_close = FEE_PRESETS[recipe.fee_preset]
+    return {
+        "freq": "day",
+        "deal_price": "close",
+        "open_cost": fee_open,
+        "close_cost": fee_close,
+        "min_cost": 0,
+        "trade_unit": None,
+    }
+
+
+def _port_analysis_config(recipe: Recipe, model, dataset) -> dict:
     return {
         "executor": {
             "class": "SimulatorExecutor",
@@ -104,18 +122,7 @@ def _port_analysis_config(recipe: Recipe, model, dataset) -> dict:
             "end_time": recipe.segments["test"][1],
             "account": recipe.account,
             "benchmark": recipe.benchmark,
-            "exchange_kwargs": {
-                "freq": "day",
-                "deal_price": "close",
-                "open_cost": fee_open,
-                "close_cost": fee_close,
-                "min_cost": 0,
-                # Must be set explicitly: qlib.init(region=REG_US) sets C.trade_unit=1,
-                # and Exchange.__init__ does kwargs.pop("trade_unit", C.trade_unit), so
-                # omitting this key would floor order amounts to whole coins and zero out
-                # BTC/ETH on a $10k account.  None → fractional crypto trading.
-                "trade_unit": None,
-            },
+            "exchange_kwargs": exchange_kwargs(recipe),
         },
     }
 
@@ -166,7 +173,7 @@ def run_experiment(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    _redis_preflight()
+    redis_preflight()
     logger.info("redis-ok", extra={"port": int(os.environ.get("ZCRYPTO_REDIS_PORT", "6379"))})
 
     ensure_cache_fresh(data_dir, refresh=refresh_cache)

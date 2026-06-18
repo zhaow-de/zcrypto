@@ -55,3 +55,29 @@ def test_recipe_is_frozen():
     recipe = resolve_recipe("skeleton")
     with pytest.raises(dataclasses.FrozenInstanceError):
         recipe.name = "other"  # type: ignore[misc]
+
+
+def test_recipe_has_cv_defaults():
+    from cli.experiment.recipes import skeleton
+    from cli.experiment.recipes.base import Recipe
+
+    r = skeleton.RECIPE
+    assert r.label_horizon_days == 2
+    assert r.feature_lookback_days == 60
+    assert r.cv_n_groups == 6
+    assert r.cv_test_groups == 2
+    # configurable
+    assert (
+        Recipe(
+            name="x",
+            handler_kwargs={},
+            model_config={},
+            strategy_kwargs={},
+            segments={},
+            universe=(),
+            reference_instruments=(),
+            cv_n_groups=4,
+            cv_test_groups=2,
+        ).cv_n_groups
+        == 4
+    )

@@ -83,6 +83,7 @@ def test_experiment_end_to_end(tmp_path, monkeypatch):
             str(out_dir),
             "--no-open",
             "--refresh-cache",
+            "--quick",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -107,3 +108,43 @@ def test_experiment_end_to_end(tmp_path, monkeypatch):
     meta = json.loads((bundle / "run_meta.json").read_text())
     assert meta["index_fingerprint"]
     assert meta["run_id"]
+
+    assert not (bundle / "cv_results.json").exists()  # --quick skips CPCV
+    assert "CPCV" not in result.output
+
+
+@pytest.mark.skipif(not _redis_up(), reason="needs redis (scripts/redis.sh start)")
+def test_experiment_default_writes_cv_results(tmp_path, monkeypatch):
+    fixture_ref = files("cli.experiment").joinpath("data", "provider")
+    data_dir = tmp_path / "provider"
+    with as_file(fixture_ref) as src:
+        shutil.copytree(src, data_dir)
+    from cli.experiment.recipes import skeleton
+
+    short = dataclasses.replace(
+        skeleton.RECIPE,
+        segments={
+            "train": ("2023-03-01", "2023-12-31"),
+            "valid": ("2024-01-01", "2024-02-29"),
+            "test": ("2024-03-01", "2024-06-27"),
+        },
+        feature_lookback_days=5,
+        cv_n_groups=4,
+        cv_test_groups=2,
+    )
+    monkeypatch.setattr("cli.experiment.command.resolve_recipe", lambda name: short)
+    out_dir = tmp_path / "runs"
+    result = runner.invoke(
+        app,
+        ["experiment", "--recipe", "skeleton", "--data-dir", str(data_dir), "--out", str(out_dir), "--no-open", "--refresh-cache"],
+    )
+    assert result.exit_code == 0, result.output
+    bundle = next(iter((out_dir / "skeleton").glob("*")))
+    cv = json.loads((bundle / "cv_results.json").read_text())
+    assert cv["cv"]["n_paths"] == 3
+    assert len(cv["paths"]) == 3
+    assert "sharpe_mean" in cv["distribution"]
+    assert "mean" in cv["rank_ic"]
+    assert "sharpe" in cv["holdout"]
+    assert "ending_value" in cv["holdout"]
+    assert "CPCV" in result.output
