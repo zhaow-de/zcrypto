@@ -21,8 +21,8 @@ Topics worth follow-up are parked here, one file per topic. See `.claude/rules/o
 
 ## Partially done<a name="partially-done"></a>
 
-- [00002 — Validation rigor (purged CV, CPCV, deflated Sharpe)](00002-validation-rigor.md) — **[High]** purged k-fold + embargo and CPCV (per-recipe out-of-sample Sharpe distribution) landed in iter-9 (spec 00008); deflated Sharpe + PBO, the multi-recipe ranking surface they need, and MLFinLab remain deferred.
+_(none yet)_
 
 ## Resolved<a name="resolved"></a>
 
-_(none yet)_
+- [00002 — Validation rigor (purged CV, CPCV, deflated Sharpe)](00002-validation-rigor.md) — purged k-fold + embargo + CPCV (iter-9), then per-recipe PSR + the `rank` command's deflated Sharpe + PBO (iter-11) — validation rigor resolved.

@@ -64,6 +64,7 @@ def experiment(
     from importlib.metadata import PackageNotFoundError, version
 
     from cli.experiment.report import build_report, write_report
+    from cli.experiment.stats import psr
     from cli.experiment.trades import trade_summary, trades_from_positions
     from cli.logging import get_logger
 
@@ -103,11 +104,18 @@ def experiment(
     result = run_experiment(recipe, data_dir=data_dir, out_dir=bundle, refresh_cache=refresh_cache)
     logger.info("run-done", extra={"run_id": result.run_id, "ending_value": result.ending_value})
 
+    holdout_returns = result.report_df["return"] - result.report_df["cost"]
+    holdout_psr = psr(holdout_returns.to_numpy())
+
     # --- report.html (+ report.svg) ------------------------------------------
     holdout_sharpe = result.metrics.get("strategy_absolute", {}).get("information_ratio", float("nan"))
     cv_arg = None
     if cv_result is not None:
-        cv_arg = {"path_sharpes": [p["sharpe"] for p in cv_result.paths], "holdout_sharpe": holdout_sharpe}
+        cv_arg = {
+            "path_sharpes": [p["sharpe"] for p in cv_result.paths],
+            "holdout_sharpe": holdout_sharpe,
+            "holdout_psr": holdout_psr,
+        }
     fig = build_report(result, cv=cv_arg)
     write_report(fig, bundle, svg=svg)
 
@@ -119,11 +127,20 @@ def experiment(
         )
     )
 
+    # --- returns.csv (holdout cost-adjusted daily returns; consumed by `zcrypto rank`) ---
+    _ret = holdout_returns.rename("ret")
+    _ret.index.name = "date"
+    _ret.to_csv(bundle / "returns.csv")
+
     # --- cv_results.json (only when CPCV ran) --------------------------------
     if cv_result is not None:
+        # Two Sharpe scales: holdout["sharpe"] is the *annualized* absolute Sharpe (qlib
+        # information_ratio); holdout["psr"] is computed on the *per-period daily* returns
+        # (PSR carries its own length correction).
         holdout = {
             **{m: result.metrics.get("strategy_absolute", {}).get(m, float("nan")) for m in ("annualized_return", "max_drawdown")},
             "sharpe": holdout_sharpe,  # strategy_absolute IR (cost-adj, rf=0) — matches the CPCV path Sharpes
+            "psr": holdout_psr,  # P(true holdout Sharpe > 0), corrected for length + non-normality
             # excess-return-vs-benchmark IR
             "information_ratio": result.metrics.get("excess_return_with_cost", {}).get("information_ratio", float("nan")),
             "ending_value": result.ending_value,
@@ -208,6 +225,7 @@ def experiment(
     typer.echo(f"  annualized_return : {excess.get('annualized_return', float('nan')):+.4f}")
     typer.echo(f"  max_drawdown      : {excess.get('max_drawdown', float('nan')):+.4f}")
     typer.echo(f"  information_ratio : {excess.get('information_ratio', float('nan')):+.4f}")
+    typer.echo(f"  holdout PSR       : {holdout_psr:+.3f}")
     typer.echo(f"  trades            : {summary['total']} ({summary['buys']} buy / {summary['sells']} sell)")
     if cv_result is not None:
         d = cv_result.distribution

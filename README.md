@@ -17,6 +17,7 @@ Learning-for-Fun project to experience Microsoft Qlib.
   - [Commands](#commands)
     - [`zcrypto data`](#zcrypto-data)
     - [`zcrypto experiment`](#zcrypto-experiment)
+    - [`zcrypto rank`](#zcrypto-rank)
 
 <!-- mdformat-toc end -->
 
@@ -81,10 +82,12 @@ Each key overrides a built-in default. Omit a key (or the entire `[zcrypto.fetch
 
 ### Commands<a name="commands"></a>
 
-| Command   | Description                                                           |
-| --------- | --------------------------------------------------------------------- |
-| `example` | Run a small offline Qlib ETH-USD strategy backtest demo.              |
-| `data`    | Manage the Binance → Qlib dataset (download / verify / backfill / …). |
+| Command      | Description                                                           |
+| ------------ | --------------------------------------------------------------------- |
+| `example`    | Run a small offline Qlib ETH-USD strategy backtest demo.              |
+| `data`       | Manage the Binance → Qlib dataset (download / verify / backfill / …). |
+| `experiment` | Run an end-to-end Qlib pipeline and write a run bundle.               |
+| `rank`       | Rank persisted run bundles as trials; report deflated Sharpe + PBO.   |
 
 ```bash
 zcrypto example                # run the demo backtest
@@ -224,7 +227,7 @@ Run an end-to-end Qlib pipeline — Alpha158 features (158-factor library, defau
 zcrypto experiment [--recipe skeleton] [--data-dir ./data] [--out ./runs] [--svg] [--refresh-cache] [--quick] [--open/--no-open]
 ```
 
-By default `experiment` runs combinatorial purged cross-validation (CPCV) over `train+valid` — writing `cv_results.json` (per-path Sharpe distribution + rank-IC) and a 4th report panel — then the single holdout backtest on `test`. `--quick` skips CPCV.
+By default `experiment` runs combinatorial purged cross-validation (CPCV) over `train+valid` — writing `cv_results.json` (per-path Sharpe distribution + rank-IC + holdout PSR) and a 4th report panel — then the single holdout backtest on `test`. `--quick` skips CPCV. Every run also writes `returns.csv` (holdout cost-adjusted daily returns) and prints a **holdout PSR** (Probabilistic Sharpe Ratio) line — P(true holdout Sharpe > 0), corrected for sample length and non-normality.
 
 | Option               | Default                      | Description                                                                             |
 | -------------------- | ---------------------------- | --------------------------------------------------------------------------------------- |
@@ -238,17 +241,18 @@ By default `experiment` runs combinatorial purged cross-validation (CPCV) over `
 
 **Run bundle layout** — each run writes a timestamped directory `runs/<recipe>/<UTC-timestamp>/`:
 
-| File                   | Description                                                                                                                                                    |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `report.html`          | 3- or 4-panel Plotly report: equity vs BTCUSDT buy-and-hold / trade timeline / full-history context / CPCV Sharpe distribution (4th panel, default only).      |
-| `report.svg`           | Static SVG export of the same report (only with `--svg`).                                                                                                      |
-| `metrics.json`         | Annualized return, max drawdown, information ratio and other backtest metrics.                                                                                 |
-| `cv_results.json`      | CPCV out-of-sample results: per-path Sharpe/return/drawdown, Sharpe distribution stats, rank-IC, and holdout summary (written by default, not with `--quick`). |
-| `trades.csv`           | Flat trade log (one row per executed order).                                                                                                                   |
-| `run_meta.json`        | Manifest: recipe, git commit, qlib/lightgbm versions, segments, universe, fee preset, index fingerprint.                                                       |
-| `recipe_snapshot.json` | Full recipe parameters as a JSON dict (reproducibility).                                                                                                       |
-| `model.pkl`            | Predict-ready serialized LightGBM model (copied from the per-run MLflow store).                                                                                |
-| `mlruns/`              | Per-run MLflow experiment store; inspect with `mlflow ui --backend-store-uri runs/<recipe>/<ts>/mlruns`.                                                       |
+| File                   | Description                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `report.html`          | 3- or 4-panel Plotly report: equity vs BTCUSDT buy-and-hold / trade timeline / full-history context / CPCV OOS Sharpe distribution (descriptive; 4th panel, default only).     |
+| `report.svg`           | Static SVG export of the same report (only with `--svg`).                                                                                                                      |
+| `metrics.json`         | Annualized return, max drawdown, information ratio and other backtest metrics.                                                                                                 |
+| `cv_results.json`      | CPCV out-of-sample results: per-path Sharpe/return/drawdown, Sharpe distribution stats, rank-IC, and holdout summary including `psr` (written by default, not with `--quick`). |
+| `returns.csv`          | Holdout cost-adjusted daily returns (`date,ret`); consumed by `zcrypto rank`.                                                                                                  |
+| `trades.csv`           | Flat trade log (one row per executed order).                                                                                                                                   |
+| `run_meta.json`        | Manifest: recipe, git commit, qlib/lightgbm versions, segments, universe, fee preset, index fingerprint.                                                                       |
+| `recipe_snapshot.json` | Full recipe parameters as a JSON dict (reproducibility).                                                                                                                       |
+| `model.pkl`            | Predict-ready serialized LightGBM model (copied from the per-run MLflow store).                                                                                                |
+| `mlruns/`              | Per-run MLflow experiment store; inspect with `mlflow ui --backend-store-uri runs/<recipe>/<ts>/mlruns`.                                                                       |
 
 > **Realistic-expectations caveat:** The default `skeleton` recipe is a naive baseline, **not** a profitable strategy. A cold run over the 2025–2026 test window currently turns 10,000 → ~3,700 USDT and underperforms BTCUSDT buy-and-hold. It exists to validate the pipeline and to be iterated on — see `docs/open-topics/` for the deferred robustness topics (validation rigor, regime overlay, realistic execution, point-in-time universe, paper trading).
 
@@ -261,4 +265,27 @@ zcrypto experiment --quick                                 # holdout only; skip 
 zcrypto experiment --recipe my_recipe                      # run a custom recipe
 zcrypto experiment --refresh-cache --no-open               # bust the cache; no browser
 mlflow ui --backend-store-uri runs/skeleton/<ts>/mlruns    # inspect the MLflow run
+```
+
+#### `zcrypto rank`<a name="zcrypto-rank"></a>
+
+Scan all run bundles under `--out` as trials and report the **deflated Sharpe ratio** (DSR) of the best trial and the **probability of backtest overfitting** (PBO via CSCV). Produces a ranked table and writes `runs/rank.json`.
+
+DSR applies an N-trials correction to the best-trial Sharpe — it reports P(the best trial's true Sharpe exceeds what N random trials would achieve by luck). PBO (CSCV) estimates the probability that an in-sample-best strategy underperforms the median out-of-sample. Together they give an honest read on whether the best run is genuinely better or merely lucky selection bias.
+
+```bash
+zcrypto rank [--out ./runs] [--n-splits 16]
+```
+
+| Option       | Default  | Description                                                                           |
+| ------------ | -------- | ------------------------------------------------------------------------------------- |
+| `--out`      | `./runs` | Run-bundle root to scan for trials (searches `<out>/<recipe>/<run>/returns.csv`).     |
+| `--n-splits` | `16`     | Number of CSCV splits for PBO (must be even; more splits → finer logit distribution). |
+
+The command writes `<out>/rank.json` with keys `n_trials`, `window` (common date range), `n_splits`, `trials` (per-trial `recipe`, `run`, `sharpe_daily`, `psr`), `dsr_best`, and `pbo`. The `sharpe_daily` column (also labelled `Sharpe(d)` in the ranked table) is the **per-period (daily) Sharpe** of each trial's holdout returns — distinct from `experiment`'s annualized holdout Sharpe in `cv_results.json`; DSR/PBO/PSR are all computed on these per-period values. DSR and PBO are `NaN` when fewer than 2 trials exist.
+
+```bash
+zcrypto rank                          # scan runs/ from cwd
+zcrypto rank --out ./runs             # explicit output dir
+zcrypto rank --n-splits 8             # fewer splits (faster, coarser PBO estimate)
 ```

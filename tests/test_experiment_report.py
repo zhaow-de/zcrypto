@@ -224,3 +224,26 @@ def test_build_report_title_carries_survivorship_marker():
     assert SURVIVORSHIP_MARKER in build_report(result).layout.title.text
     cv = {"path_sharpes": [0.2, 0.5], "holdout_sharpe": 0.4}
     assert SURVIVORSHIP_MARKER in build_report(result, cv=cv).layout.title.text
+
+
+def test_build_report_psr_and_holdout_relabel():
+    import types
+
+    import pandas as pd
+
+    from cli.experiment.report import build_report
+
+    idx = pd.date_range("2020-01-01", periods=5, freq="D")
+    result = types.SimpleNamespace(
+        recipe=types.SimpleNamespace(name="t", account=10000.0),
+        account_curve=pd.Series(range(5), index=idx, dtype="float64"),
+        benchmark_curve=pd.Series(range(5), index=idx, dtype="float64"),
+        positions={},
+        context_prices={},
+    )
+    cv = {"path_sharpes": [0.2, 0.5, 0.8], "holdout_sharpe": 0.6, "holdout_psr": 0.73}
+    fig = build_report(result, cv=cv)
+    texts = " || ".join(a.text for a in fig.layout.annotations if a.text)
+    assert "descriptive" in texts  # path band relabelled, not a CI
+    assert "test period" in texts  # holdout marker relabelled (different period)
+    assert "PSR" in texts  # PSR surfaced

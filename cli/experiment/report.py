@@ -4,8 +4,9 @@ Panel 1 — equity curves (test window): strategy vs BTCUSDT buy-and-hold.
 Panel 2 — trade timeline: buy/sell markers on a date × symbol scatter.
 Panel 3 — full-history market context: BTCUSDT + reference instruments rebased to 100,
           with shaded vertical regions for LUNA and FTX stress windows.
-Panel 4 — (optional) CPCV out-of-sample Sharpe distribution, appended when cv data
-          is provided to build_report.
+Panel 4 — (optional) CPCV OOS Sharpe distribution (descriptive), appended when cv
+          data is provided to build_report. The holdout marker shows the test-period
+          Sharpe + PSR — a different-period reference, not an overfit test.
 """
 
 from __future__ import annotations
@@ -37,9 +38,10 @@ def build_report(result, *, stress_windows=None, cv=None) -> go.Figure:
     stress_windows:
         List of (label, start, end) ISO strings.  Defaults to STRESS_WINDOWS.
     cv:
-        Optional dict with keys ``path_sharpes`` (list[float]) and
-        ``holdout_sharpe`` (float).  When provided, a 4th panel is appended
-        showing the CPCV out-of-sample Sharpe distribution.
+        Optional dict with keys ``path_sharpes`` (list[float]), ``holdout_sharpe``
+        (float), and ``holdout_psr`` (float).  When provided, a 4th panel is appended
+        showing the CPCV OOS Sharpe distribution (descriptive); its holdout marker
+        shows the test-period Sharpe + PSR.
     """
     if stress_windows is None:
         stress_windows = STRESS_WINDOWS
@@ -51,7 +53,7 @@ def build_report(result, *, stress_windows=None, cv=None) -> go.Figure:
     n_rows = 4 if cv else 3
     titles = ["Equity (test window)", "Trade timeline", "Market context (rebased)"]
     if cv:
-        titles.append("CPCV out-of-sample Sharpe distribution")
+        titles.append("CPCV OOS Sharpe distribution (descriptive)")
     fig = make_subplots(rows=n_rows, cols=1, subplot_titles=tuple(titles), vertical_spacing=0.06)
 
     # ------------------------------------------------------------------
@@ -158,7 +160,7 @@ def build_report(result, *, stress_windows=None, cv=None) -> go.Figure:
         fig.add_vline(
             x=cv["holdout_sharpe"],
             line={"color": _SELL_COLOR, "width": 2, "dash": "dash"},
-            annotation_text="holdout",
+            annotation_text=f"holdout (test period) · PSR {cv.get('holdout_psr', float('nan')):.2f}",
             annotation_position="top",
             row=4,
             col=1,
