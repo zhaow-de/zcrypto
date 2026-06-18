@@ -1,3 +1,59 @@
+## v0.3.0 (2026-06-19)
+
+### ⚠️ Breaking Changes
+
+#### `zcrypto data` directory layout
+
+The `zcrypto data` commands no longer take a positional output directory. The compiled Qlib dataset now lives at `--data-dir` (default `./data`), and the durable backup — the downloaded-zip mirror and rollback snapshots — at `--backup-dir`; both also resolve from the new `zcrypto.toml`. A one-time migration (move the compiled dirs into `./data`; rename `.raw`→`raw` and `.snapshots`→`snapshots` in the backup dir) is documented in the README.
+
+*[#25](https://github.com/zhaow-de/zcrypto/pull/25) by @zhaow-de*
+
+### 🚀 Features
+
+#### `zcrypto experiment` — end-to-end Qlib backtest harness
+
+A new `zcrypto experiment --recipe <name>` runs a full Qlib pipeline (Alpha158 features → LightGBM ranker → daily long/cash backtest) and writes a run bundle: a 3-panel Plotly report, metrics, trades, and a predict-ready model. The "recipe" is the single swappable knob you change to experiment; a deliberately naive `skeleton` baseline ships to build on. Requires a local Redis (`scripts/redis.sh start`) for Qlib's disk cache.
+
+*[#26](https://github.com/zhaow-de/zcrypto/pull/26) by @zhaow-de*
+
+#### Rigorous validation by default (CPCV)
+
+`zcrypto experiment` now runs combinatorial purged cross-validation (with purge + embargo) by default, reporting an out-of-sample Sharpe distribution over train+validation while holding the test window as an untouched final holdout. `--quick` opts back into the single fast run.
+
+*[#32](https://github.com/zhaow-de/zcrypto/pull/32) by @zhaow-de*
+
+#### Overfitting diagnostics: PSR, deflated Sharpe, and `zcrypto rank`
+
+Every run now reports a Probabilistic Sharpe Ratio (PSR). The new `zcrypto rank` command treats each saved run as a trial and reports the deflated Sharpe ratio of the best trial (corrected for how many you've tried) plus the probability of backtest overfitting (PBO) — so you can tell whether a good-looking Sharpe survives multiple-testing bias.
+
+*[#34](https://github.com/zhaow-de/zcrypto/pull/34) by @zhaow-de*
+
+#### Honest survivorship caveat on every experiment run
+
+Experiment reports, stdout, and `run_meta.json` now carry a survivorship caveat: the universe is only today's surviving pairs, so results are optimistically inflated. It's surfaced as a concise pointer to the tracked open topic rather than left as a silent gap.
+
+*[#33](https://github.com/zhaow-de/zcrypto/pull/33) by @zhaow-de*
+
+#### App-level `zcrypto.toml` configuration
+
+Dataset directories and fetch-tuning knobs now live in a committed `zcrypto.toml`. Directories resolve flag → config → error (no hidden default), and the operational fetch constants became an overridable `[zcrypto.fetch]` table.
+
+*[#31](https://github.com/zhaow-de/zcrypto/pull/31) by @zhaow-de*
+
+### 📦 Other Changes
+
+#### Console logs now show `extra` fields (plus internal cleanup)
+
+Plain-text console logs now append each record's structured `extra` as `key=value` pairs, matching what the JSON logs already carry. The same PR relocates `rank` into its own package and trims the project's contributor docs — no user-visible CLI change.
+
+*[#35](https://github.com/zhaow-de/zcrypto/pull/35) by @zhaow-de*
+
+#### Dependency updates
+
+Routine bumps: tornado 6.5.7, starlette 1.3.1, aiohttp 3.14.1, cryptography 48.0.1, pytest 9.1.0, and ruff / ruff-pre-commit 0.15.17.
+
+*[#30](https://github.com/zhaow-de/zcrypto/pull/30), [#29](https://github.com/zhaow-de/zcrypto/pull/29), [#28](https://github.com/zhaow-de/zcrypto/pull/28), [#27](https://github.com/zhaow-de/zcrypto/pull/27), [#24](https://github.com/zhaow-de/zcrypto/pull/24), [#23](https://github.com/zhaow-de/zcrypto/pull/23), [#22](https://github.com/zhaow-de/zcrypto/pull/22) by @dependabot*
+
 ## v0.2.0 (2026-06-11)
 
 ### 🚀 Features
