@@ -98,3 +98,11 @@ Per-iteration changelog of the zcrypto project. New entries are appended at the 
 - New JSONL log events emitted during a CPCV run: `cpcv-init`, `cpcv-start`, `split-trained`, `paths-assembled`, `path-backtest`, `cv-aggregated`, `cpcv-done`.
 - `scaffold._redis_preflight` renamed to public `redis_preflight` and moved out of the private namespace; it is now shared by both the holdout scaffold and `cpcv.py`.
 - The open-topics convention (`.claude/rules/open-topics.md`) gained a `partial` status as a third lifecycle state alongside `open` and `resolved`; topic `00002` (validation rigor) was transitioned to `partial` — purged k-fold + embargo and CPCV landed in this iteration, while deflated Sharpe + PBO, the multi-recipe ranking surface, and MLFinLab remain deferred.
+
+## 2026-06-18 — iter-10: honest survivorship framing
+
+- New `cli/experiment/caveats.py` holds the single home for run-time caveat wording: `EXPERIMENT_CAVEATS` (list of `{topic, summary}` pointers to `docs/open-topics/*`) and `SURVIVORSHIP_MARKER` (a short string for titles and stdout). `docs/open-topics/*` remains the single source of truth for gaps and roadmap — the surfaces only point to it with a topic id and one-line summary.
+- The survivorship caveat (open-topic `00005`) now surfaces in three places on every `experiment` run (both default CPCV and `--quick`): the report figure title (as an HTML `<br><sub>⚠ …</sub>` subtitle), a `⚠ survivorship-biased universe — see open-topic 00005` stdout line, and a `caveats` key in `run_meta.json` carrying the full `EXPERIMENT_CAVEATS` list.
+- Open-topic `00005` re-scoped to the data-acquisition reality: listing side is already handled (qlib only returns rows where data exists); the bias is universe selection (today's survivors only); we hold zero delisted-pair data and `zcrypto data delist` deletes history, so a real fix must first acquire historically-delisted pairs. Suggested next steps sharpened accordingly.
+- The two iter-9 CPCV interpretation caveats (deflated Sharpe + path dependence) are already captured in open-topic `00002`; a next-step to surface them in the experiment outputs is logged there for a future iteration.
+- This iteration changed no data, universe, or backtest logic — only the honesty of the output framing.
