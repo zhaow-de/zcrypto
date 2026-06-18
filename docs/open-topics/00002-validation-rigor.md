@@ -1,5 +1,5 @@
 ---
-status: partial
+status: resolved
 priority: high
 ---
 
@@ -39,35 +39,19 @@ Landed in iter-9 (spec `docs/specs/00008-validation-rigor-cpcv-design.md`):
   `test` window kept as an untouched final holdout (`cli/experiment/cpcv.py`,
   `cv_results.json`, the 4th report panel). `--quick` keeps the single run.
 
-## Interpretation caveats
+## Resolution
 
-Known caveats for reading the CPCV output that landed in iter-9 (surfacing these
-in the experiment output via the iter-10 caveats mechanism in
-`cli/experiment/caveats.py` is a still-open step below):
+Resolved in iter-11 (spec `docs/specs/00010-deflated-sharpe-pbo-design.md`):
 
-- **The path-Sharpe band is indicative, not a confidence interval.** At the
-  default `N=6, k=2` there are only φ = C(5,1) = 5 paths, and they are not
-  independent draws — they recombine the same fold models over the identical
-  train+valid calendar — so `sharpe_std` over those correlated points understates
-  true sampling uncertainty. The principled correction is the deferred deflated
-  Sharpe ratio / PBO (below).
-- **The holdout-vs-path overfitting cue is confounded by a regime mismatch.** The
-  report compares the holdout Sharpe (test window 2025–26) against the path-Sharpe
-  cloud (train+valid 2020–24) with the same metric, so "holdout above the cloud"
-  conflates genuine overfitting with a regime shift between the two periods — a
-  cue, not a test.
-
-## Suggested next steps
-
-Still open — deferred from iter-9:
-
-- Apply the deflated Sharpe ratio (and PBO, probability of backtest overfitting)
-  on top of the CPCV path distribution.
-- Build the multi-recipe comparison / ranking surface deflated Sharpe needs (it
-  must track the number of trials N across recipe runs) — the reason this slice
-  was deferred.
-- Consider Hudson & Thames MLFinLab for reference implementations.
-- Surface the two interpretation caveats above in the experiment output (via the
-  iter-10 `caveats` mechanism), and address the holdout-vs-path regime mismatch
-  (e.g. a regime-aware or same-window comparison) so the overfitting cue is not
-  misread.
+- **Per-recipe PSR** (`cli/experiment/stats.py`): every run reports the
+  Probabilistic Sharpe Ratio of its holdout returns (P(true Sharpe > 0),
+  corrected for sample length + non-normality) in `cv_results.json`, the report,
+  and stdout.
+- **`zcrypto rank`**: scans persisted runs as trials and reports the **deflated
+  Sharpe ratio** (N-trials correction) of the best trial + **PBO** (CSCV)
+  across them, with a ranked table and `runs/rank.json`.
+- Both interpretation caveats retired: the CPCV path-Sharpe band is labelled
+  *descriptive* (PSR is the significance measure, not the band), and the report's
+  holdout marker is relabelled a *different-period (test-window) reference* rather
+  than an overfit test (DSR/PBO are the honest overfitting measures). No new data
+  was required.
