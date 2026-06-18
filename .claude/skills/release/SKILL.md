@@ -93,7 +93,7 @@ Cuts a release PR from `develop` to `main`, then pushes the `v<version>` tag and
 
    Read the PR data from `/tmp/release_pr_data_${CLAUDE_SESSION_ID}.json` and follow the format and guidelines in [changelog-format.md](changelog-format.md). Replace the raw commit list `cz bump` wrote into `CHANGELOG.md` with the user-friendly section for the new version at the top, and **preserve all previous version sections below it**.
 
-   Keep that new-version section text — step 17 passes the same content to `gh release create --notes` as the Release description, so it never needs to live in the repo as a separate file.
+   This new-version section is also the GitHub Release description: step 16 extracts it back out **from the tag** (`git show v<VERSION>:CHANGELOG.md`) when publishing, so it never needs to live in the repo as a separate file.
 
 9. **Commit the release and create the tag**:
    ```bash
@@ -149,11 +149,16 @@ Cuts a release PR from `develop` to `main`, then pushes the `v<version>` tag and
     git push origin "v<VERSION>"
     ```
 
-16. **Create the GitHub Release** directly, passing the new version's changelog section (from step 8, also at the top of `CHANGELOG.md`) inline as the description:
+16. **Create the GitHub Release** directly, with the new version's changelog section as the description. Extract that section **from the tag** (`git show v<VERSION>:CHANGELOG.md`), *not* the working-tree `CHANGELOG.md`: by this point you are back on `develop` (step 13), whose `CHANGELOG.md` does not yet carry the new section (it arrives only via the back-merge in step 17), so reading the working tree would publish **empty** notes.
     ```bash
-    gh release create "v<VERSION>" --title "v<VERSION>" --notes "<new version's CHANGELOG.md section>" --verify-tag
+    git show "v<VERSION>:CHANGELOG.md" | awk 'NR>1 && /^## v[0-9]/{exit} {print}' > "/tmp/release_notes_v<VERSION>.md"
+    if [ ! -s "/tmp/release_notes_v<VERSION>.md" ]; then
+        echo "ERROR: extracted release notes are empty — do NOT publish. Check the tag's CHANGELOG.md."
+        exit 1
+    fi
+    gh release create "v<VERSION>" --title "v<VERSION>" --notes-file "/tmp/release_notes_v<VERSION>.md" --verify-tag
     ```
-    `--verify-tag` aborts if the tag was not pushed in step 15. The command prints the Release URL — keep it for the final report.
+    The `awk` prints from the top of the tagged `CHANGELOG.md` until the next `## v…` header — i.e. just the new version's section. `--verify-tag` aborts if the tag was not pushed in step 15. The command prints the Release URL — keep it for the final report.
 
 17. **Back-merge `main` → `develop` via a PR.** This repo's `develop` is protected against direct pushes, so the back-merge cannot be a plain `git push`. Cut a dedicated `chore/back-merge-v<VERSION>` branch off `origin/main` (using `main` itself as the PR head works in GitHub but is awkward — a topic branch keeps the PR's head distinct from the long-lived ref and gives us something straightforward to delete locally in step 18). Push it, open the PR, then auto-merge with the same poll-then-merge loop as step 14:
     ```bash
