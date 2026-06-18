@@ -282,7 +282,7 @@ zcrypto rank [--out ./runs] [--n-splits 16]
 | `--out`      | `./runs` | Run-bundle root to scan for trials (searches `<out>/<recipe>/<run>/returns.csv`).     |
 | `--n-splits` | `16`     | Number of CSCV splits for PBO (must be even; more splits → finer logit distribution). |
 
-The command writes `<out>/rank.json` with keys `n_trials`, `window` (common date range), `n_splits`, `trials` (per-trial `recipe`, `run`, `sharpe`, `psr`), `dsr_best`, and `pbo`. DSR and PBO are `NaN` when fewer than 2 trials exist.
+The command writes `<out>/rank.json` with keys `n_trials`, `window` (common date range), `n_splits`, `trials` (per-trial `recipe`, `run`, `sharpe_daily`, `psr`), `dsr_best`, and `pbo`. The `sharpe_daily` column (also labelled `Sharpe(d)` in the ranked table) is the **per-period (daily) Sharpe** of each trial's holdout returns — distinct from `experiment`'s annualized holdout Sharpe in `cv_results.json`; DSR/PBO/PSR are all computed on these per-period values. DSR and PBO are `NaN` when fewer than 2 trials exist.
 
 ```bash
 zcrypto rank                          # scan runs/ from cwd

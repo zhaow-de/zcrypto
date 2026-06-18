@@ -26,11 +26,36 @@ def test_rank_two_trials(tmp_path):
     res = runner.invoke(app, ["rank", "--out", str(tmp_path)])
     assert res.exit_code == 0, res.output
     assert "2 trials" in res.output
+    assert "*" in res.output  # best trial is marked
     rj = json.loads((tmp_path / "rank.json").read_text())
     assert rj["n_trials"] == 2
     assert {"dsr_best", "pbo", "trials", "window"} <= set(rj)
     assert len(rj["trials"]) == 2
-    assert all({"recipe", "run", "sharpe", "psr"} <= set(t) for t in rj["trials"])
+    assert all({"recipe", "run", "sharpe_daily", "psr"} <= set(t) for t in rj["trials"])
+    by_recipe = {t["recipe"]: t["sharpe_daily"] for t in rj["trials"]}
+    assert by_recipe["skeleton"] > by_recipe["variantb"]  # higher-mean trial → higher daily Sharpe
+
+
+def test_rank_warns_on_window_mismatch(tmp_path):
+    rng = np.random.default_rng(0)
+    a_dates = pd.date_range("2025-01-01", periods=300, freq="D")
+    b_dates = pd.date_range("2025-09-01", periods=300, freq="D")  # only partial overlap with A
+    _bundle(tmp_path, "skeleton", "20250101T000000Z", a_dates, rng.normal(0.001, 0.01, 300))
+    _bundle(tmp_path, "variantb", "20250102T000000Z", b_dates, rng.normal(0.0, 0.01, 300))
+    res = runner.invoke(app, ["rank", "--out", str(tmp_path)])
+    assert res.exit_code == 0, res.output
+    assert "differ materially" in res.output
+
+
+def test_rank_disjoint_dates_errors(tmp_path):
+    rng = np.random.default_rng(0)
+    a_dates = pd.date_range("2025-01-01", periods=100, freq="D")
+    b_dates = pd.date_range("2026-06-01", periods=100, freq="D")  # no overlap with A
+    _bundle(tmp_path, "skeleton", "20250101T000000Z", a_dates, rng.normal(0.001, 0.01, 100))
+    _bundle(tmp_path, "variantb", "20250102T000000Z", b_dates, rng.normal(0.0, 0.01, 100))
+    res = runner.invoke(app, ["rank", "--out", str(tmp_path)])
+    assert res.exit_code != 0
+    assert "no common dates" in res.output.lower()
 
 
 def test_rank_no_trials_errors(tmp_path):

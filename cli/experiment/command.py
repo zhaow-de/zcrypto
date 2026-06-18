@@ -134,6 +134,9 @@ def experiment(
 
     # --- cv_results.json (only when CPCV ran) --------------------------------
     if cv_result is not None:
+        # Two Sharpe scales: holdout["sharpe"] is the *annualized* absolute Sharpe (qlib
+        # information_ratio); holdout["psr"] is computed on the *per-period daily* returns
+        # (PSR carries its own length correction).
         holdout = {
             **{m: result.metrics.get("strategy_absolute", {}).get(m, float("nan")) for m in ("annualized_return", "max_drawdown")},
             "sharpe": holdout_sharpe,  # strategy_absolute IR (cost-adj, rf=0) — matches the CPCV path Sharpes

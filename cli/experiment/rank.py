@@ -52,16 +52,29 @@ def rank(
     common = common.sort_values()
     logger.info("rank-aligned", extra={"t": len(common), "from": str(common.min().date()), "to": str(common.max().date())})
 
+    max_len = max(len(tr["returns"]) for tr in trials)
+    if len(common) < 0.95 * max_len:
+        typer.echo(
+            f"WARNING: trials' return windows differ materially — shared window {len(common)}d "
+            f"vs longest trial {max_len}d; DSR/PBO use only the shared dates.",
+            err=True,
+        )
+        logger.info("rank-window-mismatch", extra={"common": len(common), "max_len": max_len})
+
     matrix = np.column_stack([tr["returns"].reindex(common).to_numpy() for tr in trials])
     per_trial = [
-        {"recipe": tr["recipe"], "run": tr["run"], "sharpe": sharpe(matrix[:, j]), "psr": psr(matrix[:, j])}
+        {"recipe": tr["recipe"], "run": tr["run"], "sharpe_daily": sharpe(matrix[:, j]), "psr": psr(matrix[:, j])}
         for j, tr in enumerate(trials)
     ]
     n = len(trials)
-    best = max(range(n), key=lambda j: per_trial[j]["sharpe"])
-    sr_trials = [pt["sharpe"] for pt in per_trial]
+    best = max(range(n), key=lambda j: per_trial[j]["sharpe_daily"])
+    sr_trials = [pt["sharpe_daily"] for pt in per_trial]
     dsr = deflated_sharpe(matrix[:, best], sr_trials) if n >= 2 else float("nan")
-    pbo = pbo_cscv(matrix, n_splits)["pbo"] if n >= 2 else float("nan")
+    try:
+        pbo = pbo_cscv(matrix, n_splits)["pbo"] if n >= 2 else float("nan")
+    except ValueError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     logger.info("rank-done", extra={"dsr": dsr, "pbo": pbo})
 
     typer.echo(f"{n} trials over {common.min().date()}..{common.max().date()} ({len(common)} days)")
@@ -69,11 +82,12 @@ def rank(
         typer.echo(f"  DSR(best) = {dsr:.4f}   PBO = {pbo:.4f}")
     else:
         typer.echo("  DSR / PBO: N/A (need >= 2 trials)")
-    typer.echo(f"  {'rank':<5}{'recipe':<16}{'run':<22}{'sharpe':>9}{'PSR':>8}")
-    for rank_i, j in enumerate(sorted(range(n), key=lambda j: per_trial[j]["sharpe"], reverse=True), 1):
+    typer.echo(f"  {'rank':<5}{'recipe':<16}{'run':<22}{'Sharpe(d)':>9}{'PSR':>8}")
+    typer.echo("  (Sharpe(d) = per-period daily Sharpe; PSR/DSR/PBO are computed per-period)")
+    for rank_i, j in enumerate(sorted(range(n), key=lambda j: per_trial[j]["sharpe_daily"], reverse=True), 1):
         pt = per_trial[j]
         mark = " *" if j == best else ""
-        typer.echo(f"  {rank_i:<5}{pt['recipe']:<16}{pt['run']:<22}{pt['sharpe']:>9.4f}{pt['psr']:>8.3f}{mark}")
+        typer.echo(f"  {rank_i:<5}{pt['recipe']:<16}{pt['run']:<22}{pt['sharpe_daily']:>9.4f}{pt['psr']:>8.3f}{mark}")
 
     (out / "rank.json").write_text(
         json.dumps(
