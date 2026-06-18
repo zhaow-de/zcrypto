@@ -1,30 +1,30 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project
 
-`zcrypto` is an early-stage crypto quant project built on [Qlib](https://github.com/microsoft/qlib) (the `pyqlib` dependency), Microsoft's AI-oriented quantitative investment platform. The `cli` package (`cli/__main__.py`) is a [Typer](https://typer.tiangolo.com/) app exposed as the `zcrypto` console script (hatchling build backend). Qlib is not yet wired up (no `qlib.init(...)` call or data directory); expect to build out Qlib-based data, modeling, and strategy code here.
+`zcrypto` is an early-stage crypto quant project built on Qlib. The `cli` package (`cli/__main__.py`) is a Typer app exposed as the `zcrypto` console script. Qlib is wired end-to-end.
 
 ## Repository layout
 
-Standard single-package [uv](https://docs.astral.sh/uv/) project: `pyproject.toml`, `uv.lock`, `.python-version`, and `ruff.toml` all live at the **repo root**, and every `uv` command runs from the root.
+Standard single-package uv project: `pyproject.toml`, `uv.lock`, `.python-version`, and `ruff.toml` all live at the **repo root**, and every `uv` command runs from the root.
 
 - `cli/` — the application package; run via `uv run python -m cli`.
 - `.claude/rules/`, `.claude/skills/` — repo-specific Claude Code rules and skills.
+- **CLI subcommands** are sibling packages `cli/<name>/`, each with a `command.py`. Single-command ones register in `cli/__main__.py` via `from cli.<name>.command import <fn>` + `app.command(name=...)(...)`; multi-command groups (e.g. `data`) expose a Typer sub-app registered via `app.add_typer(...)`. Loggers are named `get_logger("<package>.<module>")` — in `command.py` or a submodule (e.g. `example.workflow`, `data.pipeline`).
+- `zcrypto.toml` — the app's config, loaded by `cli/config.py`.
+- `data/`, `runs/` — gitignored output dirs: the compiled Qlib dataset (`zcrypto data`) and experiment run bundles (`zcrypto experiment`, read by `zcrypto rank`).
 
 ## Rules
 
 ### 1. Think Before Coding
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+**Don't assume. Surface tradeoffs. Ask when unclear.**
 
-- State assumptions explicitly; mark each as *validated / assumed / unknown*.
-- If multiple interpretations exist, present 2–3 with tradeoffs — don't pick silently.
-- Distinguish *symptom* ("button is slow") from *problem* ("users abandon checkout").
-- Name confidence on non-obvious choices: *high / medium / low*.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+- State assumptions; mark each *validated / assumed / unknown*.
+- Multiple interpretations → present 2–3 with tradeoffs; don't pick silently.
+- Name confidence on non-obvious choices (*high / medium / low*).
+- Distinguish symptom from root problem.
+- Unclear? Stop, name what's confusing, ask.
 
 ### 2. Simplicity First
 
@@ -32,10 +32,8 @@ Standard single-package [uv](https://docs.astral.sh/uv/) project: `pyproject.tom
 
 - No features beyond what was asked. No "while I'm here."
 - No abstractions for single-use code.
-- No flexibility, configurability, or error handling that wasn't requested.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Self-check: "Would a senior engineer call this overcomplicated?" Complexity is rarely a sign of intelligence — more often, it's a sign of confusion.
+- No flexibility / configurability / error handling that wasn't requested.
+- 200 lines that could be 50? Rewrite it.
 
 ### 3. Surgical Changes
 
@@ -53,29 +51,9 @@ The test: every changed line traces directly to the user's request.
 
 **"Merged" is not "done." Done is "it works and we can tell."**
 
-Transform vague tasks into verifiable goals:
-
-| Weak               | Strong                                                                  |
-| ------------------ | ----------------------------------------------------------------------- |
-| "Add validation"   | "Invalid inputs rejected with clear messages; tests cover each case"    |
-| "Fix the bug"      | "Failing test reproduces it; passes after fix; no regression elsewhere" |
-| "Refactor X"       | "Tests pass identically before and after"                               |
-
-For user-facing work, acceptance covers three layers:
-
-- **Functional** — tests pass; edge cases handled
-- **User-facing** — a real user flow completes end-to-end
-- **Operational** — observable in production (logs, errors, analytics)
-
-For multi-step work, state a brief plan:
-
-```
-1. [step] → verify: [check]
-2. [step] → verify: [check]
-3. [step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+- Turn vague tasks into verifiable goals: a failing test that reproduces the bug then passes; tests pass identically before/after a refactor; a real flow completes end-to-end.
+- Confirm it's observable in production: logs, errors, analytics that show it working (or failing).
+- For multi-step work, state a brief plan as `step → verify` lines.
 
 ## Tooling
 
@@ -87,31 +65,28 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ```bash
 uv sync                          # install/refresh the locked environment (incl. dev group)
-uv run python -m cli [args]      # run the CLI (module entry point; mirrors .vscode/launch.json)
 uv run zcrypto [args]            # run the CLI via the installed console script
 
 uv run pytest                    # run tests
 uv run pytest path/to/test.py::test_name   # run a single test
-uv run coverage run -m pytest && uv run coverage report   # tests with coverage
 
 uv run ruff check --fix          # lint (import sorting) + autofix
 uv run ruff format               # format
-uv run pre-commit install           # one-time: activate the commit-time hook gate
 uv run pre-commit run --all-files   # run the full pre-commit suite
 uv add <pkg>            # add new deps
 uv add --dev <pkg>      # add new dev deps
 ```
 
-Tests live in `tests/` (pytest + Typer's `CliRunner`); coverage is reported to Coveralls by `.github/workflows/coverage.yml` on push to `develop`/`main`.
+Tests live in `tests/` (pytest + Typer's `CliRunner`).
+
+The full `uv run pytest` suite is slow; prefer targeted `uv run pytest path::test` while iterating, and run the full suite in the background.
+
+`zcrypto experiment` (and its redis-gated tests) need a local Redis — qlib's disk caches use it for read/write locks; start one with `scripts/redis.sh start`.
 
 ## Conventions
 
 - **Ruff** is the linter and formatter: line length 132, double quotes, import sorting enabled (`select = ["I"]`). Run ruff before committing.
-- **pre-commit** is the gate for commits and runs ruff, yamllint, mdformat, and standard hygiene hooks. `mdformat` formats Markdown and regenerates the README table of contents — don't hand-maintain it.
+- **pre-commit** is the gate for commits and runs ruff, yamllint, mdformat, and standard hygiene hooks. `mdformat` is scoped to **only** `README.md`, `docs/open-topics/README.md`, and `docs/research/01.*.md` (it owns their TOCs — don't hand-maintain those). **Every other Markdown file — `CLAUDE.md`, `.claude/rules/`, `docs/iterations-history.md`, `docs/specs|plans/` — is NOT auto-reflowed; format it yourself.**
 - **pre-commit may rewrite files** (mdformat reflows Markdown; end-of-file fixer; trailing-whitespace) and abort the commit; re-stage and re-commit (never `--no-verify`).
 - **Versioning** is commitizen-managed (`.cz.toml`). `cz bump` (run by the `/release` skill) is the source of truth for the version and updates both `pyproject.toml` and the README `Version` badge — don't hand-edit either or they'll drift.
-- **Workflow conventions** live in `.claude/rules/`: branch model (`branch-workflow.md`), PR title/body + co-author trailer (`pull-requests.md`), commit messages (`commit-messages.md`), README Usage (`readme-usage.md`), spec & plan locations (`spec-plan-locations.md`), the iterations-history entry every plan must end with (`iterations-history.md`), and the open-topics convention for parking follow-up items (`open-topics.md`). Consult them before branching, opening a PR, or releasing.
-
-## Project state notes
-
-Per-iteration changelog: [`docs/iterations-history.md`](docs/iterations-history.md). How to maintain it: [`.claude/rules/iterations-history.md`](.claude/rules/iterations-history.md).
+- **Workflow conventions** live in `.claude/rules/`: branch model (`branch-workflow.md`), PR title/body + co-author trailer (`pull-requests.md`), commit messages (`commit-messages.md`), README Usage (`readme-usage.md`), when/where to write specs & plans (`spec-plan-locations.md`), the iterations-history entry every plan must end with (`iterations-history.md`), and the open-topics convention for parking follow-up items (`open-topics.md`). Consult them before branching, opening a PR, or releasing.
