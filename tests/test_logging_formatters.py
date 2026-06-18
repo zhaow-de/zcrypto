@@ -83,3 +83,25 @@ def test_plain_text_qlib_record():
     rec = _make_record(name="qlib.timer", pathname="/abs/log.py", lineno=127, msg="Time cost: 30.891s | Loading data Done")
     line = PlainTextFormatter().format(rec)
     assert " INFO qlib.timer [log.py:127] - Time cost: 30.891s | Loading data Done" in line
+
+
+def test_plain_text_appends_extra_as_key_value():
+    rec = _make_record(msg="cpcv-start", extra={"n_groups": 6, "n_splits": 15})
+    line = PlainTextFormatter().format(rec)
+    assert line.endswith("- cpcv-start n_groups=6 n_splits=15")
+
+
+def test_plain_text_extra_preserves_insertion_order():
+    rec = _make_record(msg="split-trained", extra={"split": 0, "n_train": 20571, "n_test": 8495})
+    line = PlainTextFormatter().format(rec)
+    assert line.endswith("- split-trained split=0 n_train=20571 n_test=8495")
+
+
+def test_plain_text_extra_appears_before_traceback():
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        rec = _make_record(msg="oops", exc_info=sys.exc_info(), extra={"code": 7})
+    line = PlainTextFormatter().format(rec)
+    assert "oops code=7" in line
+    assert line.index("code=7") < line.index("Traceback")
