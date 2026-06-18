@@ -16,6 +16,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from cli.experiment.caveats import SURVIVORSHIP_MARKER
 from cli.experiment.stress import STRESS_WINDOWS
 from cli.experiment.trades import trades_from_positions
 
@@ -45,7 +46,7 @@ def build_report(result, *, stress_windows=None, cv=None) -> go.Figure:
 
     recipe = result.recipe
     ending = float(result.account_curve.iloc[-1])
-    title = f"{recipe.name}: {recipe.account:,.0f} → {ending:,.0f} USDT"
+    title = f"{recipe.name}: {recipe.account:,.0f} → {ending:,.0f} USDT<br><sub>⚠ {SURVIVORSHIP_MARKER}</sub>"
 
     n_rows = 4 if cv else 3
     titles = ["Equity (test window)", "Trade timeline", "Market context (rebased)"]
