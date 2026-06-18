@@ -1,3 +1,13 @@
+## v0.3.1 (2026-06-19)
+
+### 🐛 Bug Fixes
+
+#### GitHub Release notes are now populated correctly
+
+The `/release` tooling reads each GitHub Release's notes from the version tag instead of the working tree, so a published Release always carries its changelog section (previously the notes could be published empty).
+
+*[#38](https://github.com/zhaow-de/zcrypto/pull/38) by @zhaow-de*
+
 ## v0.3.0 (2026-06-19)
 
 ### ⚠️ Breaking Changes
