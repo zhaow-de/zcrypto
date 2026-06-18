@@ -12,6 +12,7 @@ import typer
 # level so tests can monkeypatch `cli.experiment.command.resolve_recipe`, and so the
 # unknown-recipe path never touches qlib/redis.
 from cli.config import ConfigError, load_config, resolve_data_dir
+from cli.experiment.caveats import EXPERIMENT_CAVEATS, SURVIVORSHIP_MARKER
 from cli.experiment.recipes.base import resolve_recipe
 
 
@@ -180,6 +181,7 @@ def experiment(
         "reference_instruments": list(recipe.reference_instruments),
         "index_fingerprint": result.data_fingerprint,
         "ending_value": result.ending_value,
+        "caveats": EXPERIMENT_CAVEATS,
     }
     (bundle / "run_meta.json").write_text(json.dumps(run_meta, indent=2))
 
@@ -214,6 +216,7 @@ def experiment(
             f"Sharpe {d['sharpe_mean']:.2f} ± {d['sharpe_std']:.2f} (worst {d['sharpe_worst']:.2f}) · "
             f"rank-IC {cv_result.rank_ic['mean']:.3f}"
         )
+    typer.echo(f"⚠ {SURVIVORSHIP_MARKER}")
     typer.echo(f"  bundle            : {bundle}")
 
     if open_report:
