@@ -35,7 +35,7 @@ def rank(
     from cli.experiment.stats import deflated_sharpe, pbo_cscv, psr, sharpe
     from cli.logging import get_logger
 
-    logger = get_logger("experiment.rank")
+    logger = get_logger("rank.command")
     out = Path(out)
     trials = _load_trials(out)
     logger.info("rank-scan", extra={"n_trials": len(trials), "out": str(out)})

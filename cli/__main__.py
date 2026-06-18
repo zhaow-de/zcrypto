@@ -69,7 +69,7 @@ from cli.experiment.command import experiment
 
 app.command(name="experiment")(experiment)
 
-from cli.experiment.rank import rank
+from cli.rank.command import rank
 
 app.command(name="rank")(rank)
 
