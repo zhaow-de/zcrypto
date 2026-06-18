@@ -7,7 +7,9 @@ from typing import Optional
 
 import typer
 
+from cli.config import ConfigError, load_config, resolve_backup_dir, resolve_data_dir
 from cli.data.binance import BinanceSource
+from cli.data.layout import DatasetPaths
 from cli.data.pipeline import PipelineError, backfill_pipeline, delist_pipeline, download_pipeline, rename_pipeline
 from cli.data.verify import verify_dataset
 
@@ -42,6 +44,18 @@ data_app = typer.Typer(
 )
 
 
+def _load_and_resolve(data_dir_flag: Optional[Path], backup_dir_flag: Optional[Path], *, need_backup: bool):
+    """Load zcrypto.toml and resolve the dataset dirs; ConfigError → stderr + exit(1)."""
+    try:
+        cfg = load_config()
+        data_dir = resolve_data_dir(data_dir_flag, cfg)
+        backup_dir = resolve_backup_dir(backup_dir_flag, cfg) if need_backup else None
+    except ConfigError as e:
+        typer.echo(f"ERROR: {e}", err=True)
+        raise typer.Exit(code=1) from e
+    return cfg, data_dir, backup_dir
+
+
 @data_app.callback(invoke_without_command=True)
 def main(ctx: typer.Context) -> None:
     """`zcrypto data` — bare invocation prints this group's help and exits."""
@@ -52,17 +66,23 @@ def main(ctx: typer.Context) -> None:
 
 @data_app.command("verify")
 def verify_cmd(
-    out_dir: Path = typer.Argument(..., help="Dataset directory to validate.", exists=True, file_okay=False),
+    data_dir: Optional[Path] = typer.Option(  # noqa: UP007
+        None,
+        "--data-dir",
+        help="Compiled dataset dir to validate. Defaults to [zcrypto].data_dir in zcrypto.toml.",
+        file_okay=False,
+    ),
     silent: bool = typer.Option(False, "--silent", help="Print nothing; convey result via exit code only."),
 ) -> None:
     """Re-validate an existing dataset against `index.json` and all invariants."""
-    report = verify_dataset(out_dir, fail_on_gap=True)
+    _cfg, data_dir, _ = _load_and_resolve(data_dir, None, need_backup=False)
+    report = verify_dataset(data_dir, fail_on_gap=True)
     if not silent:
         if report.is_empty:
-            typer.echo(f"OK — {out_dir} is empty (no dataset to verify).")
+            typer.echo(f"OK — {data_dir} is empty (no dataset to verify).")
         else:
             if report.checks:
-                typer.echo(f"Checked {out_dir}:")
+                typer.echo(f"Checked {data_dir}:")
                 for c in report.checks:
                     typer.echo(f"  [✓] {c}")
             if report.synthetic:
@@ -70,9 +90,9 @@ def verify_cmd(
                 for s in report.synthetic:
                     typer.echo(f"  [i] {s}")
             if report.ok:
-                typer.echo(f"OK — {out_dir} validates clean.")
+                typer.echo(f"OK — {data_dir} validates clean.")
             else:
-                typer.echo(f"FAIL — {len(report.problems)} problem(s) in {out_dir}:")
+                typer.echo(f"FAIL — {len(report.problems)} problem(s) in {data_dir}:")
                 for p in report.problems:
                     typer.echo(f"  - {p}")
     raise typer.Exit(code=0 if report.ok else 1)
@@ -80,90 +100,122 @@ def verify_cmd(
 
 @data_app.command("download")
 def download_cmd(
-    out_dir: Path = typer.Argument(..., help="Dataset directory (created if absent).", file_okay=False),
     pairs_file: Path = typer.Argument(..., help="Plain-text file: one Binance symbol per line.", exists=True, dir_okay=False),
-    interval: str = typer.Option("1d", "--interval", help="Kline interval (only 1d supported)."),
-    from_date: Optional[str] = typer.Option(  # noqa: UP007 (Typer needs Optional[X] not X | None)
-        "2020-01-01",
-        "--from",
-        callback=_from_callback,
-        help="ISO date YYYY-MM-DD.",
+    data_dir: Optional[Path] = typer.Option(  # noqa: UP007
+        None, "--data-dir", help="Compiled dataset dir. Defaults to [zcrypto].data_dir in zcrypto.toml.", file_okay=False
     ),
-    to_date: Optional[str] = typer.Option(
+    backup_dir: Optional[Path] = typer.Option(  # noqa: UP007
         None,
-        "--to",
-        callback=_to_callback,
-        help="ISO date YYYY-MM-DD (default: yesterday UTC).",
+        "--backup-dir",
+        help="Backup dir (raw/ + snapshots/); created if absent. Defaults to [zcrypto].backup_dir.",
+        file_okay=False,
+    ),
+    interval: str = typer.Option("1d", "--interval", help="Kline interval (only 1d supported)."),
+    from_date: Optional[str] = typer.Option(  # noqa: UP007
+        "2020-01-01", "--from", callback=_from_callback, help="ISO date YYYY-MM-DD."
+    ),
+    to_date: Optional[str] = typer.Option(  # noqa: UP007
+        None, "--to", callback=_to_callback, help="ISO date YYYY-MM-DD (default: yesterday UTC)."
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
 ) -> None:
     """Fetch Binance spot klines and write/append a Qlib-ready dataset."""
-    # Callbacks already validated and parsed; cast to dt.date (the callback returns dt.date | None).
     fd: dt.date = from_date if isinstance(from_date, dt.date) else dt.date(2020, 1, 1)  # type: ignore[assignment]
     td: dt.date = to_date if isinstance(to_date, dt.date) else (dt.date.today() - dt.timedelta(days=1))  # type: ignore[assignment]
+    cfg, data_dir, backup_dir = _load_and_resolve(data_dir, backup_dir, need_backup=True)
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     try:
-        download_pipeline(out_dir, pairs_file, interval, fd, td, source=BinanceSource(), dry_run=dry_run)
+        download_pipeline(
+            paths, pairs_file, interval, fd, td, source=BinanceSource(fetch=cfg.fetch), fetch=cfg.fetch, dry_run=dry_run
+        )
     except PipelineError as e:
         typer.echo(f"ERROR: {e}", err=True)
         raise typer.Exit(code=1) from e
     if not dry_run:
-        typer.echo(f"OK — dataset at {out_dir} now reaches {td}.")
+        typer.echo(f"OK — dataset at {data_dir} now reaches {td}.")
 
 
 @data_app.command("backfill")
 def backfill_cmd(
-    out_dir: Path = typer.Argument(..., help="Dataset directory.", file_okay=False),
+    data_dir: Optional[Path] = typer.Option(  # noqa: UP007
+        None, "--data-dir", help="Compiled dataset dir. Defaults to [zcrypto].data_dir in zcrypto.toml.", file_okay=False
+    ),
+    backup_dir: Optional[Path] = typer.Option(  # noqa: UP007
+        None,
+        "--backup-dir",
+        help="Backup dir (raw/ + snapshots/); created if absent. Defaults to [zcrypto].backup_dir.",
+        file_okay=False,
+    ),
     interval: str = typer.Option("1d", "--interval", help="Kline interval (only 1d supported)."),
     arg_to_str: Optional[str] = typer.Option(  # noqa: UP007
-        None,
-        "--to",
-        callback=_to_callback,
-        help="ISO date YYYY-MM-DD (default: yesterday UTC).",
+        None, "--to", callback=_to_callback, help="ISO date YYYY-MM-DD (default: yesterday UTC)."
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
 ) -> None:
     """Extend every TRADING pair in the index to --to (default yesterday UTC)."""
     arg_to: dt.date = arg_to_str if isinstance(arg_to_str, dt.date) else (dt.date.today() - dt.timedelta(days=1))  # type: ignore[assignment]
+    cfg, data_dir, backup_dir = _load_and_resolve(data_dir, backup_dir, need_backup=True)
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     try:
-        backfill_pipeline(out_dir, interval, arg_to, BinanceSource(), dry_run=dry_run)
+        backfill_pipeline(paths, interval, arg_to, BinanceSource(fetch=cfg.fetch), fetch=cfg.fetch, dry_run=dry_run)
     except PipelineError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1)
     if not dry_run:
-        typer.echo(f"backfill complete: {out_dir}")
+        typer.echo(f"backfill complete: {data_dir}")
 
 
 @data_app.command("delist")
 def delist_cmd(
-    out_dir: Path = typer.Argument(..., help="Dataset directory.", file_okay=False),
     symbol: str = typer.Argument(..., help="Symbol to remove (e.g. BTCUSDT)."),
+    data_dir: Optional[Path] = typer.Option(  # noqa: UP007
+        None, "--data-dir", help="Compiled dataset dir. Defaults to [zcrypto].data_dir in zcrypto.toml.", file_okay=False
+    ),
+    backup_dir: Optional[Path] = typer.Option(  # noqa: UP007
+        None,
+        "--backup-dir",
+        help="Backup dir (raw/ + snapshots/); created if absent. Defaults to [zcrypto].backup_dir.",
+        file_okay=False,
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
 ) -> None:
     """Remove SYMBOL from the dataset."""
     symbol = symbol.upper()
+    _cfg, data_dir, backup_dir = _load_and_resolve(data_dir, backup_dir, need_backup=True)
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     try:
-        delist_pipeline(out_dir, symbol, dry_run=dry_run)
+        delist_pipeline(paths, symbol, dry_run=dry_run)
     except PipelineError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1)
     if not dry_run:
-        typer.echo(f"delist complete: {symbol} removed from {out_dir}")
+        typer.echo(f"delist complete: {symbol} removed from {data_dir}")
 
 
 @data_app.command("rename")
 def rename_cmd(
-    out_dir: Path = typer.Argument(..., help="Dataset directory.", file_okay=False),
     old_symbol: str = typer.Argument(..., help="Existing symbol to rename (e.g. MATICUSDT)."),
     new_symbol: str = typer.Argument(..., help="Replacement symbol name (e.g. POLUSDT)."),
+    data_dir: Optional[Path] = typer.Option(  # noqa: UP007
+        None, "--data-dir", help="Compiled dataset dir. Defaults to [zcrypto].data_dir in zcrypto.toml.", file_okay=False
+    ),
+    backup_dir: Optional[Path] = typer.Option(  # noqa: UP007
+        None,
+        "--backup-dir",
+        help="Backup dir (raw/ + snapshots/); created if absent. Defaults to [zcrypto].backup_dir.",
+        file_okay=False,
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
 ) -> None:
     """Re-label OLD_SYMBOL to NEW_SYMBOL in the dataset (Variant 1: single rename + synthetic gap fill)."""
     old_symbol = old_symbol.upper()
     new_symbol = new_symbol.upper()
+    cfg, data_dir, backup_dir = _load_and_resolve(data_dir, backup_dir, need_backup=True)
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     try:
-        rename_pipeline(out_dir, old_symbol, new_symbol, BinanceSource(), dry_run=dry_run)
+        rename_pipeline(paths, old_symbol, new_symbol, BinanceSource(fetch=cfg.fetch), fetch=cfg.fetch, dry_run=dry_run)
     except PipelineError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1)
     if not dry_run:
-        typer.echo(f"rename complete: {old_symbol} → {new_symbol} in {out_dir}")
+        typer.echo(f"rename complete: {old_symbol} → {new_symbol} in {data_dir}")

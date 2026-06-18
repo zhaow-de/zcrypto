@@ -65,6 +65,14 @@ from cli.example.command import example
 
 app.command(name="example")(example)
 
+from cli.experiment.command import experiment
+
+app.command(name="experiment")(experiment)
+
+from cli.rank.command import rank
+
+app.command(name="rank")(rank)
+
 from cli.data.command import data_app
 
 app.add_typer(data_app, name="data")

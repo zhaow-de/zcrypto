@@ -10,17 +10,16 @@ from cli.data.config import SNAPSHOT_KEEP
 SNAPSHOT_ITEMS: tuple[str, ...] = ("calendars", "instruments", "features", "index.json")
 
 
-def create_snapshot(out_dir: Path, command: str) -> Path:
-    """Pack the relevant dataset files into `<out_dir>/.snapshots/<stamp>-<cmd>.tar.gz` atomically."""
-    snap_dir = out_dir / ".snapshots"
-    snap_dir.mkdir(parents=True, exist_ok=True)
+def create_snapshot(data_dir: Path, snapshots_dir: Path, command: str) -> Path:
+    """Pack the compiled dataset files into `<snapshots_dir>/<stamp>-<cmd>.tar.gz` atomically."""
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
     stamp = dt.datetime.now(tz=dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    archive = snap_dir / f"{stamp}-{command}.tar.gz"
+    archive = snapshots_dir / f"{stamp}-{command}.tar.gz"
     tmp = archive.with_suffix(archive.suffix + ".tmp")
     try:
         with tarfile.open(tmp, "w:gz") as tar:
             for name in SNAPSHOT_ITEMS:
-                p = out_dir / name
+                p = data_dir / name
                 if p.exists():
                     tar.add(p, arcname=name)
         os.replace(tmp, archive)
@@ -30,12 +29,11 @@ def create_snapshot(out_dir: Path, command: str) -> Path:
     return archive
 
 
-def prune_snapshots(out_dir: Path, keep: int = SNAPSHOT_KEEP) -> list[Path]:
-    """Keep newest `keep` archives in `<out_dir>/.snapshots/`; remove older. Return removed paths."""
-    snap_dir = out_dir / ".snapshots"
-    if not snap_dir.is_dir():
+def prune_snapshots(snapshots_dir: Path, keep: int = SNAPSHOT_KEEP) -> list[Path]:
+    """Keep newest `keep` archives in `snapshots_dir`; remove older. Return removed paths."""
+    if not snapshots_dir.is_dir():
         return []
-    archives = sorted(snap_dir.glob("*.tar.gz"))
+    archives = sorted(snapshots_dir.glob("*.tar.gz"))
     if len(archives) <= keep:
         return []
     removed = archives[: len(archives) - keep]

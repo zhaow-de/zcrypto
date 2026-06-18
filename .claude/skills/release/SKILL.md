@@ -2,7 +2,6 @@
 name: release
 description: Cut a release — bump the version on develop, open a PR into main, merge it, push the v<version> tag, create the GitHub Release, and back-merge main into develop
 disable-model-invocation: false
-model: sonnet
 allowed-tools: Bash(git add:*), Bash(git checkout:*), Bash(git tag:*), Bash(git status:*), Bash(git commit:*), Bash(git push:*), Bash(git pull:*), Bash(git fetch:*), Bash(git merge:*), Bash(git log:*), Bash(gh pr:*), Bash(gh release:*), Bash(cz:*), Bash(uv:*), Bash(python3:*), Bash(sleep:*), Read, Edit, Write
 ---
 

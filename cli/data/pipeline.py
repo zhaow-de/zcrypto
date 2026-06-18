@@ -13,7 +13,7 @@ from typing import Callable, Protocol
 import pandas as _pd
 import typer
 
-from cli.constants import CliConstants
+from cli.config import FetchConfig
 from cli.data import mirror
 from cli.data.binance import Source
 from cli.data.config import FIELDS, SCHEMA_VERSION, SUPPORTED_INTERVALS
@@ -30,6 +30,7 @@ from cli.data.index import (
     utc_now_iso,
 )
 from cli.data.klines import assert_no_internal_gaps, parse_kline_zip
+from cli.data.layout import DatasetPaths
 from cli.data.qlib_writer import read_bin, write_bin, write_calendar, write_instruments
 from cli.data.snapshots import create_snapshot, prune_snapshots
 from cli.data.verify import verify_dataset
@@ -51,8 +52,6 @@ __all__ = [
     "RenamePlan",
 ]
 
-_COMMIT_MARKER = ".commit-in-progress"
-
 logger = get_logger("data.pipeline")
 
 
@@ -70,10 +69,10 @@ class Plan(Protocol):
 
 
 def _execute_mutation(
-    out_dir: Path,
+    paths: DatasetPaths,
     cmd_name: str,
     plan_fn: Callable[[Path], Plan],
-    apply_fn: Callable[[Path, Path, Plan], None],
+    apply_fn: Callable[[DatasetPaths, Path, Plan], None],
     *,
     dry_run: bool = False,
 ) -> None:
@@ -81,27 +80,28 @@ def _execute_mutation(
     no-op short-circuit → dry-run short-circuit → snapshot → marker → apply
     → post-verify → atomic commit → marker cleanup.
     """
-    out_dir.mkdir(parents=True, exist_ok=True)
+    paths.data_dir.mkdir(parents=True, exist_ok=True)
+    paths.backup_dir.mkdir(parents=True, exist_ok=True)
 
     if not dry_run:
-        _recover_from_interrupted_commit(out_dir)
+        _recover_from_interrupted_commit(paths)
     else:
-        if (out_dir / _COMMIT_MARKER).exists():
+        if paths.marker.exists():
             raise PipelineError(
-                f"commit-in-progress marker present at {out_dir / _COMMIT_MARKER}; "
+                f"commit-in-progress marker present at {paths.marker}; "
                 "cannot dry-run until prior commit is recovered. "
                 "Re-run without --dry-run to auto-recover."
             )
 
-    pre = verify_dataset(out_dir)
+    pre = verify_dataset(paths.data_dir)
     if not pre.ok:
         raise PipelineError(
-            f"refusing to mutate {out_dir}: dataset is not in a verified state. "
-            f"Problems: {pre.problems}. Resolve manually (restore from .snapshots/, "
+            f"refusing to mutate {paths.data_dir}: dataset is not in a verified state. "
+            f"Problems: {pre.problems}. Resolve manually (restore from the backup dir's snapshots/, "
             "or remove the orphan files) before re-running."
         )
 
-    plan = plan_fn(out_dir)
+    plan = plan_fn(paths.data_dir)
 
     if plan.is_noop:
         msg = f"{cmd_name}: nothing to do"
@@ -115,19 +115,19 @@ def _execute_mutation(
         typer.echo(plan.dry_run_summary())
         return
 
-    staging = out_dir / ".staging"
+    staging = paths.staging
     if staging.exists():
         _shutil.rmtree(staging)
     staging.mkdir()
     try:
         logger.info("%s: applying plan to staging at %s", cmd_name, staging)
-        apply_fn(out_dir, staging, plan)
+        apply_fn(paths, staging, plan)
         logger.info("%s: post-verifying staging", cmd_name)
         post = verify_dataset(staging)
         if not post.ok:
             raise PipelineError(f"staging fails verify after apply: {post.problems}")
         logger.info("%s: snapshotting + atomic commit", cmd_name)
-        _commit_staging(out_dir, staging, cmd_name=cmd_name)
+        _commit_staging(paths, staging, cmd_name=cmd_name)
         logger.info("%s: commit complete", cmd_name)
     finally:
         if staging.exists():
@@ -344,6 +344,7 @@ def _resolve_ranges(
     interval: str,
     arg_from: dt.date,
     arg_to: dt.date,
+    fetch: FetchConfig,
 ) -> list[_PerPair]:
     plan: list[_PerPair] = []
     existing_to: dt.date | None = dt.date.fromisoformat(existing.calendar.to_date) if existing else None
@@ -379,10 +380,10 @@ def _resolve_ranges(
             rng = find_available_range(source, sym, interval, effective_from, arg_to)
             if rng is None:
                 days_since = (arg_to - existing_to).days
-                if days_since > CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS:
+                if days_since > fetch.backfill_right_edge_grace_days:
                     raise PipelineError(
                         f"{sym}: no new archive data since {existing_to} ({days_since} days > "
-                        f"{CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS}-day publishing-lag grace); "
+                        f"{fetch.backfill_right_edge_grace_days}-day publishing-lag grace); "
                         "likely delisted or renamed. Reconcile with `zcrypto data delist` or "
                         "`zcrypto data rename`."
                     )
@@ -469,12 +470,13 @@ def _fetch_one_date(
 
 
 def _fetch_all_concurrent(
-    source: Source, plan: list[_PerPair], interval: str, max_workers: int, mirror_root: Path
+    source: Source, plan: list[_PerPair], interval: str, fetch: FetchConfig, mirror_root: Path
 ) -> dict[str, _pd.DataFrame]:
     """Fetch every (pair, date) tuple via a bounded thread pool. Per-pair gap-check runs after collection.
 
-    `mirror_root` is the dataset-local zip mirror (`<out_dir>/.raw`); each fetch reads from
+    `mirror_root` is the backup-dir zip mirror (`<backup_dir>/raw`); each fetch reads from
     it on a hit and saves to it on a miss."""
+    max_workers = fetch.fetch_concurrency
     work: list[tuple[str, dt.date]] = []
     per_pair_expected: dict[str, list[dt.date]] = {}
     per_pair_rows: dict[str, list[_pd.DataFrame]] = {}
@@ -499,7 +501,7 @@ def _fetch_all_concurrent(
 
     total = len(work)
     completed = 0
-    log_every = CliConstants.FETCH_PROGRESS_LOG_INTERVAL
+    log_every = fetch.fetch_progress_log_interval
     with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="zcrypto-fetch") as pool:
         futures = {pool.submit(_fetch_one_date, source, sym, interval, d, mirror_root): (sym, d) for sym, d in work}
         try:
@@ -669,41 +671,41 @@ def _restore_from_snapshot(out_dir: Path, snapshot_path: Path) -> None:
         tar.extractall(out_dir, filter="data")
 
 
-def _write_commit_marker(out_dir: Path, snapshot_name: str) -> None:
+def _write_commit_marker(paths: DatasetPaths, snapshot_name: str) -> None:
     """Atomically write the commit-in-progress marker (tmp + os.replace), naming the snapshot to restore from."""
-    marker = out_dir / _COMMIT_MARKER
+    marker = paths.marker
     tmp = marker.with_suffix(marker.suffix + ".tmp")
     tmp.write_text(snapshot_name + "\n", encoding="utf-8")
     os.replace(tmp, marker)
 
 
-def _recover_from_interrupted_commit(out_dir: Path) -> None:
+def _recover_from_interrupted_commit(paths: DatasetPaths) -> None:
     """If `.commit-in-progress` exists, restore from its referenced snapshot before any new work.
 
     Raises `PipelineError` if the marker points at a snapshot that does not exist (cannot auto-recover).
     """
-    marker = out_dir / _COMMIT_MARKER
+    marker = paths.marker
     if not marker.exists():
         return
     snap_name = marker.read_text(encoding="utf-8").strip()
     if not snap_name:
         raise PipelineError(
             f"commit-in-progress marker at {marker} is empty; cannot auto-recover. "
-            "Manually restore from .snapshots/ or remove the marker after investigation."
+            "Manually restore from the backup dir's snapshots/ or remove the marker after investigation."
         )
-    snap = out_dir / ".snapshots" / snap_name
+    snap = paths.snapshots_dir / snap_name
     if not snap.exists():
         raise PipelineError(
             f"commit-in-progress marker at {marker} points at {snap_name}, but that snapshot is "
-            f"missing from {out_dir / '.snapshots'}; cannot auto-recover. "
-            "Manually restore from .snapshots/ or remove the marker after investigation."
+            f"missing from {paths.snapshots_dir}; cannot auto-recover. "
+            "Manually restore from the backup dir's snapshots/ or remove the marker after investigation."
         )
     logger.warning("recovering from interrupted commit using snapshot %s", snap_name)
-    _restore_from_snapshot(out_dir, snap)
+    _restore_from_snapshot(paths.data_dir, snap)
     marker.unlink()
 
 
-def _commit_staging(out_dir: Path, staging: Path, *, cmd_name: str = "download") -> None:
+def _commit_staging(paths: DatasetPaths, staging: Path, *, cmd_name: str = "download") -> None:
     """Atomically replace live files from staging, with snapshot-based crash recovery.
 
     The commit phase is bracketed by a snapshot + marker so that any failure (Python exception
@@ -711,32 +713,32 @@ def _commit_staging(out_dir: Path, staging: Path, *, cmd_name: str = "download")
     next invocation. The snapshot is the durability store; the marker names which snapshot to
     restore from.
     """
-    snapshot = create_snapshot(out_dir, cmd_name)
+    snapshot = create_snapshot(paths.data_dir, paths.snapshots_dir, cmd_name)
     # Ordering: prune runs BEFORE the marker write because `snapshot` is the newest archive
     # (UTC stamp lexicographically sorts ascending) and `prune_snapshots` keeps the newest
     # `SNAPSHOT_KEEP`, so it can never remove what we just took. Re-check this invariant if
     # any code is ever inserted between these two lines that takes another snapshot.
-    prune_snapshots(out_dir)
-    _write_commit_marker(out_dir, snapshot.name)
+    prune_snapshots(paths.snapshots_dir)
+    _write_commit_marker(paths, snapshot.name)
     try:
         for name in ("calendars", "instruments", "features"):
-            target = out_dir / name
+            target = paths.data_dir / name
             if target.exists():
                 _shutil.rmtree(target)
             _shutil.move(str(staging / name), str(target))
         # Reuse the index module's atomic write (tmp + os.replace).
         staged_index = load_index(staging)
         assert staged_index is not None, "staging is supposed to contain a valid index.json"
-        save_index(out_dir, staged_index)
+        save_index(paths.data_dir, staged_index)
     except BaseException:
         # Restore the pre-commit state from the snapshot we just took.
         try:
-            _restore_from_snapshot(out_dir, snapshot)
+            _restore_from_snapshot(paths.data_dir, snapshot)
         finally:
-            (out_dir / _COMMIT_MARKER).unlink(missing_ok=True)
+            paths.marker.unlink(missing_ok=True)
         raise
     else:
-        (out_dir / _COMMIT_MARKER).unlink()
+        paths.marker.unlink()
     finally:
         if staging.exists():
             _shutil.rmtree(staging)
@@ -770,6 +772,7 @@ def _download_plan(
     arg_from: dt.date,
     arg_to: dt.date,
     source: Source,
+    fetch: FetchConfig,
 ) -> DownloadPlan:
     """Read-only: parse + validate + resolve ranges. The harness has already run
     mkdir + recovery + pre-flight verify before calling this."""
@@ -783,36 +786,37 @@ def _download_plan(
     pair_to_assets = validate_pairs_against_exchange(requested, exchange_info)
 
     existing = load_index(out_dir)
-    per_pair = _resolve_ranges(pair_to_assets, existing, source, interval, arg_from, arg_to)
+    per_pair = _resolve_ranges(pair_to_assets, existing, source, interval, arg_from, arg_to, fetch)
 
     is_noop = all(p.effective_from > p.effective_to for p in per_pair)
     return DownloadPlan(per_pair=per_pair, existing=existing, arg_to=arg_to, interval=interval, is_noop=is_noop)
 
 
-def _download_apply(out_dir: Path, staging: Path, plan: DownloadPlan, source: Source) -> None:
+def _download_apply(paths: DatasetPaths, staging: Path, plan: DownloadPlan, source: Source, fetch: FetchConfig) -> None:
     """Fetch + build staging. The harness handles snapshot, post-verify, commit."""
     non_empty = [p for p in plan.per_pair if p.effective_from <= p.effective_to]
-    fetched = _fetch_all_concurrent(source, non_empty, plan.interval, CliConstants.FETCH_CONCURRENCY, mirror.root_for(out_dir))
+    fetched = _fetch_all_concurrent(source, non_empty, plan.interval, fetch, mirror.root_for(paths))
     new_rows_per_sym: dict[str, _pd.DataFrame] = {
         p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan.per_pair
     }
-    _build_staging(out_dir, staging, plan.per_pair, new_rows_per_sym, plan.existing, plan.interval)
+    _build_staging(paths.data_dir, staging, plan.per_pair, new_rows_per_sym, plan.existing, plan.interval)
 
 
 def download_pipeline(
-    out_dir: Path,
+    paths: DatasetPaths,
     pairs_file: Path,
     interval: str,
     from_date: dt.date,
     to_date: dt.date,
     source: Source,
     *,
+    fetch: FetchConfig = FetchConfig(),
     dry_run: bool = False,
 ) -> None:
     """Orchestrate: parse → validate → resolve → fetch → stage → verify → commit."""
-    plan_fn = lambda d: _download_plan(d, pairs_file, interval, from_date, to_date, source)
-    apply_fn = lambda d, s, p: _download_apply(d, s, p, source)
-    _execute_mutation(out_dir, "download", plan_fn, apply_fn, dry_run=dry_run)
+    plan_fn = lambda d: _download_plan(d, pairs_file, interval, from_date, to_date, source, fetch)
+    apply_fn = lambda paths, s, p: _download_apply(paths, s, p, source, fetch)
+    _execute_mutation(paths, "download", plan_fn, apply_fn, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------
@@ -845,7 +849,7 @@ class BackfillPlan:
         return "\n".join(lines)
 
 
-def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source) -> BackfillPlan:
+def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source, fetch: FetchConfig) -> BackfillPlan:
     """Read-only: load index, route each pair by status, build fetch plan."""
     existing = load_index(out_dir)
     if existing is None or not existing.pairs:
@@ -876,10 +880,10 @@ def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source
         rng = find_available_range(source, sym, interval, effective_from, arg_to)
         if rng is None:
             days_since = (arg_to - current_to).days
-            if days_since > CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS:
+            if days_since > fetch.backfill_right_edge_grace_days:
                 raise PipelineError(
                     f"{sym}: no new archive data since {current_to} ({days_since} days > "
-                    f"{CliConstants.BACKFILL_RIGHT_EDGE_GRACE_DAYS}-day publishing-lag grace); "
+                    f"{fetch.backfill_right_edge_grace_days}-day publishing-lag grace); "
                     "likely delisted or renamed. Reconcile with "
                     "'zcrypto data delist' or 'zcrypto data rename'."
                 )
@@ -917,12 +921,14 @@ def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source
     return BackfillPlan(per_pair=per_pair, new_calendar=new_calendar, skipped_pairs=skipped, is_noop=is_noop)
 
 
-def _backfill_apply(out_dir: Path, staging: Path, plan: BackfillPlan, source: Source, interval: str) -> None:
+def _backfill_apply(
+    paths: DatasetPaths, staging: Path, plan: BackfillPlan, source: Source, interval: str, fetch: FetchConfig
+) -> None:
     """Fetch new rows and rebuild staging with old + new data merged per pair."""
-    existing = load_index(out_dir)
+    existing = load_index(paths.data_dir)
     assert existing is not None, "_backfill_apply called without an existing index"
 
-    fetched = _fetch_all_concurrent(source, plan.per_pair, interval, CliConstants.FETCH_CONCURRENCY, mirror.root_for(out_dir))
+    fetched = _fetch_all_concurrent(source, plan.per_pair, interval, fetch, mirror.root_for(paths))
 
     # Collect all pairs: those being extended + those carried over unchanged.
     extended_syms = {p.symbol for p in plan.per_pair}
@@ -946,21 +952,22 @@ def _backfill_apply(out_dir: Path, staging: Path, plan: BackfillPlan, source: So
     for p in carry_over:
         new_rows_per_sym[p.symbol] = _pd.DataFrame(columns=["date"] + list(FIELDS))
 
-    _build_staging(out_dir, staging, all_pairs, new_rows_per_sym, existing, interval)
+    _build_staging(paths.data_dir, staging, all_pairs, new_rows_per_sym, existing, interval)
 
 
 def backfill_pipeline(
-    out_dir: Path,
+    paths: DatasetPaths,
     interval: str,
     arg_to: dt.date,
     source: Source,
     *,
+    fetch: FetchConfig = FetchConfig(),
     dry_run: bool = False,
 ) -> None:
     """Extend every TRADING pair in the index to arg_to. Non-TRADING pairs are silently skipped."""
-    plan_fn = lambda d: _backfill_plan(d, interval, arg_to, source)
-    apply_fn = lambda d, s, p: _backfill_apply(d, s, p, source, interval)
-    _execute_mutation(out_dir, "backfill", plan_fn, apply_fn, dry_run=dry_run)
+    plan_fn = lambda d: _backfill_plan(d, interval, arg_to, source, fetch)
+    apply_fn = lambda paths, s, p: _backfill_apply(paths, s, p, source, interval, fetch)
+    _execute_mutation(paths, "backfill", plan_fn, apply_fn, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------
@@ -1051,16 +1058,16 @@ def _rewrite_bin_start_index(bin_path: Path, delta: int) -> None:
     bin_path.write_bytes(bytes(data))
 
 
-def _delist_apply(out_dir: Path, staging: Path, plan: DelistPlan) -> None:
+def _delist_apply(paths: DatasetPaths, staging: Path, plan: DelistPlan) -> None:
     """Copy remaining pairs' bins, conditionally rewrite headers, write calendar/instruments/index."""
     interval = "1d"
-    idx = load_index(out_dir)
+    idx = load_index(paths.data_dir)
     assert idx is not None
 
     # Copy remaining pairs' feature dirs into staging.
     (staging / "features").mkdir(parents=True, exist_ok=True)
     for sym in plan.remaining_symbols:
-        src_dir = out_dir / "features" / sym.lower()
+        src_dir = paths.data_dir / "features" / sym.lower()
         dst_dir = staging / "features" / sym.lower()
         _shutil.copytree(src_dir, dst_dir)
         if plan.rewrite_headers:
@@ -1138,15 +1145,15 @@ def _delist_apply(out_dir: Path, staging: Path, plan: DelistPlan) -> None:
 
 
 def delist_pipeline(
-    out_dir: Path,
+    paths: DatasetPaths,
     symbol: str,
     *,
     dry_run: bool = False,
 ) -> None:
     """Remove SYMBOL from the dataset under the snapshot+commit discipline."""
     plan_fn = lambda d: _delist_plan(d, symbol)
-    apply_fn = lambda d, s, p: _delist_apply(d, s, p)
-    _execute_mutation(out_dir, "delist", plan_fn, apply_fn, dry_run=dry_run)
+    apply_fn = lambda paths, s, p: _delist_apply(paths, s, p)
+    _execute_mutation(paths, "delist", plan_fn, apply_fn, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------
@@ -1204,7 +1211,7 @@ class RenamePlan:
         return "\n".join(lines)
 
 
-def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source) -> RenamePlan:
+def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source, fetch: FetchConfig) -> RenamePlan:
     """Read-only pre-flight: validate, detect variant, probe NEW archive availability."""
     import struct
 
@@ -1251,7 +1258,7 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
             gap_dates_v2.append(cur)
             cur += dt.timedelta(days=1)
 
-        if len(gap_dates_v2) > CliConstants.RENAME_SYNTH_WARN_DAYS:
+        if len(gap_dates_v2) > fetch.rename_synth_warn_days:
             logger.warning(
                 "rename %s → %s (Variant 2): large synthetic gap fill: %d days (%s .. %s), OHLC = NaN (suspension). Verify data integrity after rename.",
                 old,
@@ -1311,7 +1318,7 @@ def _rename_plan(out_dir: Path, old_symbol: str, new_symbol: str, source: Source
 
     new_to = new_first - dt.timedelta(days=1)
 
-    if len(gap_dates) > CliConstants.RENAME_SYNTH_WARN_DAYS:
+    if len(gap_dates) > fetch.rename_synth_warn_days:
         logger.warning(
             "rename %s → %s: large synthetic gap fill: %d days (%s .. %s), OHLC = NaN (suspension). Verify data integrity after rename.",
             old,
@@ -1388,27 +1395,27 @@ def _build_pair_entry_from_staging(
     )
 
 
-def _rename_apply(out_dir: Path, staging: Path, plan: RenamePlan) -> None:
+def _rename_apply(paths: DatasetPaths, staging: Path, plan: RenamePlan) -> None:
     """Dispatch to variant-specific apply."""
     if plan.variant == 1:
-        _rename_apply_variant1(out_dir, staging, plan)
+        _rename_apply_variant1(paths, staging, plan)
     else:
-        _rename_apply_variant2(out_dir, staging, plan)
+        _rename_apply_variant2(paths, staging, plan)
 
 
-def _rename_apply_variant1(out_dir: Path, staging: Path, plan: RenamePlan) -> None:
+def _rename_apply_variant1(paths: DatasetPaths, staging: Path, plan: RenamePlan) -> None:
     """Copy and optionally extend bins; rewrite calendar, instruments, and index."""
     import struct
 
     interval = "1d"
-    idx = load_index(out_dir)
+    idx = load_index(paths.data_dir)
     assert idx is not None
 
     (staging / "features").mkdir(parents=True, exist_ok=True)
 
     # Copy each pair's feature dir; rename OLD → NEW with optional gap fill.
     for sym, pair_entry in idx.pairs.items():
-        src_dir = out_dir / "features" / sym.lower()
+        src_dir = paths.data_dir / "features" / sym.lower()
         if sym == plan.old_symbol:
             dst_dir = staging / "features" / plan.new_symbol.lower()
         else:
@@ -1427,7 +1434,7 @@ def _rename_apply_variant1(out_dir: Path, staging: Path, plan: RenamePlan) -> No
                     fh.write(gap_bytes)
 
     # Calendar: union of old calendar dates and gap_dates (dedup + sort).
-    old_cal_dates = _load_calendar_dates(out_dir / "calendars" / "day.txt")
+    old_cal_dates = _load_calendar_dates(paths.data_dir / "calendars" / "day.txt")
     new_calendar = sorted(set(old_cal_dates) | set(plan.gap_dates))
     write_calendar(staging, new_calendar)
 
@@ -1513,13 +1520,13 @@ def _rename_apply_variant1(out_dir: Path, staging: Path, plan: RenamePlan) -> No
     save_index(staging, new_index)
 
 
-def _rename_apply_variant2(out_dir: Path, staging: Path, plan: RenamePlan) -> None:
+def _rename_apply_variant2(paths: DatasetPaths, staging: Path, plan: RenamePlan) -> None:
     """Merge OLD's bin into NEW's slot: OLD.bin + synthetic gap + NEW.bin per field.
     Drop OLD's index entry. Update NEW's range to span both."""
     import struct
 
     interval = "1d"
-    idx = load_index(out_dir)
+    idx = load_index(paths.data_dir)
     assert idx is not None
 
     old_entry = idx.pairs[plan.old_symbol]
@@ -1531,7 +1538,7 @@ def _rename_apply_variant2(out_dir: Path, staging: Path, plan: RenamePlan) -> No
     new_to = dt.date.fromisoformat(new_interval.dates_to)
 
     # Load existing calendar; union with gap_dates.
-    old_cal = _load_calendar_dates(out_dir / "calendars" / "day.txt")
+    old_cal = _load_calendar_dates(paths.data_dir / "calendars" / "day.txt")
     new_cal_dates = sorted(set(old_cal) | set(plan.gap_dates))
 
     # Detect front-extension: does OLD's history predate the existing calendar start?
@@ -1546,8 +1553,8 @@ def _rename_apply_variant2(out_dir: Path, staging: Path, plan: RenamePlan) -> No
     # 1. Build merged bins for NEW: OLD data + gap + NEW data.
     new_dir_staging = staging / "features" / plan.new_symbol.lower()
     new_dir_staging.mkdir()
-    old_dir_live = out_dir / "features" / plan.old_symbol.lower()
-    new_dir_live = out_dir / "features" / plan.new_symbol.lower()
+    old_dir_live = paths.data_dir / "features" / plan.old_symbol.lower()
+    new_dir_live = paths.data_dir / "features" / plan.new_symbol.lower()
 
     new_start_index = new_cal_dates.index(merged_from)
 
@@ -1569,7 +1576,7 @@ def _rename_apply_variant2(out_dir: Path, staging: Path, plan: RenamePlan) -> No
     for sym in idx.pairs:
         if sym in (plan.old_symbol, plan.new_symbol):
             continue
-        src_dir = out_dir / "features" / sym.lower()
+        src_dir = paths.data_dir / "features" / sym.lower()
         dst_dir = staging / "features" / sym.lower()
         _shutil.copytree(src_dir, dst_dir)
         if front_extension > 0:
@@ -1669,14 +1676,15 @@ def _rename_apply_variant2(out_dir: Path, staging: Path, plan: RenamePlan) -> No
 
 
 def rename_pipeline(
-    out_dir: Path,
+    paths: DatasetPaths,
     old_symbol: str,
     new_symbol: str,
     source: Source,
     *,
+    fetch: FetchConfig = FetchConfig(),
     dry_run: bool = False,
 ) -> None:
     """Re-label OLD → NEW under the snapshot+commit discipline (Variant 1 and Variant 2)."""
-    plan_fn = lambda d: _rename_plan(d, old_symbol, new_symbol, source)
-    apply_fn = lambda d, s, p: _rename_apply(d, s, p)
-    _execute_mutation(out_dir, "rename", plan_fn, apply_fn, dry_run=dry_run)
+    plan_fn = lambda d: _rename_plan(d, old_symbol, new_symbol, source, fetch)
+    apply_fn = lambda paths, s, p: _rename_apply(paths, s, p)
+    _execute_mutation(paths, "rename", plan_fn, apply_fn, dry_run=dry_run)

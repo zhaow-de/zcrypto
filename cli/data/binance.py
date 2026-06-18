@@ -8,7 +8,7 @@ from typing import Protocol
 import urllib3
 import urllib3.exceptions
 
-from cli.constants import CliConstants
+from cli.config import FetchConfig
 from cli.data.config import BASE_URL, EXCHANGE_INFO_URL
 from cli.logging import get_logger
 
@@ -75,20 +75,14 @@ def _retryable_request(
     url: str,
     *,
     timeout: float,
-    attempts: int | None = None,
+    attempts: int,
     base_delay: float = 1.0,
 ):  # pragma: no cover
     """`_pool.request` with timeout + retry on transient failures.
 
     Retries on: urllib3 connection / timeout exceptions, 5xx responses.
     Raises HttpStatusError immediately on 4xx (a 404 is a meaningful signal —
-    the pair-date doesn't exist).
-
-    `attempts` defaults to `CliConstants.HTTP_RETRY_ATTEMPTS`. Exponential backoff:
-    `base_delay`, `base_delay * 2`, `base_delay * 4`, ...
-    """
-    if attempts is None:
-        attempts = CliConstants.HTTP_RETRY_ATTEMPTS
+    the pair-date doesn't exist). Exponential backoff: base_delay, *2, *4, ..."""
     last_exc = None
     for attempt in range(attempts):
         logger.debug(
@@ -146,15 +140,20 @@ def _retryable_request(
 class BinanceSource:
     """Concrete `Source` over urllib3 PoolManager. HTTP paths excluded from coverage."""
 
+    def __init__(self, fetch: FetchConfig = FetchConfig()):
+        self._fetch = fetch
+
     def fetch_exchange_info(self) -> list[dict]:  # pragma: no cover
-        resp = _retryable_request("GET", EXCHANGE_INFO_URL, timeout=CliConstants.HTTP_TIMEOUT_GET_SECS)
+        resp = _retryable_request(
+            "GET", EXCHANGE_INFO_URL, timeout=self._fetch.http_timeout_get_secs, attempts=self._fetch.http_retry_attempts
+        )
         data = json.loads(resp.data)
         return data["symbols"]
 
     def exists_kline(self, symbol: str, interval: str, date: dt.date) -> bool:  # pragma: no cover
         url = kline_zip_url(symbol, interval, date)
         try:
-            _retryable_request("HEAD", url, timeout=CliConstants.HTTP_TIMEOUT_HEAD_SECS)
+            _retryable_request("HEAD", url, timeout=self._fetch.http_timeout_head_secs, attempts=self._fetch.http_retry_attempts)
             return True
         except HttpStatusError as e:
             if e.status == 404:
@@ -163,17 +162,16 @@ class BinanceSource:
 
     def fetch_kline_zip(self, symbol: str, interval: str, date: dt.date) -> bytes:  # pragma: no cover
         url = kline_zip_url(symbol, interval, date)
-        resp = _retryable_request("GET", url, timeout=CliConstants.HTTP_TIMEOUT_GET_SECS)
+        resp = _retryable_request("GET", url, timeout=self._fetch.http_timeout_get_secs, attempts=self._fetch.http_retry_attempts)
         return resp.data
 
     def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str | None:  # pragma: no cover
-        """The published sha256 for this zip, or None if no `.CHECKSUM` exists (404).
-
-        Some recent days ship the zip without a sibling `.CHECKSUM`; a missing one is a
-        signal (fall back to structural verification), not an error."""
+        """The published sha256 for this zip, or None if no `.CHECKSUM` exists (404)."""
         url = kline_checksum_url(symbol, interval, date)
         try:
-            resp = _retryable_request("GET", url, timeout=CliConstants.HTTP_TIMEOUT_HEAD_SECS)
+            resp = _retryable_request(
+                "GET", url, timeout=self._fetch.http_timeout_head_secs, attempts=self._fetch.http_retry_attempts
+            )
         except HttpStatusError as e:
             if e.status == 404:
                 return None

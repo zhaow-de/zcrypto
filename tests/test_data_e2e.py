@@ -6,6 +6,7 @@ import datetime as dt
 import pytest
 
 from cli.data.index import load_index
+from cli.data.layout import DatasetPaths
 from cli.data.pipeline import (
     PipelineError,
     backfill_pipeline,
@@ -23,7 +24,9 @@ def test_e2e_fresh_full_history_via_download_plus_rename_merge(tmp_path):
     Final dataset has POL with continuous history end-to-end."""
     pairs = tmp_path / "pairs.txt"
     pairs.write_text("MATICUSDT\nPOLUSDT\n")
-    out = tmp_path / "ds"
+    data_dir = tmp_path / "data"
+    backup_dir = tmp_path / "bk"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     src = FakeSource()
     src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
     src.add_pair("POLUSDT", "POL", "USDT")
@@ -38,22 +41,22 @@ def test_e2e_fresh_full_history_via_download_plus_rename_merge(tmp_path):
         src.add_kline("POLUSDT", "1d", cur)
         cur += dt.timedelta(days=1)
 
-    download_pipeline(out, pairs, "1d", dt.date(2024, 8, 1), dt.date(2024, 9, 20), src)
-    assert verify_dataset(out).ok
-    idx = load_index(out)
+    download_pipeline(paths, pairs, "1d", dt.date(2024, 8, 1), dt.date(2024, 9, 20), src)
+    assert verify_dataset(data_dir).ok
+    idx = load_index(data_dir)
     assert {"MATICUSDT", "POLUSDT"} <= set(idx.pairs.keys())
 
-    rename_pipeline(out, "MATICUSDT", "POLUSDT", src)
-    idx = load_index(out)
+    rename_pipeline(paths, "MATICUSDT", "POLUSDT", src)
+    idx = load_index(data_dir)
     assert "MATICUSDT" not in idx.pairs
     pol = idx.pairs["POLUSDT"].intervals["1d"]
     assert pol.dates_from == "2024-08-01"
     assert pol.dates_to == "2024-09-20"
     # Verify merged bin has: 41 OLD + 2 gap + 8 NEW = 51 rows
-    _, vols = read_bin(out / "features" / "polusdt" / "volume.day.bin")
+    _, vols = read_bin(data_dir / "features" / "polusdt" / "volume.day.bin")
     assert len(vols) == 51
     assert vols[41] == pytest.approx(0.0)  # synthetic gap day
-    assert verify_dataset(out).ok
+    assert verify_dataset(data_dir).ok
 
 
 def test_e2e_ongoing_dataset_survives_mid_window_rename(tmp_path):
@@ -62,14 +65,16 @@ def test_e2e_ongoing_dataset_survives_mid_window_rename(tmp_path):
     backfill extends POL forward."""
     pairs = tmp_path / "pairs.txt"
     pairs.write_text("MATICUSDT\n")
-    out = tmp_path / "ds"
+    data_dir = tmp_path / "data"
+    backup_dir = tmp_path / "bk"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     src = FakeSource()
     src.add_pair("MATICUSDT", "MATIC", "USDT")
     # First download: MATIC as TRADING through 2024-09-10
     for i in range(((dt.date(2024, 9, 10) - dt.date(2024, 9, 1)).days) + 1):
         src.add_kline("MATICUSDT", "1d", dt.date(2024, 9, 1) + dt.timedelta(days=i))
-    download_pipeline(out, pairs, "1d", dt.date(2024, 9, 1), dt.date(2024, 9, 10), src)
-    assert verify_dataset(out).ok
+    download_pipeline(paths, pairs, "1d", dt.date(2024, 9, 1), dt.date(2024, 9, 10), src)
+    assert verify_dataset(data_dir).ok
 
     # Mid-window: MATIC flips to BREAK, POL appears on archive
     next(e for e in src.exchange_info if e["symbol"] == "MATICUSDT")["status"] = "BREAK"
@@ -78,24 +83,24 @@ def test_e2e_ongoing_dataset_survives_mid_window_rename(tmp_path):
         src.add_kline("POLUSDT", "1d", dt.date(2024, 9, 13) + dt.timedelta(days=i))
 
     # Backfill skips MATIC (no-op overall since MATIC is the only pair)
-    snaps_before = sorted((out / ".snapshots").glob("*.tar.gz"))
-    backfill_pipeline(out, "1d", dt.date(2024, 9, 15), src)
-    snaps_after = sorted((out / ".snapshots").glob("*.tar.gz"))
+    snaps_before = sorted((backup_dir / "snapshots").glob("*.tar.gz"))
+    backfill_pipeline(paths, "1d", dt.date(2024, 9, 15), src)
+    snaps_after = sorted((backup_dir / "snapshots").glob("*.tar.gz"))
     assert snaps_before == snaps_after, "backfill of only-delisted-pair must not snapshot"
 
     # Rename MATIC → POL Variant 1 (gap of Sept 11, 12)
-    rename_pipeline(out, "MATICUSDT", "POLUSDT", src)
-    idx = load_index(out)
+    rename_pipeline(paths, "MATICUSDT", "POLUSDT", src)
+    idx = load_index(data_dir)
     pol = idx.pairs["POLUSDT"].intervals["1d"]
     assert pol.dates_to == "2024-09-12"
     assert "MATICUSDT" not in idx.pairs
 
     # Subsequent backfill extends POL forward
-    backfill_pipeline(out, "1d", dt.date(2024, 9, 15), src)
-    idx = load_index(out)
+    backfill_pipeline(paths, "1d", dt.date(2024, 9, 15), src)
+    idx = load_index(data_dir)
     pol = idx.pairs["POLUSDT"].intervals["1d"]
     assert pol.dates_to == "2024-09-15"
-    assert verify_dataset(out).ok
+    assert verify_dataset(data_dir).ok
 
 
 def test_e2e_pure_delisted_snapshot(tmp_path):
@@ -105,7 +110,9 @@ def test_e2e_pure_delisted_snapshot(tmp_path):
     Realistic MATIC dates: traded 2019-04-26..2024-09-10 before the POL rename."""
     pairs = tmp_path / "pairs.txt"
     pairs.write_text("MATICUSDT\n")
-    out = tmp_path / "ds"
+    data_dir = tmp_path / "data"
+    backup_dir = tmp_path / "bk"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     src = FakeSource()
     src.add_pair("MATICUSDT", "MATIC", "USDT", status="BREAK")
     cur = dt.date(2019, 4, 26)
@@ -113,18 +120,18 @@ def test_e2e_pure_delisted_snapshot(tmp_path):
         src.add_kline("MATICUSDT", "1d", cur)
         cur += dt.timedelta(days=1)
 
-    download_pipeline(out, pairs, "1d", dt.date(2018, 1, 1), dt.date(2026, 1, 1), src)
-    assert verify_dataset(out).ok
-    idx = load_index(out)
+    download_pipeline(paths, pairs, "1d", dt.date(2018, 1, 1), dt.date(2026, 1, 1), src)
+    assert verify_dataset(data_dir).ok
+    idx = load_index(data_dir)
     mat = idx.pairs["MATICUSDT"].intervals["1d"]
     assert mat.dates_to == "2024-09-10"  # last_available, truncated from arg_to
 
     # backfill is no-op
-    snaps_before = sorted((out / ".snapshots").glob("*.tar.gz"))
-    backfill_pipeline(out, "1d", dt.date(2026, 1, 1), src)
-    snaps_after = sorted((out / ".snapshots").glob("*.tar.gz"))
+    snaps_before = sorted((backup_dir / "snapshots").glob("*.tar.gz"))
+    backfill_pipeline(paths, "1d", dt.date(2026, 1, 1), src)
+    snaps_after = sorted((backup_dir / "snapshots").glob("*.tar.gz"))
     assert snaps_before == snaps_after, "delisted-only backfill must not snapshot"
-    assert verify_dataset(out).ok
+    assert verify_dataset(data_dir).ok
 
 
 def test_e2e_download_rename_backfill_extends_ragged_renamed_pair(tmp_path):
@@ -137,7 +144,9 @@ def test_e2e_download_rename_backfill_extends_ragged_renamed_pair(tmp_path):
     "existing POLUSDT open bin inconsistent with index" crash."""
     pairs = tmp_path / "pairs.txt"
     pairs.write_text("MATICUSDT\nADAUSDT\n")
-    out = tmp_path / "ds"
+    data_dir = tmp_path / "data"
+    backup_dir = tmp_path / "bk"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
 
     # Step 1: download. MATIC (BREAK) archive 09-08..09-10; ADA (TRADING) 09-08..09-16.
     dl = FakeSource()
@@ -147,7 +156,7 @@ def test_e2e_download_rename_backfill_extends_ragged_renamed_pair(tmp_path):
         dl.add_kline("MATICUSDT", "1d", dt.date(2024, 9, 8) + dt.timedelta(days=i))
     for i in range(9):
         dl.add_kline("ADAUSDT", "1d", dt.date(2024, 9, 8) + dt.timedelta(days=i))
-    download_pipeline(out, pairs, "1d", dt.date(2024, 9, 8), dt.date(2024, 9, 16), dl)
+    download_pipeline(paths, pairs, "1d", dt.date(2024, 9, 8), dt.date(2024, 9, 16), dl)
 
     # Step 2: rename MATIC→POL. POL (TRADING) first archive 09-13 → gap 09-11..09-12.
     ren = FakeSource()
@@ -155,16 +164,16 @@ def test_e2e_download_rename_backfill_extends_ragged_renamed_pair(tmp_path):
     ren.add_pair("ADAUSDT", "ADA", "USDT")
     for i in range(4):
         ren.add_kline("POLUSDT", "1d", dt.date(2024, 9, 13) + dt.timedelta(days=i))
-    rename_pipeline(out, "MATICUSDT", "POLUSDT", ren)
-    idx = load_index(out)
+    rename_pipeline(paths, "MATICUSDT", "POLUSDT", ren)
+    idx = load_index(data_dir)
     assert "MATICUSDT" not in idx.pairs
     assert idx.pairs["POLUSDT"].intervals["1d"].dates_to == "2024-09-12"  # ragged
 
     # Step 3: backfill POL to 09-16 (ADA already caught up → skipped).
-    backfill_pipeline(out, "1d", dt.date(2024, 9, 16), ren)
-    idx = load_index(out)
+    backfill_pipeline(paths, "1d", dt.date(2024, 9, 16), ren)
+    idx = load_index(data_dir)
     pol = idx.pairs["POLUSDT"].intervals["1d"]
     assert pol.dates_to == "2024-09-16"
     assert pol.rows == 9  # 3 real MATIC + 2 synthetic gap + 4 real POL
     assert idx.pairs["ADAUSDT"].intervals["1d"].dates_to == "2024-09-16"
-    assert verify_dataset(out).ok
+    assert verify_dataset(data_dir).ok

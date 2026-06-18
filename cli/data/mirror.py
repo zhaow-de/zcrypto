@@ -13,18 +13,17 @@ import os
 from pathlib import Path
 
 from cli.data.binance import kline_archive_parts
+from cli.data.layout import DatasetPaths
 
-MIRROR_DIRNAME = ".raw"
 
+def root_for(paths: DatasetPaths) -> Path:
+    """Mirror root for a dataset: ``<backup_dir>/raw`` (``DatasetPaths.raw_root``).
 
-def root_for(out_dir: Path) -> Path:
-    """Mirror root for a dataset: ``<out_dir>/.raw``.
-
-    The mirror lives inside the dataset directory (dot-prefixed, like ``.snapshots`` /
-    ``.staging``) so it travels with the dataset and is excluded from snapshots, verify,
-    and the atomic commit, all of which operate on a named allowlist.
+    The downloaded-zip mirror lives in the external backup dir (durable, the
+    expensive-to-reacquire artifact), separate from the compiled dataset.
+    ``DatasetPaths`` is the single source of truth for this path.
     """
-    return out_dir / MIRROR_DIRNAME
+    return paths.raw_root
 
 
 def mirror_path(root: Path, symbol: str, interval: str, date: dt.date) -> Path:

@@ -63,7 +63,7 @@ def verify_dataset(out_dir: Path, *, fail_on_gap: bool = False) -> VerifyReport:
             ok=False,
             problems=[
                 "index.json missing but dataset components (calendars/instruments/features) "
-                "are present — partial/broken state. Restore from .snapshots/ or remove the orphan files."
+                "are present — partial/broken state. Restore from the backup dir's snapshots/ or remove the orphan files."
             ],
         )
 
@@ -76,7 +76,7 @@ def verify_dataset(out_dir: Path, *, fail_on_gap: bool = False) -> VerifyReport:
     if (out_dir / ".commit-in-progress").exists():
         problems.append(
             "stale commit-in-progress marker found; the previous download may have been "
-            "interrupted — re-run `data download` to auto-recover or inspect .snapshots/"
+            "interrupted — re-run `data download` to auto-recover or inspect the backup dir's snapshots/"
         )
     checks.append("no stale .commit-in-progress marker")
 
