@@ -39,6 +39,24 @@ Landed in iter-9 (spec `docs/specs/00008-validation-rigor-cpcv-design.md`):
   `test` window kept as an untouched final holdout (`cli/experiment/cpcv.py`,
   `cv_results.json`, the 4th report panel). `--quick` keeps the single run.
 
+## Interpretation caveats
+
+Known caveats for reading the CPCV output that landed in iter-9 (surfacing these
+in the experiment output via the iter-10 caveats mechanism in
+`cli/experiment/caveats.py` is a still-open step below):
+
+- **The path-Sharpe band is indicative, not a confidence interval.** At the
+  default `N=6, k=2` there are only φ = C(5,1) = 5 paths, and they are not
+  independent draws — they recombine the same fold models over the identical
+  train+valid calendar — so `sharpe_std` over those correlated points understates
+  true sampling uncertainty. The principled correction is the deferred deflated
+  Sharpe ratio / PBO (below).
+- **The holdout-vs-path overfitting cue is confounded by a regime mismatch.** The
+  report compares the holdout Sharpe (test window 2025–26) against the path-Sharpe
+  cloud (train+valid 2020–24) with the same metric, so "holdout above the cloud"
+  conflates genuine overfitting with a regime shift between the two periods — a
+  cue, not a test.
+
 ## Suggested next steps
 
 Still open — deferred from iter-9:
@@ -49,3 +67,7 @@ Still open — deferred from iter-9:
   must track the number of trials N across recipe runs) — the reason this slice
   was deferred.
 - Consider Hudson & Thames MLFinLab for reference implementations.
+- Surface the two interpretation caveats above in the experiment output (via the
+  iter-10 `caveats` mechanism), and address the holdout-vs-path regime mismatch
+  (e.g. a regime-aware or same-window comparison) so the overfitting cue is not
+  misread.

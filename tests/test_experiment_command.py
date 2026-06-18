@@ -148,3 +148,44 @@ def test_experiment_default_writes_cv_results(tmp_path, monkeypatch):
     assert "sharpe" in cv["holdout"]
     assert "ending_value" in cv["holdout"]
     assert "CPCV" in result.output
+
+
+@pytest.mark.skipif(not _redis_up(), reason="needs redis (scripts/redis.sh start)")
+def test_experiment_emits_survivorship_caveat(tmp_path, monkeypatch):
+    fixture_ref = files("cli.experiment").joinpath("data", "provider")
+    data_dir = tmp_path / "provider"
+    with as_file(fixture_ref) as src:
+        shutil.copytree(src, data_dir)
+    from cli.experiment.recipes import skeleton
+
+    short = dataclasses.replace(
+        skeleton.RECIPE,
+        segments={
+            "train": ("2023-03-01", "2023-12-31"),
+            "valid": ("2024-01-01", "2024-02-29"),
+            "test": ("2024-03-01", "2024-06-27"),
+        },
+    )
+    monkeypatch.setattr("cli.experiment.command.resolve_recipe", lambda name: short)
+    out_dir = tmp_path / "runs"
+    # --quick is enough: the caveat code path is run-mode-independent, and this keeps the test fast.
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "--recipe",
+            "skeleton",
+            "--data-dir",
+            str(data_dir),
+            "--out",
+            str(out_dir),
+            "--no-open",
+            "--refresh-cache",
+            "--quick",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    bundle = next(iter((out_dir / "skeleton").glob("*")))
+    meta = json.loads((bundle / "run_meta.json").read_text())
+    assert "00005" in {c["topic"] for c in meta["caveats"]}  # survivorship caveat recorded
+    assert "survivorship" in result.output.lower()  # stdout caveat line printed

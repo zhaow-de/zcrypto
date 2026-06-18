@@ -202,3 +202,25 @@ def test_build_report_adds_cv_panel():
     fig_none = build_report(result)  # backward compatible: still 3 panels, no histogram
     assert len(fig_none._grid_ref) == 3
     assert not any(getattr(t, "type", None) == "histogram" for t in fig_none.data)
+
+
+def test_build_report_title_carries_survivorship_marker():
+    import types
+
+    import pandas as pd
+
+    from cli.experiment.caveats import SURVIVORSHIP_MARKER
+    from cli.experiment.report import build_report
+
+    idx = pd.date_range("2020-01-01", periods=5, freq="D")
+    result = types.SimpleNamespace(
+        recipe=types.SimpleNamespace(name="t", account=10000.0),
+        account_curve=pd.Series(range(5), index=idx, dtype="float64"),
+        benchmark_curve=pd.Series(range(5), index=idx, dtype="float64"),
+        positions={},
+        context_prices={},
+    )
+    # present in the 3-panel case and the 4-panel (cv) case
+    assert SURVIVORSHIP_MARKER in build_report(result).layout.title.text
+    cv = {"path_sharpes": [0.2, 0.5], "holdout_sharpe": 0.4}
+    assert SURVIVORSHIP_MARKER in build_report(result, cv=cv).layout.title.text

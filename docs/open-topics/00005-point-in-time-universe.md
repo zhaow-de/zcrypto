@@ -24,9 +24,25 @@ already records per-instrument listing ranges and has delist/rename handling
 (partial mitigation), but the skeleton's universe selection isn't point-in-time.
 References: research §3, §12; existing `cli/data` delist/rename.
 
+Reality check (iter-10): the **listing side is already handled** — qlib returns
+rows only where data exists, so a pair is never traded before it listed; the bias
+is the **universe selection** (today's survivors). We hold **zero delisted-pair
+data**, and `zcrypto data delist` _deletes_ a pair's history (`cli/data/pipeline.py`),
+so a real fix must first acquire historically-delisted pairs. iter-10 added an
+honest survivorship caveat to the experiment outputs (report title, stdout,
+`run_meta.json` `caveats`) but changed no results.
+
 ## Suggested next steps
 
-- Build point-in-time membership (include from listing, drop on delist) and feed
-  it to qlib instrument filtering.
-- Add a delisting-loss assumption.
-- Re-measure the baseline's edge under PIT vs current-universe.
+- Acquire historically-delisted Binance USDT pairs' data (enumerate
+  `data.binance.vision` for symbols whose daily-kline archives end before today)
+  so the panel is survivorship-free.
+- Change `zcrypto data delist` to retain-with-end-date (or keep a delisted
+  registry) instead of deleting history.
+- Build point-in-time membership over the expanded panel (qlib market-name
+  instruments file honoring per-symbol listing/delist dates) and feed it to the
+  experiment.
+- Add a delisting-loss assumption (forced liquidation at the last close / a
+  size-scaled haircut).
+- Re-measure the baseline's edge under the point-in-time universe vs the current
+  survivor universe.
