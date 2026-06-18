@@ -25,6 +25,24 @@ Deferred from the experiment skeleton (spec `00006`). Because the strategy lives
 inside the recipe (the moving part), this can ship as a *new recipe* with no
 scaffolding change. References: research §5, §13 Stage 3.
 
+**Empirical motivation (PR #41, recipe `steady`).** A recipe-only attempt at a
+better risk-adjusted strategy — `steady` (5-day label, low-turnover book
+`topk=10`/`hold_thresh=5`, stronger regularization) — was built and validated
+against `skeleton` on current data. It did **not** beat `skeleton`: both lose
+~63–66% over the 2025–2026 holdout, and `steady` was marginally *worse* on
+holdout Sharpe / PSR / excess-vs-BTC. The diagnostic is exactly this topic's
+concern — both recipes show a *positive* CPCV out-of-sample Sharpe on 2020–2024
+(~+1.0) that **inverts to negative** (~−0.63) on the untouched 2025–2026 holdout,
+with PBO = 0.91. That regime shift is the left-tail driver no cross-sectional,
+recipe-only tweak corrects; the regime overlay is the lever, not more tuning.
+
+**Scaffold caveat (correction to the note above).** "Ship as a new recipe with
+no scaffolding change" is optimistic for the *current* scaffold: `scaffold.py`
+hardcodes the `TopkDropoutStrategy` class, and a recipe controls only its kwargs
+(`topk`/`n_drop`/`hold_thresh`). A regime-gated strategy therefore needs either
+making the strategy class recipe-selectable (a small `scaffold.py` change) or a
+TopkDropout-compatible exposure gate — not purely a recipe.
+
 ## Suggested next steps
 
 - Add a BTC-trend regime feature (e.g. price vs a long MA / trend slope).
