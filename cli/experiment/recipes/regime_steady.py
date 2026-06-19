@@ -16,6 +16,16 @@ This is a falsifiable hypothesis. The honest verdict is the CPCV out-of-sample S
 distribution + PSR/DSR/PBO and the holdout drawdown (``zcrypto experiment --recipe regime_steady``
 then ``zcrypto rank``). If the regime gate does not improve on ``steady`` on those metrics, that is
 itself a real finding.
+
+**Measured (2025-2026 holdout, current data — iter-12 validation): the gate did not help.**
+``regime_steady`` is the worst of the three on the holdout — ending ~3,477 USDT vs ``steady``
+~3,551 vs ``skeleton`` ~3,664; absolute Sharpe -0.68 vs -0.67 vs -0.63; holdout PSR 0.152 vs
+0.158 vs 0.174 — and PBO across the three trials is 0.99. The 2025-2026 holdout was mostly
+risk-on (BTC above its 200-day MA), so the binary gate rarely engaged, and walk-forward
+retraining on the same Alpha158/LGBM signal still produced a negative holdout. The honest
+lesson: the scaffold extensions work and are validated, but on this survivor-biased
+universe/period the signal has no edge a regime gate or periodic retraining can rescue — the
+CPCV(~+1.0) -> holdout(~-0.6) inversion persists.
 """
 
 from cli.experiment.recipes.base import Recipe
