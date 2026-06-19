@@ -123,3 +123,101 @@ def test_fake_source_fetch_funding_archive_missing_returns_none():
     # Not added — should return None (mirroring 404 convention)
     result = src.fetch_funding_archive("BTCUSDT", 2024, 1)
     assert result is None
+
+
+# --- _funding_for_pair: end-to-end perp-attribution tests ---------------------------
+
+
+def _make_funding_zip_custom(perp: str, year: int, month: int, settlements: list[tuple[dt.datetime, float]]) -> bytes:
+    """Build a Binance-shaped funding zip with explicit settlement timestamps and rates."""
+    lines = ["calc_time,funding_interval_hours,last_funding_rate"]
+    for ts, rate in settlements:
+        ms = int(ts.timestamp() * 1000)
+        lines.append(f"{ms},8,{rate:.8f}")
+    csv = ("\n".join(lines) + "\n").encode()
+    inner_name = f"{perp}-fundingRate-{year}-{month:02d}.csv"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(inner_name, csv)
+    return buf.getvalue()
+
+
+def test_funding_for_pair_pol_split(tmp_path) -> None:
+    """_funding_for_pair must use MATIC rates for dates <=09-10 and POL rates for dates >=09-13.
+
+    09-11 and 09-12 are the rename gap (perp_symbol returns None) so they must be absent.
+
+    Bug being tested: without the perp_symbol attribution check, the POLUSDT archive's
+    settlement on 2024-09-01 (a MATIC-attributed date) bleeds into the output — producing
+    a wrong non-NaN value for a day that should only be populated from MATICUSDT data.
+    """
+    from cli.data.pipeline import _funding_for_pair
+
+    tz = dt.timezone.utc
+    # MATICUSDT Sept-2024: one settlement on 2024-09-08 at a distinctive rate
+    matic_zip = _make_funding_zip_custom(
+        "MATICUSDT",
+        2024,
+        9,
+        [(dt.datetime(2024, 9, 8, 0, tzinfo=tz), 0.001)],
+    )
+    # POLUSDT Sept-2024: settlement on 2024-09-01 (a MATIC-attributed date — must NOT bleed)
+    # plus a legitimate settlement on 2024-09-13 (a POL-attributed date).
+    pol_zip = _make_funding_zip_custom(
+        "POLUSDT",
+        2024,
+        9,
+        [
+            (dt.datetime(2024, 9, 1, 0, tzinfo=tz), 0.999),  # must be excluded: 09-01 → MATIC
+            (dt.datetime(2024, 9, 13, 0, tzinfo=tz), 0.009),
+        ],
+    )
+
+    src = FakeSource()
+    src.add_funding("MATICUSDT", 2024, 9, raw=matic_zip)
+    src.add_funding("POLUSDT", 2024, 9, raw=pol_zip)
+
+    result = _funding_for_pair(src, "POLUSDT", dt.date(2024, 9, 1), dt.date(2024, 9, 15), tmp_path)
+
+    # 09-01 is in MATIC range → the POLUSDT archive's 0.999 settlement must NOT appear here
+    assert dt.date(2024, 9, 1) not in result, (
+        f"09-01 (MATIC date) must be absent — POLUSDT archive data must not bleed into MATIC dates; "
+        f"got {result.get(dt.date(2024, 9, 1))}"
+    )
+
+    # 09-08 is in MATIC range → MATIC rate from MATICUSDT archive
+    assert dt.date(2024, 9, 8) in result, "09-08 (MATIC date) must be present"
+    assert abs(result[dt.date(2024, 9, 8)] - 0.001) < 1e-9, (
+        f"09-08 rate should be MATIC (0.001), got {result.get(dt.date(2024, 9, 8))}"
+    )
+
+    # 09-13 is in POL range → POL rate
+    assert dt.date(2024, 9, 13) in result, "09-13 (POL date) must be present"
+    assert abs(result[dt.date(2024, 9, 13)] - 0.009) < 1e-9, (
+        f"09-13 rate should be POL (0.009), got {result.get(dt.date(2024, 9, 13))}"
+    )
+
+    # 09-11 and 09-12 are the rename gap → must be absent
+    assert dt.date(2024, 9, 11) not in result, "09-11 (rename gap) must be absent"
+    assert dt.date(2024, 9, 12) not in result, "09-12 (rename gap) must be absent"
+
+
+def test_funding_for_pair_pepe_1000x(tmp_path) -> None:
+    """_funding_for_pair("PEPEUSDT", ...) must read from 1000PEPEUSDT archives."""
+    from cli.data.pipeline import _funding_for_pair
+
+    tz = dt.timezone.utc
+    pepe_zip = _make_funding_zip_custom(
+        "1000PEPEUSDT",
+        2024,
+        1,
+        [(dt.datetime(2024, 1, 5, 0, tzinfo=tz), 0.00042)],
+    )
+
+    src = FakeSource()
+    src.add_funding("1000PEPEUSDT", 2024, 1, raw=pepe_zip)
+
+    result = _funding_for_pair(src, "PEPEUSDT", dt.date(2024, 1, 1), dt.date(2024, 1, 7), tmp_path)
+
+    assert dt.date(2024, 1, 5) in result, "2024-01-05 must be present via 1000PEPEUSDT archive"
+    assert abs(result[dt.date(2024, 1, 5)] - 0.00042) < 1e-9, f"unexpected rate: {result.get(dt.date(2024, 1, 5))}"

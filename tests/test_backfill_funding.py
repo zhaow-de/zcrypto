@@ -162,3 +162,32 @@ def test_retrofit_funding_dataset_passes_verify(tmp_path: Path) -> None:
 
     report = verify_dataset(paths.data_dir)
     assert report.ok, f"verify_dataset failed after retrofit: {report.problems}"
+
+
+def test_main_resolves_paths_and_calls_core(tmp_path: Path, monkeypatch) -> None:
+    """main() must not crash when config + core are provided; verifies config API."""
+    import sys
+
+    from cli.config import AppConfig, FetchConfig
+    from scripts.backfill_funding import main
+
+    called_with = {}
+
+    def fake_load_config(config_path=None):
+        return AppConfig(data_dir=tmp_path / "data", backup_dir=tmp_path / "bk", fetch=FetchConfig())
+
+    def fake_retrofit(paths, source, *, mirror_root=None):
+        called_with["paths"] = paths
+        called_with["source"] = source
+        return {"written": 0, "skipped": 0}
+
+    monkeypatch.setattr("scripts.backfill_funding.load_config", fake_load_config)
+    monkeypatch.setattr("scripts.backfill_funding.retrofit_funding", fake_retrofit)
+    # Isolate sys.argv so argparse does not see pytest's own arguments.
+    monkeypatch.setattr(sys, "argv", ["backfill_funding"])
+
+    main()  # must not raise
+
+    assert "paths" in called_with
+    assert called_with["paths"].data_dir == tmp_path / "data"
+    assert called_with["paths"].backup_dir == tmp_path / "bk"

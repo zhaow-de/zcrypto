@@ -16,6 +16,8 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 
+from cli.config import load_config, resolve_backup_dir, resolve_data_dir
+
 
 def retrofit_funding(
     paths: "object",  # DatasetPaths
@@ -117,7 +119,6 @@ def retrofit_funding(
 def main() -> None:
     import argparse
 
-    from cli.config import load_config
     from cli.data.binance import BinanceSource
     from cli.data.layout import DatasetPaths
 
@@ -131,10 +132,10 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config()
-    data_dir = args.data_dir if args.data_dir is not None else Path(cfg.data.data_dir)
-    backup_dir = Path(cfg.data.backup_dir)
+    data_dir = resolve_data_dir(args.data_dir, cfg)
+    backup_dir = resolve_backup_dir(None, cfg)
     paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
-    source = BinanceSource()
+    source = BinanceSource(fetch=cfg.fetch)
 
     print(f"Retrofitting $funding onto {data_dir} ...")
     summary = retrofit_funding(paths, source)

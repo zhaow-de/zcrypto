@@ -617,7 +617,7 @@ def _funding_for_pair(
         if raw is None:
             continue
         for day, rate in daily_funding(parse_funding(raw)).items():
-            if from_date <= day <= to_date:
+            if from_date <= day <= to_date and perp_symbol(instrument, day) == perp:
                 out[day] = rate
     return out
 
