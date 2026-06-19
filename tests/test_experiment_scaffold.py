@@ -279,3 +279,96 @@ def test_crossasset_steady_runs_and_column_present(tmp_path):
 
     feat_cols = infer_df["feature"].columns.tolist()
     assert "rs_20" in feat_cols, f"Expected 'rs_20' in feature columns; got: {feat_cols}"
+
+
+# ---------------------------------------------------------------------------
+# iter-14: multi-seed holdout distribution + determinism (Task 5)
+# ---------------------------------------------------------------------------
+
+
+def test_multiseed_distribution_shape(tmp_path):
+    """run_holdout_seeds returns per_seed of length N with seed key + summary with mean/std/min/max keys."""
+    import json
+
+    from cli.experiment.multiseed import run_holdout_seeds
+
+    data_dir = tmp_path / "provider"
+    shutil.copytree(PROVIDER, data_dir)
+
+    recipe = dataclasses.replace(skeleton.RECIPE, segments=_FIXTURE_SEGMENTS)
+    result = run_holdout_seeds(recipe, data_dir=data_dir, seeds=3)
+
+    assert len(result["per_seed"]) == 3, f"Expected 3 per_seed rows, got {len(result['per_seed'])}"
+    for row in result["per_seed"]:
+        assert "seed" in row, f"per_seed row missing 'seed' key: {row.keys()}"
+        for k in ("ending_value", "sharpe", "psr", "max_drawdown"):
+            assert math.isfinite(row[k]), f"per_seed metric {k} not finite: {row[k]}"
+    # Seed values are distinct integers 1..N.
+    assert [row["seed"] for row in result["per_seed"]] == [1, 2, 3]
+
+    summary = result["summary"]
+    assert set(summary.keys()) >= {"ending_value", "sharpe", "psr", "max_drawdown"}, f"summary keys: {summary.keys()}"
+    for metric, stats in summary.items():
+        for stat_key in ("mean", "std", "min", "max"):
+            assert stat_key in stats, f"summary[{metric}] missing key {stat_key}"
+            assert math.isfinite(stats[stat_key]), f"summary[{metric}][{stat_key}] not finite"
+
+    # JSON round-trip (mirrors command.py writing holdout_seeds.json): all floats serialise cleanly.
+    artifact_path = tmp_path / "holdout_seeds.json"
+    artifact_path.write_text(json.dumps(result, indent=2))
+    loaded = json.loads(artifact_path.read_text())
+    assert len(loaded["per_seed"]) == 3
+    assert set(loaded["summary"]) >= {"ending_value", "sharpe", "psr", "max_drawdown"}
+
+
+def test_default_single_seed_no_holdout_seeds_artifact(tmp_path):
+    """seeds=1 (default) writes no holdout_seeds.json — the default path is unchanged."""
+    data_dir = tmp_path / "provider"
+    shutil.copytree(PROVIDER, data_dir)
+    out_dir = tmp_path / "out"
+
+    recipe = dataclasses.replace(skeleton.RECIPE, segments=_FIXTURE_SEGMENTS)
+    # Run via the direct API (mirrors what the CLI does for --seeds 1 --quick).
+    run_experiment(recipe, data_dir=data_dir, out_dir=out_dir, refresh_cache=True)
+
+    # The CLI writes holdout_seeds.json only when seeds > 1; the direct scaffold does not write it.
+    # Assert no holdout_seeds.json anywhere under out_dir.
+    artifacts = list(out_dir.rglob("holdout_seeds.json"))
+    assert artifacts == [], f"Unexpected holdout_seeds.json at seeds=1: {artifacts}"
+
+
+def test_determinism_reproduces_and_variance_is_real(tmp_path):
+    """deterministic=True reproduces identical per-seed metrics; deterministic=False shows variance across seeds.
+
+    Bit-repro guarantee: two successive run_holdout_seeds(seeds=1, deterministic=True) calls in
+    the same process must yield sharpe within 1e-9 (exact float equality expected for LightGBM
+    force_row_wise + deterministic=True on same machine; tolerance guards cross-machine float
+    edge cases). Variance check: a 3-seed non-deterministic run must produce at least one pair of
+    seeds with different sharpe (confirms seed variation actually shifts the booster).
+
+    Note: intra-process repro is tested here. Cross-process repro can differ due to LightGBM
+    thread-count detection at startup; that is out of scope for this fixture.
+
+    The variance assertion (not all_same) is probabilistically safe for this fixture's ~120-day
+    holdout — seed-to-seed bagging RNG differences virtually always shift the float sharpe — but
+    is not a hard guarantee (extremely unlikely the three seeds produce identical floats).
+    """
+    from cli.experiment.multiseed import run_holdout_seeds
+
+    data_dir = tmp_path / "provider"
+    shutil.copytree(PROVIDER, data_dir)
+
+    recipe = dataclasses.replace(skeleton.RECIPE, segments=_FIXTURE_SEGMENTS)
+
+    # --- deterministic=True, seeds=1: two calls must produce the same sharpe (within 1e-9) ---
+    run_a = run_holdout_seeds(recipe, data_dir=data_dir, seeds=1, deterministic=True)
+    run_b = run_holdout_seeds(recipe, data_dir=data_dir, seeds=1, deterministic=True)
+    sharpe_a = run_a["per_seed"][0]["sharpe"]
+    sharpe_b = run_b["per_seed"][0]["sharpe"]
+    assert abs(sharpe_a - sharpe_b) < 1e-9, f"deterministic=True did not reproduce: sharpe_a={sharpe_a:.9f} sharpe_b={sharpe_b:.9f}"
+
+    # --- deterministic=False, seeds=3: at least two seeds must differ (variance is real) ---
+    run_var = run_holdout_seeds(recipe, data_dir=data_dir, seeds=3, deterministic=False)
+    sharpes = [row["sharpe"] for row in run_var["per_seed"]]
+    all_same = len(set(sharpes)) == 1
+    assert not all_same, f"Expected seed variance (different sharpes across 3 seeds) but all were identical: {sharpes}"

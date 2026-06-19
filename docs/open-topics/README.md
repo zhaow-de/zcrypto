@@ -20,7 +20,7 @@ Topics worth follow-up are parked here, one file per topic. See `.claude/rules/o
 - [T0007 — Multi-window training-stress harness](T0007-multi-window-training-stress-harness.md) — **[Medium]** no harness re-runs a recipe across training-window choices (2017 vs 2020 start) and through LUNA/FTX; needed for §13 Stage 3 robustness aggregation.
 - [T0009 — Walk-forward position carry-over](T0009-walkforward-position-carryover.md) — **[Low]** iter-12 walk-forward starts each retrain period all-cash, incurring artificial re-entry costs at boundaries; carry positions across period boundaries to remove the seam.
 - [T0010 — Non-OHLCV features (funding-rate / on-chain / order-book)](T0010-non-ohlcv-features.md) — **[Medium]** funding rates, on-chain volume proxies, and order-book microstructure require a new ingest pipeline beyond daily klines; wire the highest-signal stream first via a `feature_config`-selectable handler.
-- [T0011 — Nondeterministic experiment results / multi-seed validation](T0011-nondeterministic-results-multi-seed.md) — **[High]** LightGBM with no fixed seed produces ~33% / 0.23-Sharpe swing across identical runs; single-run holdout verdicts (including iter-12/iter-13) are unreliable until determinism or multi-seed averaging is enforced.
+- [T0012 — Prediction-ensemble (seed-averaged signal)](T0012-prediction-ensemble.md) — **[Medium]** averaging N seed-trained models into one signal *reduces* run-to-run variance (and may lift the signal), vs iter-14's multi-seed distribution which only *measures* it; a small additive step on the multi-seed machinery, a candidate production-stability lever once a recipe is selected.
 
 ## Partially done<a name="partially-done"></a>
 
@@ -30,3 +30,4 @@ Topics worth follow-up are parked here, one file per topic. See `.claude/rules/o
 
 - [T0002 — Validation rigor (purged CV, CPCV, deflated Sharpe)](T0002-validation-rigor.md) — purged k-fold + embargo + CPCV (iter-9), then per-recipe PSR + the `rank` command's deflated Sharpe + PBO (iter-11) — validation rigor resolved.
 - [T0003 — BTC-trend regime overlay (long/cash gating)](T0003-btc-regime-overlay.md) — `RegimeGatedTopkStrategy` with binary/graded/cross modes + vol-targeting knob shipped in iter-12 (spec `00011`); demo recipe `regime_steady`; exposure via `get_risk_degree`.
+- [T0011 — Nondeterministic experiment results / multi-seed validation](T0011-nondeterministic-results-multi-seed.md) — iter-14 shipped `--seeds N` / `--deterministic`; 16-seed re-run confirmed single-run verdicts were seed-noise; true order inverts iter-13's ranking; single-run holdout verdicts retired in favour of distributions.

@@ -27,6 +27,28 @@ logger = get_logger("experiment.scaffold")
 _METRICS = ["annualized_return", "information_ratio", "max_drawdown"]
 
 
+def _seeded_model_config(model_config: dict, *, seed: int | None = None, deterministic: bool = False) -> dict:
+    """Return a model_config dict with seed/deterministic injected into its kwargs.
+
+    Non-mutating: the input ``model_config`` and its nested ``kwargs`` dict are not
+    modified. At defaults (seed=None, deterministic=False) the returned dict is a
+    shallow copy with the original kwargs unchanged — behavior-preserving no-op.
+
+    When ``deterministic=True``, both ``deterministic=True`` and ``force_row_wise=True``
+    are injected (LightGBM requires force_row_wise or force_col_wise for multi-threaded
+    reproducibility with deterministic=True).
+    """
+    extra: dict = {}
+    if seed is not None:
+        extra["seed"] = seed
+    if deterministic:
+        extra["deterministic"] = True
+        extra["force_row_wise"] = True
+    if not extra:
+        return model_config
+    return {**model_config, "kwargs": {**model_config.get("kwargs", {}), **extra}}
+
+
 def handler_config(feature_config, *, instruments, start, end, fit_start, fit_end, handler_kwargs):
     """Build the full qlib handler config from a recipe's feature_config + runtime kwargs."""
     return {
@@ -178,6 +200,8 @@ def run_experiment(
     data_dir: Path,
     out_dir: Path,
     refresh_cache: bool = False,
+    seed: int | None = None,
+    deterministic: bool = False,
 ) -> RunResult:
     """Run train -> backtest -> extract for *recipe* and return a RunResult.
 
@@ -193,7 +217,9 @@ def run_experiment(
         # single-fit-compatible RunResult; the single-fit path below is untouched.
         from cli.experiment.walkforward import run_walkforward_holdout
 
-        return run_walkforward_holdout(recipe, data_dir=data_dir, refresh_cache=refresh_cache)
+        return run_walkforward_holdout(
+            recipe, data_dir=data_dir, refresh_cache=refresh_cache, seed=seed, deterministic=deterministic
+        )
 
     redis_preflight()
     logger.info("redis-ok", extra={"port": int(os.environ.get("ZCRYPTO_REDIS_PORT", "6379"))})
@@ -233,7 +259,7 @@ def run_experiment(
         logger.info("init", extra={"provider_uri": str(data_dir), "mlflow_uri": mlflow_uri})
 
         dataset = init_instance_by_config(_dataset_config(recipe))
-        model = init_instance_by_config(recipe.model_config)
+        model = init_instance_by_config(_seeded_model_config(recipe.model_config, seed=seed, deterministic=deterministic))
         logger.info("dataset-built", extra={"recipe": recipe.name, "n_instruments": len(recipe.universe)})
 
         port_cfg = _port_analysis_config(recipe, model, dataset)

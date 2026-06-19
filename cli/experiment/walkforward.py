@@ -93,7 +93,9 @@ def build_wf_periods(
     return periods
 
 
-def run_walkforward_holdout(recipe: Recipe, *, data_dir: Path, refresh_cache: bool = False):
+def run_walkforward_holdout(
+    recipe: Recipe, *, data_dir: Path, refresh_cache: bool = False, seed: int | None = None, deterministic: bool = False
+):
     """Periodic-retraining holdout that returns a single-fit-compatible RunResult.
 
     For each ``build_wf_periods`` period: materialize Alpha158 over
@@ -143,7 +145,7 @@ def run_walkforward_holdout(recipe: Recipe, *, data_dir: Path, refresh_cache: bo
     )
     logger.info("wf-periods", extra={"recipe": recipe.name, "n_periods": len(periods)})
 
-    params, num_boost_round = _lgb_params(recipe)
+    params, num_boost_round = _lgb_params(recipe, seed=seed, deterministic=deterministic)
 
     # Defensive cwd isolation: qlib's FileLock and git-probe run relative to CWD; the wf
     # runner uses no MLflow recorder (it backtests directly, like CPCV).

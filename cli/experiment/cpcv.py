@@ -38,18 +38,29 @@ class CPCVResult:
     rank_ic: dict  # mean / std / ir
 
 
-def _lgb_params(recipe: Recipe) -> tuple[dict, int]:
+def _lgb_params(recipe: Recipe, *, seed: int | None = None, deterministic: bool = False) -> tuple[dict, int]:
     """Translate the recipe's LGBModel config into raw lightgbm params + num_boost_round.
 
     Mirrors qlib.contrib.model.gbdt.LGBModel.__init__: loss -> objective, verbosity
     -1, the rest forwarded; num_boost_round / early_stopping_rounds are pulled out
     (early stopping is intentionally disabled inside CV folds — fixed rounds).
+
+    Optional keyword args inject reproducibility params without affecting the default path:
+    - seed: sets the LightGBM ``seed`` parameter when not None.
+    - deterministic: when True, sets ``deterministic=True`` + ``force_row_wise=True``
+      (LightGBM requires force_row_wise or force_col_wise to guarantee multi-threaded
+      reproducibility when deterministic=True).
     """
     kw = dict(recipe.model_config.get("kwargs", {}))
     num_boost_round = int(kw.pop("num_boost_round", 1000))
     kw.pop("early_stopping_rounds", None)
     loss = kw.pop("loss", "mse")
     params = {"objective": loss, "verbosity": -1, **kw}
+    if seed is not None:
+        params["seed"] = seed
+    if deterministic:
+        params["deterministic"] = True
+        params["force_row_wise"] = True
     return params, num_boost_round
 
 
@@ -128,7 +139,9 @@ def _rank_ic(pred: pd.Series, label: pd.Series) -> float:
     return float(daily.mean())
 
 
-def run_cpcv(recipe: Recipe, *, data_dir: Path, refresh_cache: bool = False) -> CPCVResult:
+def run_cpcv(
+    recipe: Recipe, *, data_dir: Path, refresh_cache: bool = False, seed: int | None = None, deterministic: bool = False
+) -> CPCVResult:
     import lightgbm as lgb
     import qlib
     from qlib.backtest import backtest
@@ -173,7 +186,7 @@ def run_cpcv(recipe: Recipe, *, data_dir: Path, refresh_cache: bool = False) -> 
             },
         )
 
-        params, num_boost_round = _lgb_params(recipe)
+        params, num_boost_round = _lgb_params(recipe, seed=seed, deterministic=deterministic)
         predictions: dict = {}
         ic_values: list = []
         for i, split in enumerate(plan.splits):

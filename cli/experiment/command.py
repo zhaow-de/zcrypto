@@ -52,6 +52,17 @@ def experiment(
         "--open/--no-open",
         help="Open report.html in a browser when done. Defaults to on only when stdout is a TTY.",
     ),
+    seeds: int = typer.Option(
+        1,
+        "--seeds",
+        help="Number of seeds for the holdout distribution. When >1, runs the holdout N times (seeds 1…N) and writes holdout_seeds.json.",
+        min=1,
+    ),
+    deterministic: bool = typer.Option(
+        False,
+        "--deterministic/--no-deterministic",
+        help="Run in fully deterministic mode (seed=1, LightGBM force_row_wise). Reproduces the same result on repeated runs.",
+    ),
 ) -> None:
     """Run a recipe end-to-end and write a predict-ready run bundle."""
     # Deferred so `zcrypto --help`/`--version` stay fast (qlib import is ~1s) and
@@ -90,18 +101,23 @@ def experiment(
     bundle = out / recipe.name / created.strftime("%Y%m%dT%H%M%SZ")
     bundle.mkdir(parents=True, exist_ok=True)
 
+    # Resolve seed: only set under --deterministic (preserves today's default behavior byte-exactly).
+    seed = 1 if deterministic else None
+
     # --- CPCV (before holdout, skipped under --quick) ------------------------
     cv_result = None
     if not quick:
         from cli.experiment.cpcv import run_cpcv
 
-        cv_result = run_cpcv(recipe, data_dir=data_dir, refresh_cache=refresh_cache)
+        cv_result = run_cpcv(recipe, data_dir=data_dir, refresh_cache=refresh_cache, seed=seed, deterministic=deterministic)
         logger.info("cpcv-done", extra={"n_paths": cv_result.meta["n_paths"]})
 
     # Heavy: imports + runs qlib. Deferred until after the cheap unknown-recipe path.
     from cli.experiment.scaffold import run_experiment
 
-    result = run_experiment(recipe, data_dir=data_dir, out_dir=bundle, refresh_cache=refresh_cache)
+    result = run_experiment(
+        recipe, data_dir=data_dir, out_dir=bundle, refresh_cache=refresh_cache, seed=seed, deterministic=deterministic
+    )
     logger.info("run-done", extra={"run_id": result.run_id, "ending_value": result.ending_value})
 
     holdout_returns = result.report_df["return"] - result.report_df["cost"]
@@ -216,6 +232,14 @@ def experiment(
         logger.warning("model-not-found", extra={"recorder_dir": str(result.recorder_dir)})
 
     logger.info("bundle-written", extra={"bundle": str(bundle)})
+
+    # --- holdout_seeds.json (only when --seeds N > 1) ------------------------
+    if seeds > 1:
+        from cli.experiment.multiseed import run_holdout_seeds
+
+        holdout_seeds_result = run_holdout_seeds(recipe, data_dir=data_dir, seeds=seeds, deterministic=deterministic)
+        (bundle / "holdout_seeds.json").write_text(json.dumps(holdout_seeds_result, indent=2))
+        logger.info("holdout-seeds", extra={"n_seeds": seeds, "summary": holdout_seeds_result["summary"]})
 
     # --- human summary -------------------------------------------------------
     summary = trade_summary(trades)

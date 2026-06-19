@@ -1,4 +1,13 @@
-"""Skeleton recipe — baseline LightGBM/Alpha158 experiment."""
+"""Skeleton recipe — baseline LightGBM/Alpha158 experiment.
+
+**Measured (multi-seed, iter-14 — 16 seeds, light-``lgb.train`` basis, 2025-2026 holdout, after 12 bps
+fees): 2nd-best by mean and most stable — Sharpe −0.51 ± 0.15, ending value ~4,329 USDT, PSR 0.23.**
+The baseline held up better than its unlucky iter-13 single run suggested (that run ended ~3,664). True
+order across all four recipes: ``crossasset_steady`` > ``skeleton`` > ``alpha360_steady`` > ``steady``
+— which inverts iter-13's single-run order. All four still lose. Light-``lgb.train`` holdout path —
+internally consistent across recipes but NOT directly comparable to iter-13's MLflow single-fit
+numbers. ``T0011`` resolved.
+"""
 
 from cli.experiment.recipes.base import Recipe
 
