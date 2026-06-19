@@ -2,7 +2,9 @@ import datetime as dt
 import io
 import zipfile
 
+from cli.data.binance import funding_archive_parts, funding_url
 from cli.data.funding import daily_funding, parse_funding, perp_symbol
+from tests.data_fixtures import FakeSource
 
 
 def test_perp_symbol_identity():
@@ -78,3 +80,46 @@ def test_parse_funding_then_daily_funding_4hourly():
     out = daily_funding(parsed)
     expected = sum(0.0000 + (i + 1) / 100000 for i in range(6))
     assert abs(out[dt.date(2024, 9, 14)] - expected) < 1e-12
+
+
+# --- funding_archive_parts / funding_url -------------------------------------------
+
+
+def test_funding_archive_parts():
+    rel_dir, name = funding_archive_parts("BTCUSDT", 2024, 1)
+    assert rel_dir == "futures/um/monthly/fundingRate/BTCUSDT"
+    assert name == "BTCUSDT-fundingRate-2024-01.zip"
+
+
+def test_funding_archive_parts_zero_pads_month():
+    rel_dir, name = funding_archive_parts("ETHUSDT", 2023, 9)
+    assert name == "ETHUSDT-fundingRate-2023-09.zip"
+
+
+def test_funding_url():
+    url = funding_url("BTCUSDT", 2024, 1)
+    assert url == "https://data.binance.vision/data/futures/um/monthly/fundingRate/BTCUSDT/BTCUSDT-fundingRate-2024-01.zip"
+
+
+# --- FakeSource.fetch_funding_archive -----------------------------------------------
+
+
+def test_fake_source_fetch_funding_archive_returns_parseable_bytes():
+    src = FakeSource()
+    src.add_funding("BTCUSDT", 2024, 1)
+    raw = src.fetch_funding_archive("BTCUSDT", 2024, 1)
+    assert isinstance(raw, bytes)
+    rows = parse_funding(raw)
+    assert len(rows) > 0
+    # All settlements should fall within January 2024
+    for ts, rate in rows:
+        assert ts.year == 2024
+        assert ts.month == 1
+        assert isinstance(rate, float)
+
+
+def test_fake_source_fetch_funding_archive_missing_returns_none():
+    src = FakeSource()
+    # Not added — should return None (mirroring 404 convention)
+    result = src.fetch_funding_archive("BTCUSDT", 2024, 1)
+    assert result is None
