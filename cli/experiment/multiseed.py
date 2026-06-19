@@ -1,11 +1,23 @@
-"""Pure multi-seed metric aggregation and separation utilities.
+"""Multi-seed holdout runner + pure metric aggregation and separation utilities.
 
-No qlib import — numpy and stdlib only. Task 3 will add qlib-dependent functions
-with deferred in-function imports.
+The aggregation helpers (``summarize_seed_metrics``, ``separation``) are pure —
+numpy/stdlib only. ``run_holdout_seeds`` (and its ``_holdout_*`` seams) fits the
+holdout once per seed and aggregates the per-seed metrics; its qlib imports are
+deferred INSIDE the functions so importing this module stays qlib-free.
 """
 
+from __future__ import annotations
+
+import contextlib
 import math
 import statistics
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+
+from cli.logging import get_logger
+
+logger = get_logger("experiment.multiseed")
 
 
 def summarize_seed_metrics(per_seed: list[dict]) -> dict:
@@ -54,3 +66,184 @@ def separation(a: dict, b: dict, metric: str = "sharpe") -> dict:
     else:
         z = mean_gap / pooled_std
     return {"mean_gap": mean_gap, "pooled_std": pooled_std, "z": z}
+
+
+@dataclass
+class _HoldoutContext:
+    """One-time qlib state reused across the N seed fits.
+
+    ``infer_feat`` / ``learn_feat`` / ``learn_label`` are the materialized Alpha158
+    feature/label matrices over ``[train_start..test_end]`` (built once); ``train_dates``
+    / ``predict_dates`` are the train / holdout date sets. ``_cm`` is the open
+    cwd-isolation + qlib-session contextmanager (closed by :func:`run_holdout_seeds`).
+    """
+
+    infer_feat: object
+    learn_feat: object
+    learn_label: object
+    train_dates: set
+    predict_dates: set
+    _cm: object  # ExitStack kept open across the seed loop; closed in run_holdout_seeds
+
+
+def _holdout_context(recipe, data_dir, deterministic):
+    """Initialize qlib once and materialize the holdout feature matrices.
+
+    Mirrors ``walkforward.run_walkforward_holdout``'s cwd-isolation + ``qlib.init``
+    pattern: enters a throwaway CWD (qlib's FileLock + git-probe run relative to it),
+    inits qlib over *data_dir*, runs the redis/cache preflight, and materializes the
+    Alpha158 features once over the single holdout "period" (train=``segments['train']``,
+    predict=``segments['test']``). The returned context is reused across all N seeds; the
+    cwd/qlib session stays open until :func:`run_holdout_seeds` closes ``ctx._cm``.
+
+    ``deterministic`` is accepted for seam-signature symmetry (the brief's monkeypatch
+    stubs this exact signature) but isn't used here — qlib.init / materialization don't
+    depend on it; determinism is applied per-seed via ``_lgb_params`` in ``_light_holdout``.
+    """
+    import qlib
+    from qlib.constant import REG_US
+
+    from cli.experiment.cache import ensure_cache_fresh
+    from cli.experiment.cpcv import _materialize_span, _split_xy
+    from cli.experiment.scaffold import redis_preflight
+
+    data_dir = Path(data_dir).resolve()
+    redis_preflight()
+    ensure_cache_fresh(data_dir, refresh=False)
+
+    train_start, train_end = recipe.segments["train"]
+    predict_start, predict_end = recipe.segments["test"]
+
+    # ExitStack keeps the cwd-isolation + qlib session OPEN across the seed loop while
+    # staying exception-safe: any failure during init/materialize below unwinds the whole
+    # stack here (no leaked tempdir / dangling chdir); on success the stack becomes ctx._cm,
+    # closed by run_holdout_seeds. Same cwd-isolation rationale as walkforward.run_*.
+    stack = contextlib.ExitStack()
+    try:
+        cwd_tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="zcrypto-holdout-cwd-"))
+        stack.enter_context(contextlib.chdir(cwd_tmp))
+
+        qlib.init(
+            provider_uri=str(data_dir),
+            region=REG_US,
+            expression_cache="DiskExpressionCache",
+            dataset_cache="DiskDatasetCache",
+            logging_config=None,
+        )
+        logger.info("holdout-seeds-init", extra={"provider_uri": str(data_dir)})
+
+        # One "period" spans train=segments['train'], predict=segments['test'] (cf. walkforward).
+        infer_df, learn_df = _materialize_span(recipe, train_start, predict_end)
+        infer_feat, _ = _split_xy(infer_df)
+        learn_feat, learn_label = _split_xy(learn_df)
+
+        train_dates = {d for d in learn_feat.index.get_level_values(0).unique() if train_start <= str(d.date()) <= train_end}
+        predict_dates = {d for d in infer_feat.index.get_level_values(0).unique() if predict_start <= str(d.date()) <= predict_end}
+    except BaseException:
+        stack.close()
+        raise
+
+    return _HoldoutContext(
+        infer_feat=infer_feat,
+        learn_feat=learn_feat,
+        learn_label=learn_label,
+        train_dates=train_dates,
+        predict_dates=predict_dates,
+        _cm=stack,
+    )
+
+
+def _light_holdout(recipe, *, seed, deterministic, ctx):
+    """Fit one LightGBM booster (varying only the bagging RNG via *seed*) and backtest.
+
+    The light single-fit holdout factored out of ``walkforward.run_walkforward_holdout``'s
+    per-period block: train on ``ctx.train_dates`` → predict ``ctx.predict_dates`` →
+    qlib ``backtest()`` → return the daily ``report_df``. Reuses the materialized matrices
+    in *ctx*, so qlib.init / materialize happen once across the N seeds.
+    """
+    import lightgbm as lgb
+    import pandas as pd
+    from qlib.backtest import backtest
+
+    from cli.experiment.cpcv import _lgb_params, _rows_on
+    from cli.experiment.scaffold import exchange_kwargs, strategy_config_with_signal
+
+    params, num_boost_round = _lgb_params(recipe, seed=seed, deterministic=deterministic)
+
+    x_tr = _rows_on(ctx.learn_feat, ctx.train_dates)
+    y_tr = _rows_on(ctx.learn_label, ctx.train_dates)
+    booster = lgb.train(params, lgb.Dataset(x_tr.values, label=y_tr.values), num_boost_round=num_boost_round)
+
+    x_pe = _rows_on(ctx.infer_feat, ctx.predict_dates)
+    signal = pd.Series(booster.predict(x_pe.values), index=x_pe.index).sort_index()
+    dates = signal.index.get_level_values(0)
+    pmd, _ = backtest(
+        start_time=dates.min(),
+        end_time=dates.max(),
+        strategy=strategy_config_with_signal(recipe.strategy_config, signal),
+        executor={
+            "class": "SimulatorExecutor",
+            "module_path": "qlib.backtest.executor",
+            "kwargs": {"time_per_step": "day", "generate_portfolio_metrics": True},
+        },
+        benchmark=recipe.benchmark,
+        account=recipe.account,
+        exchange_kwargs=exchange_kwargs(recipe),
+    )
+    pmd_key = "1day" if "1day" in pmd else next(iter(pmd))
+    return pmd[pmd_key][0]
+
+
+def _holdout_metrics_for_seed(recipe, seed, deterministic, ctx):
+    """Per-seed holdout metrics, using the SAME definitions as the single-fit MLflow holdout.
+
+    Builds the seed's ``report_df`` via :func:`_light_holdout`, then derives:
+    - ``ending_value`` — ``account * (1 + report_df['return']).cumprod()`` last value;
+    - ``sharpe`` — absolute Sharpe = ``risk_analysis(return - cost).information_ratio``
+      (== ``scaffold._extract_metrics``'s ``strategy_absolute.information_ratio``);
+    - ``max_drawdown`` — from the same ``risk_analysis`` (== ``strategy_absolute.max_drawdown``);
+    - ``psr`` — ``stats.psr`` over the cost-adjusted daily returns (the holdout-PSR helper
+      used in ``cli/experiment/command.py`` to write ``holdout.psr`` to ``cv_results.json``).
+    """
+    from qlib.contrib.evaluate import risk_analysis
+
+    from cli.experiment.stats import psr as _psr
+
+    report_df = _light_holdout(recipe, seed=seed, deterministic=deterministic, ctx=ctx)
+
+    cost_adj = report_df["return"] - report_df["cost"]
+    abs_df = risk_analysis(cost_adj, freq="day")
+    account_curve = recipe.account * (1 + report_df["return"]).cumprod()
+    return {
+        "ending_value": float(account_curve.iloc[-1]),
+        "sharpe": float(abs_df.loc["information_ratio"].iloc[0]),
+        "psr": _psr(cost_adj.to_numpy()),
+        "max_drawdown": float(abs_df.loc["max_drawdown"].iloc[0]),
+    }
+
+
+def run_holdout_seeds(recipe, *, data_dir, seeds, deterministic=False) -> dict:
+    """Fit the holdout *seeds* times (seeds 1…N) and aggregate the per-seed metrics.
+
+    qlib is initialized + the features materialized ONCE (:func:`_holdout_context`);
+    each seed varies only the bagging RNG via ``_lgb_params(recipe, seed=k, ...)`` and
+    produces a per-seed metric dict (:func:`_holdout_metrics_for_seed`). Returns
+    ``{"per_seed": [{seed, ending_value, sharpe, psr, max_drawdown}, …],
+    "summary": summarize_seed_metrics(...)}``.
+    """
+    ctx = _holdout_context(recipe, data_dir, deterministic)
+    try:
+        per_seed = []
+        for k in range(1, seeds + 1):
+            metrics = _holdout_metrics_for_seed(recipe, k, deterministic, ctx)
+            per_seed.append({"seed": k, **metrics})
+            logger.info("holdout-seed-done", extra={"seed": k, "metrics": metrics})
+    finally:
+        # Monkeypatched test contexts (a bare object()) carry no _cm; guard for them.
+        cm = getattr(ctx, "_cm", None)
+        if cm is not None:
+            cm.close()
+
+    summary = summarize_seed_metrics([{k: v for k, v in d.items() if k != "seed"} for d in per_seed])
+    logger.info("holdout-seeds-aggregated", extra={"n_seeds": len(per_seed), "summary": summary})
+    return {"per_seed": per_seed, "summary": summary}

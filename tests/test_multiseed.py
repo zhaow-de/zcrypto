@@ -1,6 +1,12 @@
 from cli.experiment.multiseed import separation, summarize_seed_metrics
 
 
+def _fake_recipe():
+    # run_holdout_seeds only threads `recipe` through to the monkeypatched seams,
+    # so a bare sentinel is enough for the loop+aggregation unit.
+    return object()
+
+
 def _per_seed(vals):  # vals: list of sharpe values; fill others trivially
     return [{"ending_value": 10000 * (1 + v), "sharpe": v, "psr": 0.5, "max_drawdown": -0.5} for v in vals]
 
@@ -56,3 +62,25 @@ def test_separation_divide_by_zero_zero_gap():
     assert sep["pooled_std"] == 0.0
     assert sep["z"] == 0.0
     assert sep["mean_gap"] == 0.0
+
+
+def test_run_holdout_seeds_aggregates(monkeypatch):
+    from cli.experiment import multiseed as ms
+
+    # Stub the per-seed metric producer + the one-time qlib context so no qlib/redis is needed.
+    monkeypatch.setattr(
+        ms,
+        "_holdout_metrics_for_seed",
+        lambda recipe, seed, deterministic, ctx: {
+            "ending_value": 10000 + seed,
+            "sharpe": 0.1 * seed,
+            "psr": 0.3,
+            "max_drawdown": -0.4,
+        },
+    )
+    monkeypatch.setattr(ms, "_holdout_context", lambda recipe, data_dir, deterministic: object())
+    out = ms.run_holdout_seeds(_fake_recipe(), data_dir="x", seeds=4)
+    assert len(out["per_seed"]) == 4
+    assert [d["seed"] for d in out["per_seed"]] == [1, 2, 3, 4]
+    assert out["summary"]["sharpe"]["n"] == 4
+    assert abs(out["summary"]["sharpe"]["mean"] - 0.25) < 1e-9
