@@ -21,6 +21,7 @@ Topics worth follow-up are parked here, one file per topic. See `.claude/rules/o
 - [T0009 — Walk-forward position carry-over](T0009-walkforward-position-carryover.md) — **[Low]** iter-12 walk-forward starts each retrain period all-cash, incurring artificial re-entry costs at boundaries; carry positions across period boundaries to remove the seam.
 - [T0010 — Non-OHLCV features (funding-rate / on-chain / order-book)](T0010-non-ohlcv-features.md) — **[Medium]** funding rates, on-chain volume proxies, and order-book microstructure require a new ingest pipeline beyond daily klines; wire the highest-signal stream first via a `feature_config`-selectable handler.
 - [T0011 — Nondeterministic experiment results / multi-seed validation](T0011-nondeterministic-results-multi-seed.md) — **[High]** LightGBM with no fixed seed produces ~33% / 0.23-Sharpe swing across identical runs; single-run holdout verdicts (including iter-12/iter-13) are unreliable until determinism or multi-seed averaging is enforced.
+- [T0012 — Prediction-ensemble (seed-averaged signal)](T0012-prediction-ensemble.md) — **[Medium]** averaging N seed-trained models into one signal *reduces* run-to-run variance (and may lift the signal), vs iter-14's multi-seed distribution which only *measures* it; a small additive step on the multi-seed machinery, a candidate production-stability lever once a recipe is selected.
 
 ## Partially done<a name="partially-done"></a>
 
