@@ -2528,5 +2528,3 @@ Per `.claude/rules/open-topics.md` (mandatory approval gate), after the plan's t
 
 - Title: `binance-vision daily-only fetch is slow`
 - Body summarizing: 5 years × 365 days × ~20 pairs = ~36,500 sequential HTTP GETs; investigate either a concurrency-bounded pool or a monthly-archive bulk-fetch fast path (the spec's "deferred" item).
-
-On user approval, the file lands as `docs/open-topics/00001-binance-fetch-slow.md` (or next available serial) with a one-line index bump in `docs/open-topics/README.md`. This step does not happen inside a subagent task.

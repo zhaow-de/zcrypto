@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the experiment strategy recipe-pluggable, ship a parameterized BTC-trend regime overlay (resolves open-topic `00003`), and add walk-forward holdout retraining — the two scaffold-level answers to the regime non-stationarity the `steady` validation exposed.
+**Goal:** Make the experiment strategy recipe-pluggable, ship a parameterized BTC-trend regime overlay (resolves open-topic `T0003`), and add walk-forward holdout retraining — the two scaffold-level answers to the regime non-stationarity the `steady` validation exposed.
 
 **Architecture:** `Recipe` gains a full `strategy_config` (mirroring `model_config`) that both `scaffold.py` (holdout) and `cpcv.py` (path backtests) build from, injecting the runtime `signal`. A new `RegimeGatedTopkStrategy` (a `TopkDropoutStrategy` subclass) scales gross exposure via qlib's `get_risk_degree` hook off a pure, precomputed BTC-trend multiplier. Walk-forward is a holdout-only periodic-retrain branch in `run_experiment`, orthogonal to CPCV.
 
@@ -579,17 +579,17 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `README.md` (`## Usage`)
-- Modify: `docs/open-topics/00003-btc-regime-overlay.md`, `00004-execution-slippage-fills.md`, `docs/open-topics/README.md`
-- Create: `docs/open-topics/00007-multi-window-stress.md`, `docs/open-topics/00008-pluggable-feature-handler.md`
+- Modify: `docs/open-topics/T0003-btc-regime-overlay.md`, `T0004-execution-slippage-fills.md`, `docs/open-topics/README.md`
+- Create: `docs/open-topics/T0007-multi-window-training-stress-harness.md`, `docs/open-topics/T0008-pluggable-feature-handler.md`
 - Modify: `docs/iterations-history.md`
 
 - [ ] **Step 1: README `## Usage`** — document the `regime_steady` recipe, the `strategy_config` recipe field, and the `wf_*` knobs (the `mdformat` hook owns the README TOC — don't hand-edit it).
 
-- [ ] **Step 2: Resolve `00003`** — flip front-matter `status: open → resolved`; add a `## Resolution` note (regime overlay shipped: `RegimeGatedTopkStrategy`, modes binary/graded/cross, vol-targeting knob; `regime_steady` demo). Move its bullet to `## Resolved` in `docs/open-topics/README.md` (let `mdformat` regenerate the TOC).
+- [ ] **Step 2: Resolve `T0003`** — flip front-matter `status: open → resolved`; add a `## Resolution` note (regime overlay shipped: `RegimeGatedTopkStrategy`, modes binary/graded/cross, vol-targeting knob; `regime_steady` demo). Move its bullet to `## Resolved` in `docs/open-topics/README.md` (let `mdformat` regenerate the TOC).
 
-- [ ] **Step 3: Enhance `00004`** — add to `## Findings so far`: a parametric size-scaled slippage term is a scaffold extension separable from the data-gated aggTrades maker-fill; research §13 Stage 2 specified it for the baseline. (status stays `open`.)
+- [ ] **Step 3: Enhance `T0004`** — add to `## Findings so far`: a parametric size-scaled slippage term is a scaffold extension separable from the data-gated aggTrades maker-fill; research §13 Stage 2 specified it for the baseline. (status stays `open`.)
 
-- [ ] **Step 4: New `00007` + `00008`** — create per `.claude/rules/open-topics.md` shape (front-matter `status: open`; `## Context — what` / `## Why this matters` / `## Findings so far` / `## Suggested next steps`): `00007` multi-window training-stress harness (§13 Stage 3); `00008` pluggable feature handler (Alpha360 / custom crypto features per §5). Append both bullets to `## Open` in the index.
+- [ ] **Step 4: New `T0007` + `T0008`** — create per `.claude/rules/open-topics.md` shape (front-matter `status: open`; `## Context — what` / `## Why this matters` / `## Findings so far` / `## Suggested next steps`): `T0007` multi-window training-stress harness (§13 Stage 3); `T0008` pluggable feature handler (Alpha360 / custom crypto features per §5). Append both bullets to `## Open` in the index.
 
 - [ ] **Step 5: Validation run + verdict.** With Redis up, run `regime_steady`, `steady`, and `skeleton` (full CPCV) into an isolated out-dir, then `zcrypto rank` over them; record the honest verdict (does the regime gate + walk-forward improve risk-adjusted holdout vs steady/skeleton — Sharpe, max-drawdown, PSR; DSR/PBO) in the PR description (and a one-line note in the `regime_steady` docstring, like `steady`). It is an honest result either way.
 
@@ -598,7 +598,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - [ ] **Step 7: Commit**
 ```bash
 git add README.md docs/open-topics docs/iterations-history.md cli/experiment/recipes/regime_steady.py
-git commit -m "docs(experiment): iter-12 closeout — README, 00003 resolved, 00007/00008, iterations-history
+git commit -m "docs(experiment): iter-12 closeout — README, T0003 resolved, T0007/T0008, iterations-history
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -607,6 +607,6 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ## Self-review
 
-- **Spec coverage:** seam (Task 1) ✓; regime overlay all 3 modes + vol-target knob (Tasks 2–3) ✓; default binary-200 (`regime_steady`, Task 4) ✓; walk-forward quarterly/expanding + knobs (Tasks 6–7) ✓; benchmark preservation (Task 1 tests + Task 5) ✓; CPCV uses the same strategy (Task 1 cpcv wiring) ✓; deferred → open-topics + 00003 resolved (Task 8) ✓; validation (Task 8) ✓.
+- **Spec coverage:** seam (Task 1) ✓; regime overlay all 3 modes + vol-target knob (Tasks 2–3) ✓; default binary-200 (`regime_steady`, Task 4) ✓; walk-forward quarterly/expanding + knobs (Tasks 6–7) ✓; benchmark preservation (Task 1 tests + Task 5) ✓; CPCV uses the same strategy (Task 1 cpcv wiring) ✓; deferred → open-topics + T0003 resolved (Task 8) ✓; validation (Task 8) ✓.
 - **Type consistency:** `strategy_config` dict shape, `strategy_config_with_signal(cfg, signal)`, `regime_exposure_series(...)→Series`, `build_wf_periods(...)→list[tuple[tuple,tuple]]`, `run_walkforward_holdout(recipe,*,data_dir)→RunResult` — used consistently across tasks.
 - **Risk flags:** Task 3 (qlib `get_risk_degree`/`trade_calendar` API) and Task 7 (walk-forward `RunResult` compatibility, positions/trades) carry RECON notes; the pure logic (Tasks 2, 6) is isolated and fully unit-tested so the integration surface is small.

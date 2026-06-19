@@ -51,7 +51,7 @@ trained bundle and emit live buy/sell signals.
 - **Simplicity-First.** This is one end-to-end run with a simple
   train/valid/test split. The robustness machinery (purged CV, regime overlay,
   slippage, point-in-time universe, paper trading) is **deferred** to open-topics
-  `00002`–`00006` and explicitly out of scope; the plain split's label-overlap
+  `T0002`–`T0006` and explicitly out of scope; the plain split's label-overlap
   **leakage** is flagged, not fixed.
 - **Repo rules unchanged.** README `## Usage` updated in the same change;
   `docs/iterations-history.md` closeout; branch + PR.
@@ -266,12 +266,12 @@ trade summary, and the artifact paths print to stdout.
 
 ## Out of scope (deferred → open-topics)
 
-- **`00002`** purged k-fold CV + embargo / CPCV / deflated Sharpe — the plain
+- **`T0002`** purged k-fold CV + embargo / CPCV / deflated Sharpe — the plain
   split's leakage is flagged here, fixed there.
-- **`00003`** BTC-trend regime overlay (long/cash gating + vol targeting).
-- **`00004`** size-scaled slippage + maker-fill realism.
-- **`00005`** (open-topic) point-in-time universe / survivorship.
-- **`00006`** (open-topic) paper-trading harness before live.
+- **`T0003`** BTC-trend regime overlay (long/cash gating + vol targeting).
+- **`T0004`** size-scaled slippage + maker-fill realism.
+- **`T0005`** (open-topic) point-in-time universe / survivorship.
+- **`T0006`** (open-topic) paper-trading harness before live.
 - The **realistic-expectations** framing (≈0.5–1.2 net Sharpe, 15–30% DD, may
   trail a BTC hold) is recorded so results are read with the right prior.
 - The future **`predict`** command itself (reads this run bundle); the
@@ -283,5 +283,5 @@ trade summary, and the artifact paths print to stdout.
 - Research roadmap: `docs/research/01.binance-eea-spot-quant.md`
   (§5 strategy, §6 data/CV, §7 basket, §8 fees, §13 stages).
 - Example pipeline: `cli/example/workflow.py`.
-- Deferred items: `docs/open-topics/00002`–`00006`.
+- Deferred items: `docs/open-topics/T0002`–`T0006`.
 - Qlib: Alpha158 / `LGBModel` / `TopkDropoutStrategy`; paper arXiv 2009.11189.

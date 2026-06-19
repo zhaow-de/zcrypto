@@ -6,12 +6,12 @@ one-line summary and the topic id a reader follows for the full picture.
 """
 
 SURVIVORSHIP = {
-    "topic": "00005",
+    "topic": "T0005",
     "summary": (
         "universe is survivorship-biased — today's surviving pairs only; "
         "historically-delisted pairs are absent, so the CPCV paths and the holdout "
         "are optimistically inflated (listing dates are respected). "
-        "See docs/open-topics/00005-point-in-time-universe.md."
+        "See docs/open-topics/T0005-point-in-time-universe.md."
     ),
 }
 
@@ -19,4 +19,4 @@ SURVIVORSHIP = {
 EXPERIMENT_CAVEATS = [SURVIVORSHIP]
 
 # Short marker for the report subtitle and the stdout line.
-SURVIVORSHIP_MARKER = "survivorship-biased universe — see open-topic 00005"
+SURVIVORSHIP_MARKER = "survivorship-biased universe — see open-topic T0005"

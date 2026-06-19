@@ -984,14 +984,14 @@ git commit -m "test(experiment): run the legacy single-run e2e under --quick"
 
 ---
 
-## Task 8: Closeout — open-topics convention, `00002` transition, iterations-history
+## Task 8: Closeout — open-topics convention, `T0002` transition, iterations-history
 
-Per `.claude/rules/open-topics.md` and `.claude/rules/iterations-history.md`. This task lands **after** the CPCV work above, so the `00002` "done" statements are truthful.
+Per `.claude/rules/open-topics.md` and `.claude/rules/iterations-history.md`. This task lands **after** the CPCV work above, so the `T0002` "done" statements are truthful.
 
 **Files:**
 - Modify: `.claude/rules/open-topics.md`
 - Modify: `docs/open-topics/README.md`
-- Modify: `docs/open-topics/00002-validation-rigor.md`
+- Modify: `docs/open-topics/T0002-validation-rigor.md`
 - Modify: `docs/iterations-history.md`
 
 - [ ] **Step 1: Enhance the open-topics rule** — add a `partial` status as a third lifecycle state:
@@ -1001,15 +1001,15 @@ Per `.claude/rules/open-topics.md` and `.claude/rules/iterations-history.md`. Th
   - In *Closing a topic*, change the flip to `status` (`open` or `partial`) → `resolved`.
   - In *Index sync*, change "opening or closing" → "opening, partially completing, or closing", and add a **Partially completing** bullet (move from `## Open` to end of `## Partially done`, transition order) and broaden **Closing** to move from `## Open` or `## Partially done`.
 
-- [ ] **Step 2: Add the `## Partially done` section to the index** — in `docs/open-topics/README.md`, insert a `## Partially done<a name="partially-done"></a>` section between `## Open` and `## Resolved`, move the `00002` bullet there, and reword it:
+- [ ] **Step 2: Add the `## Partially done` section to the index** — in `docs/open-topics/README.md`, insert a `## Partially done<a name="partially-done"></a>` section between `## Open` and `## Resolved`, move the `T0002` bullet there, and reword it:
 
 ```markdown
-- [00002 — Validation rigor (purged CV, CPCV, deflated Sharpe)](00002-validation-rigor.md) — **[High]** purged k-fold + embargo and CPCV (per-recipe out-of-sample Sharpe distribution) landed in iter-9 (spec 00008); deflated Sharpe + PBO, the multi-recipe ranking surface they need, and MLFinLab remain deferred.
+- [T0002 — Validation rigor (purged CV, CPCV, deflated Sharpe)](T0002-validation-rigor.md) — **[High]** purged k-fold + embargo and CPCV (per-recipe out-of-sample Sharpe distribution) landed in iter-9 (spec 00008); deflated Sharpe + PBO, the multi-recipe ranking surface they need, and MLFinLab remain deferred.
 ```
 
-Remove the `00002` bullet from `## Open`. Let `mdformat` regenerate the TOC.
+Remove the `T0002` bullet from `## Open`. Let `mdformat` regenerate the TOC.
 
-- [ ] **Step 3: Transition `docs/open-topics/00002-validation-rigor.md` to partial:**
+- [ ] **Step 3: Transition `docs/open-topics/T0002-validation-rigor.md` to partial:**
   - Front-matter `status: open` → `status: partial`.
   - Insert a `## Done so far` section after `## Findings so far`:
 
@@ -1044,21 +1044,21 @@ Still open — deferred from iter-9:
 
   (Replace `<link>` with the actual PR URL once the PR is opened.)
 
-- [ ] **Step 4: Append the iter-9 entry to `docs/iterations-history.md`** — a new `## <YYYY-MM-DD> — iter-9: validation rigor (CPCV)` section with bullets covering: CPCV is the default `experiment` run (purged k-fold + embargo → combinatorial paths); the new `cli/experiment/cv.py` (pure split engine) and `cli/experiment/cpcv.py` (orchestration); the 4 new `Recipe` CV fields; `--quick` for the single run; `cv_results.json` + the 4th report panel + the `CPCV (...) Sharpe ...` stdout line; the new JSONL events (`cpcv-init`, `cpcv-start`, `split-trained`, `paths-assembled`, `path-backtest`, `cv-aggregated`, `cpcv-done`); and that the open-topics convention gained a `partial` state, transitioning `00002` to partially done. Use today's date.
+- [ ] **Step 4: Append the iter-9 entry to `docs/iterations-history.md`** — a new `## <YYYY-MM-DD> — iter-9: validation rigor (CPCV)` section with bullets covering: CPCV is the default `experiment` run (purged k-fold + embargo → combinatorial paths); the new `cli/experiment/cv.py` (pure split engine) and `cli/experiment/cpcv.py` (orchestration); the 4 new `Recipe` CV fields; `--quick` for the single run; `cv_results.json` + the 4th report panel + the `CPCV (...) Sharpe ...` stdout line; the new JSONL events (`cpcv-init`, `cpcv-start`, `split-trained`, `paths-assembled`, `path-backtest`, `cv-aggregated`, `cpcv-done`); and that the open-topics convention gained a `partial` state, transitioning `T0002` to partially done. Use today's date.
 
 - [ ] **Step 5: Gate + commit**
 
 ```bash
 uv run ruff check && uv run ruff format --check && uv run pytest -q
-git add .claude/rules/open-topics.md docs/open-topics/README.md docs/open-topics/00002-validation-rigor.md docs/iterations-history.md
-git commit -m "docs(experiment): close out iter-9 — open-topics partial state, 00002 transition, iterations-history"
+git add .claude/rules/open-topics.md docs/open-topics/README.md docs/open-topics/T0002-validation-rigor.md docs/iterations-history.md
+git commit -m "docs(experiment): close out iter-9 — open-topics partial state, T0002 transition, iterations-history"
 ```
 
 ---
 
 ## Self-review (against the spec)
 
-- **Spec coverage:** scope cut → Task 1+4 (CV fields, deferral noted Task 8); CV output (path Sharpe dist + rank-IC, holdout) → Task 4/6; CPCV-by-default + `--quick` → Task 6; A (holdout = `run_experiment`) → Task 6 leaves it unchanged; B (N=6/k=2) → Task 1 defaults; C (purge=label_horizon, embargo=feature_lookback) → Task 2 + wired in Task 4; D (no fold early-stopping) → Task 4 `_lgb_params`; E (4th panel) → Task 5; `cv.py`/`cpcv.py` split → Task 2/4; `cv_results.json` schema → Task 6; logging events → Task 4/6; testing (pure unit, scaled integration, `--quick` parity, suite speed) → Task 2/4/6/7; closeout (open-topics rule + 00002 + README + iterations-history) → Task 6 (README) + Task 8.
+- **Spec coverage:** scope cut → Task 1+4 (CV fields, deferral noted Task 8); CV output (path Sharpe dist + rank-IC, holdout) → Task 4/6; CPCV-by-default + `--quick` → Task 6; A (holdout = `run_experiment`) → Task 6 leaves it unchanged; B (N=6/k=2) → Task 1 defaults; C (purge=label_horizon, embargo=feature_lookback) → Task 2 + wired in Task 4; D (no fold early-stopping) → Task 4 `_lgb_params`; E (4th panel) → Task 5; `cv.py`/`cpcv.py` split → Task 2/4; `cv_results.json` schema → Task 6; logging events → Task 4/6; testing (pure unit, scaled integration, `--quick` parity, suite speed) → Task 2/4/6/7; closeout (open-topics rule + T0002 + README + iterations-history) → Task 6 (README) + Task 8.
 - **Type consistency:** `build_cv_plan`/`assemble_paths`/`CVPlan.n_paths`/`CVSplit` used identically in Task 2 and Task 4; `CPCVResult` fields (`meta`/`paths`/`distribution`/`rank_ic`) consistent across Task 4 and Task 6; `exchange_kwargs(recipe)` defined Task 3, consumed Task 4; `build_report(result, *, stress_windows=None, cv=None)` consistent Task 5 ↔ Task 6; `cv` dict keys (`path_sharpes`, `holdout_sharpe`) match Task 5 ↔ Task 6; "sharpe" == absolute `information_ratio` consistent across Task 4/5/6.
 - **No placeholders:** the only `<link>` is the not-yet-existing PR URL in a doc (Task 8), explicitly flagged to fill in at PR time.
 

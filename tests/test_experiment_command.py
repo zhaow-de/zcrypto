@@ -227,5 +227,5 @@ def test_experiment_emits_survivorship_caveat(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     bundle = next(iter((out_dir / "skeleton").glob("*")))
     meta = json.loads((bundle / "run_meta.json").read_text())
-    assert "00005" in {c["topic"] for c in meta["caveats"]}  # survivorship caveat recorded
+    assert "T0005" in {c["topic"] for c in meta["caveats"]}  # survivorship caveat recorded
     assert "survivorship" in result.output.lower()  # stdout caveat line printed

@@ -18,9 +18,9 @@ The agent shows its proposed file body (the H1, all sections, and the bullet tex
 
 ## File path & naming
 
-`docs/open-topics/<NNNNN>-<slug>.md`:
+`docs/open-topics/T<NNNN>-<slug>.md`:
 
-- `<NNNNN>` is a 5-digit zero-padded counter. Next serial = one above the highest existing serial in `docs/open-topics/` (the `README.md` is excluded from the count). The counter is **independent** of `docs/specs/` and `docs/plans/` — open topics have their own sequence starting at `00000`.
+- `<NNNN>` is a 4-digit zero-padded counter. Next serial = one above the highest existing serial in `docs/open-topics/` (the `README.md` is excluded from the count). The counter is **independent** of `docs/specs/` and `docs/plans/` — open topics have their own sequence starting at `0000`.
 - `<slug>` is the kebab-case topic title.
 
 ## Required file shape
@@ -63,6 +63,6 @@ In the same change as opening, partially completing, or closing a topic, edit `d
 - **Partially completing:** **move** the bullet from `## Open` to the **end of the `## Partially done` section** (transition order).
 - **Closing:** **move** the bullet from `## Open` or `## Partially done` to the **end of the `## Resolved` section**. Within `## Resolved`, entries are in resolution order (append-only at close time), which may differ from serial order.
 
-Each bullet is a markdown link to the topic file followed by a one-sentence description, e.g. `- [00000 — qlib empty-slice warnings](00000-qlib-empty-slice-warnings.md) — benign numpy diagnostic from qlib's per-step aggregation; revisit when the logger gains warning filters.`
+Each bullet is a markdown link to the topic file followed by a one-sentence description, e.g. `- [T0000 — qlib empty-slice warnings](T0000-qlib-empty-slice-warnings.md) — benign numpy diagnostic from qlib's per-step aggregation; revisit when the logger gains warning filters.`
 
 The pre-commit `mdformat` hook covers `docs/open-topics/README.md`; let it regenerate the TOC — never hand-edit the `<!-- mdformat-toc … -->` block.
