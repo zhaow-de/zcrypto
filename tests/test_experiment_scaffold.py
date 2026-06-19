@@ -144,3 +144,42 @@ def test_phase_a_regime_steady_runs_and_gate_engages(tmp_path):
             assert math.isfinite(result.metrics[key][m]), f"regime_steady: {key}/{m} not finite"
 
     assert result.ending_value > 0
+
+
+def test_walkforward_holdout_stitches_multiple_periods(tmp_path):
+    """Phase-B integration: wf_enabled retrains per quarter and stitches a contiguous holdout.
+
+    On the fixture's test window (2024-03-01..2024-06-27) quarterly walk-forward yields two
+    periods (Q1 tail + Q2); the runner concatenates their per-period report_df into one
+    monotonically-increasing holdout with finite metrics. Heavier than the single-fit path
+    (it fits one booster per period), so it is the wf-specific smoke.
+    """
+    data_dir = tmp_path / "provider"
+    shutil.copytree(PROVIDER, data_dir)
+    out_dir = tmp_path / "out"
+
+    recipe = dataclasses.replace(
+        resolve_recipe("steady"),
+        name="wf_probe",
+        segments=_FIXTURE_SEGMENTS,
+        wf_enabled=True,
+        wf_retrain_freq="quarter",
+    )
+    result = run_experiment(recipe, data_dir=data_dir, out_dir=out_dir, refresh_cache=True)
+
+    # The walk-forward path ran and stitched more than one retrain period.
+    assert result.wf_periods is not None and result.wf_periods > 1
+
+    # Stitched holdout is non-empty and contiguous (>1 period concatenated in order).
+    assert len(result.report_df) > 0
+    assert result.report_df.index.is_monotonic_increasing
+    assert not result.report_df.index.has_duplicates
+
+    # Metrics present (the validation outputs the report / rank consume).
+    assert "strategy_absolute" in result.metrics
+    for m in ["annualized_return", "information_ratio", "max_drawdown"]:
+        assert math.isfinite(result.metrics["strategy_absolute"][m]), f"wf: strategy_absolute/{m} not finite"
+
+    assert result.ending_value > 0
+    assert not result.account_curve.empty
+    assert result.account_curve.index.is_monotonic_increasing

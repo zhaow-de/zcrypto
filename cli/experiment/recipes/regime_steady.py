@@ -1,4 +1,4 @@
-"""regime_steady recipe — steady's book + binary-200-day MA regime gate; walk-forward pending Phase B.
+"""regime_steady recipe — steady's book + binary-200-day MA regime gate + walk-forward holdout.
 
 Thesis: on daily klines over 19 survivor-biased majors, ``steady``'s GBDT/Alpha158 ranker shows a
 positive CPCV out-of-sample Sharpe on 2020-2024 that inverts to negative on the 2025-2026 holdout
@@ -8,9 +8,9 @@ the worst drawdown periods without requiring any look-ahead or re-labelling.
 
 Specifically: ``regime_steady`` keeps *all* of ``steady``'s levers (5-day label, diversified 10-name
 sticky book, regularized LGBM) and adds the ``RegimeGatedTopkStrategy`` in ``binary`` mode with a
-200-day MA on BTCUSDT, vol-targeting off. Walk-forward retraining (Phase B, Task 7) is disabled here
-so the CPCV comparison to ``steady`` is apples-to-apples; ``wf_enabled`` is flipped to ``True`` in
-the Phase B task.
+200-day MA on BTCUSDT, vol-targeting off. Walk-forward retraining is enabled (``wf_enabled=True``):
+the holdout is produced by retraining each quarter on an expanding window rather than one fit over
+the whole train segment, so the model tracks the regime shift instead of being frozen at 2023.
 
 This is a falsifiable hypothesis. The honest verdict is the CPCV out-of-sample Sharpe
 distribution + PSR/DSR/PBO and the holdout drawdown (``zcrypto experiment --recipe regime_steady``
@@ -100,5 +100,9 @@ RECIPE = Recipe(
     feature_lookback_days=60,
     cv_n_groups=6,
     cv_test_groups=2,
-    wf_enabled=False,  # Phase B (Task 7) flips this to True
+    # Walk-forward holdout: retrain each quarter on an expanding window (CPCV stays unchanged
+    # and still runs before the holdout for the OOS Sharpe distribution).
+    wf_enabled=True,
+    wf_retrain_freq="quarter",
+    wf_window="expanding",
 )

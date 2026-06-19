@@ -188,4 +188,6 @@ def test_regime_steady_matches_steady_book_and_label():
     assert rg.universe == st.universe and rg.segments == st.segments
     assert rg.handler_kwargs["label"] == st.handler_kwargs["label"]
     assert rg.label_horizon_days == st.label_horizon_days == 6
-    assert rg.wf_enabled is False  # flipped on in Phase B
+    assert rg.wf_enabled is True  # Phase B: walk-forward holdout retraining enabled
+    assert rg.wf_retrain_freq == "quarter"
+    assert rg.wf_window == "expanding"

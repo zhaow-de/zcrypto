@@ -48,6 +48,9 @@ class RunResult:
     recorder_dir: Path
     recipe: Recipe
     data_fingerprint: str
+    # Walk-forward provenance: None for the single-fit holdout, else the number of
+    # retrain periods stitched into report_df (see cli/experiment/walkforward.py).
+    wf_periods: int | None = None
 
 
 def redis_preflight() -> None:
@@ -173,6 +176,13 @@ def run_experiment(
     data_dir = Path(data_dir).resolve()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if recipe.wf_enabled:
+        # Walk-forward holdout: periodic retraining + stitched report_df. Returns a
+        # single-fit-compatible RunResult; the single-fit path below is untouched.
+        from cli.experiment.walkforward import run_walkforward_holdout
+
+        return run_walkforward_holdout(recipe, data_dir=data_dir, refresh_cache=refresh_cache)
 
     redis_preflight()
     logger.info("redis-ok", extra={"port": int(os.environ.get("ZCRYPTO_REDIS_PORT", "6379"))})

@@ -53,8 +53,8 @@ def _lgb_params(recipe: Recipe) -> tuple[dict, int]:
     return params, num_boost_round
 
 
-def _materialize(recipe: Recipe):
-    """Return (infer_df, learn_df) over train+valid, MultiIndex (datetime, instrument).
+def _materialize_span(recipe: Recipe, start: str, end: str):
+    """Return (infer_df, learn_df) over ``[start..end]``, MultiIndex (datetime, instrument).
 
     Uses CS_RAW (multi-level columns) so df["feature"] and df["label"] work.
     infer_df (DK_I): normalized features + label — used for prediction.
@@ -62,23 +62,24 @@ def _materialize(recipe: Recipe):
     dropped — used for training and rank-IC.
 
     Leakage precondition: normalization (RobustZScoreNorm) is fit ONCE over the full
-    train+valid span (fit_start_time..fit_end_time above), which is leakage-free for
-    GBDT models because they are invariant to per-feature monotone affine transforms.
-    A future linear/NN recipe or a feature-mixing processor would need per-fold
-    normalization to stay leakage-free.
+    span (fit_start_time..fit_end_time below), which is leakage-free for GBDT models
+    because they are invariant to per-feature monotone affine transforms. A future
+    linear/NN recipe or a feature-mixing processor would need per-fold normalization
+    to stay leakage-free.
+
+    CPCV fits over train+valid; walk-forward (cli.experiment.walkforward) fits over
+    each period's [train_start..predict_end] — both go through this one builder.
     """
     from qlib.data.dataset.handler import DataHandlerLP
     from qlib.utils import init_instance_by_config
 
-    cv_start = recipe.segments["train"][0]
-    cv_end = recipe.segments["valid"][1]
     handler_kwargs = {
         **recipe.handler_kwargs,
         "instruments": list(recipe.universe),
-        "start_time": cv_start,
-        "end_time": cv_end,
-        "fit_start_time": cv_start,
-        "fit_end_time": cv_end,
+        "start_time": start,
+        "end_time": end,
+        "fit_start_time": start,
+        "fit_end_time": end,
         "freq": "day",
     }
     dataset = init_instance_by_config(
@@ -91,7 +92,7 @@ def _materialize(recipe: Recipe):
                     "module_path": "qlib.contrib.data.handler",
                     "kwargs": handler_kwargs,
                 },
-                "segments": {"all": (cv_start, cv_end)},
+                "segments": {"all": (start, end)},
             },
         }
     )
@@ -99,6 +100,11 @@ def _materialize(recipe: Recipe):
     infer_df = dataset.prepare(segments="all", col_set=DataHandlerLP.CS_RAW, data_key=DataHandlerLP.DK_I)
     learn_df = dataset.prepare(segments="all", col_set=DataHandlerLP.CS_RAW, data_key=DataHandlerLP.DK_L)
     return infer_df, learn_df
+
+
+def _materialize(recipe: Recipe):
+    """CPCV materialization: (infer_df, learn_df) over the train+valid span."""
+    return _materialize_span(recipe, recipe.segments["train"][0], recipe.segments["valid"][1])
 
 
 def _split_xy(df: pd.DataFrame):
