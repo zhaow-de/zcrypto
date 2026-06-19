@@ -166,3 +166,26 @@ def test_recipe_walkforward_defaults_off():
     assert r.wf_retrain_freq == "quarter"
     assert r.wf_window == "expanding"
     assert r.wf_rolling_years == 3
+
+
+# --- regime_steady recipe: steady book + binary-200 regime overlay, walk-forward off for now ---
+
+
+def test_regime_steady_uses_regime_strategy():
+    r = resolve_recipe("regime_steady")
+    sc = r.strategy_config
+    assert sc["class"] == "RegimeGatedTopkStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["regime_mode"] == "binary"
+    assert sc["kwargs"]["regime_ma_window"] == 200
+    assert sc["kwargs"]["vol_target"] is None  # default off
+    # steady's book preserved
+    assert sc["kwargs"]["topk"] == 10 and sc["kwargs"]["hold_thresh"] == 5
+
+
+def test_regime_steady_matches_steady_book_and_label():
+    rg, st = resolve_recipe("regime_steady"), resolve_recipe("steady")
+    assert rg.universe == st.universe and rg.segments == st.segments
+    assert rg.handler_kwargs["label"] == st.handler_kwargs["label"]
+    assert rg.label_horizon_days == st.label_horizon_days == 6
+    assert rg.wf_enabled is False  # flipped on in Phase B
