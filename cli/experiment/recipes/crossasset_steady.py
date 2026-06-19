@@ -24,6 +24,15 @@ features help. BUT the holdout is nondeterministic: ``steady`` alone spans 3,621
 runs (open-topic ``T0011``), so the ~4% gap over ``steady`` is within run noise and the edge is NOT
 established. All four still lose (~-50% for ``crossasset_steady``/``steady`` to ~-66% for
 ``skeleton``/``alpha360_steady``). Re-run under determinism (``T0011``) before claiming an edge.
+
+**Measured (multi-seed, iter-14 — 16 seeds, light-``lgb.train`` basis, 2025-2026 holdout, after 12 bps
+fees): BEST mean of the four — Sharpe −0.43 ± 0.14, ending value ~4,507 USDT, PSR 0.27.** The only
+pairwise separation beyond the seed-noise band is vs ``steady`` (z ≈ 1.1, modest); vs ``skeleton`` the
+gap is within noise (z ≈ 0.6), so the cross-asset edge is real-but-modest, NOT clearly above the
+strongest baseline. All four still lose (~−55% to −64%). Iter-13's single-run #1 (5,027) was partly
+seed luck — the true mean is lower. The multi-seed distribution is on the light ``lgb.train``
+(fixed-rounds, no early-stopping) holdout path — internally consistent across the four recipes but NOT
+directly comparable to iter-13's MLflow single-fit numbers. ``T0011`` resolved.
 """
 
 from cli.experiment.recipes.base import Recipe

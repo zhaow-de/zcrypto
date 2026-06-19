@@ -27,6 +27,13 @@ last — ending ~3,389 USDT vs ``steady`` ~4,817, ``skeleton`` ~3,664, ``crossas
 absolute Sharpe -0.69; PSR 0.149 — confirming the expectation that more raw OHLCV dimensions add
 overfit, not edge. Caveat: holdout estimates are nondeterministic (open-topic ``T0011``), so treat the
 ranking as indicative, not exact.
+
+**Measured (multi-seed, iter-14 — 16 seeds, light-``lgb.train`` basis, 2025-2026 holdout, after 12 bps
+fees): middling — Sharpe −0.57 ± 0.17, ending value ~3,827 USDT, PSR 0.20.** NOT the worst by mean
+(``steady`` is); iter-13's single-run "worst" ranking was partly seed noise. More raw OHLCV dims still
+gave no edge over Alpha158. All four still lose. Light-``lgb.train`` holdout path — internally
+consistent across recipes but NOT directly comparable to iter-13's MLflow single-fit numbers.
+``T0011`` resolved.
 """
 
 from cli.experiment.recipes.base import Recipe

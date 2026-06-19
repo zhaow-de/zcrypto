@@ -38,6 +38,13 @@ holdout (~-0.63), with PBO = 0.91: a market-regime mismatch that recipe-only
 tuning cannot fix. The lever that could is the BTC-regime overlay — open-topic
 T0003 (scaffold-level), not another recipe.
 
+**Measured (multi-seed, iter-14 — 16 seeds, light-``lgb.train`` basis, 2025-2026 holdout, after 12 bps
+fees): WORST of the four by mean — Sharpe −0.62 ± 0.21, ending value ~3,641 USDT, PSR 0.19 — with the
+widest spread.** Iter-12/iter-13 single-run apparent "wins" (e.g. ending 4,817 in one iter-13 run) were
+seed luck; the low-turnover book did not help out-of-sample. z-separation vs ``crossasset_steady`` is
+z ≈ 1.1 (modest). All four still lose. Light-``lgb.train`` holdout path — internally consistent across
+recipes but NOT directly comparable to iter-13's MLflow single-fit numbers. ``T0011`` resolved.
+
 The non-lever fields below (universe, segments, fees, account, benchmark,
 reference_instruments, feature_lookback_days, cv knobs) are deliberately
 identical to ``skeleton`` so the comparison is a clean A/B; the
