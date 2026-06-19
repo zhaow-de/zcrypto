@@ -21,6 +21,12 @@ measure, not assume.
 via ``**kwargs`` (line 71: ``kwargs.pop("label", self.get_label_config())``) —
 identical mechanism to Alpha158. The steady 5-day label override
 ``(["Ref($close, -6)/Ref($close, -1) - 1"], ["LABEL0"])`` is fully supported.
+
+**Measured (2025-2026 holdout, iter-13 validation): worst of the four.** ``alpha360_steady`` ranked
+last — ending ~3,389 USDT vs ``steady`` ~4,817, ``skeleton`` ~3,664, ``crossasset_steady`` ~5,027;
+absolute Sharpe -0.69; PSR 0.149 — confirming the expectation that more raw OHLCV dimensions add
+overfit, not edge. Caveat: holdout estimates are nondeterministic (open-topic ``T0011``), so treat the
+ranking as indicative, not exact.
 """
 
 from cli.experiment.recipes.base import Recipe

@@ -16,6 +16,14 @@ features win only if the CPCV Sharpe is materially higher *and* PBO < 0.5 on the
 holdout — not merely better in-sample. If they do not outperform, that is itself a
 real finding: the cross-asset co-movement signal (vs BTC) adds no incremental edge
 beyond what Alpha158 already captures from each instrument's own OHLCV history.
+
+**Measured (2025-2026 holdout, iter-13 validation): best of the four, but NOT established.**
+``crossasset_steady`` ranked #1 — ending ~5,027 USDT; absolute Sharpe -0.34; PSR 0.310; lowest
+max-drawdown; cross-trial PBO 0.477 (vs ~0.95 in prior iterations) — suggestive that the cross-asset
+features help. BUT the holdout is nondeterministic: ``steady`` alone spans 3,621-4,817 across identical
+runs (open-topic ``T0011``), so the ~4% gap over ``steady`` is within run noise and the edge is NOT
+established. All four still lose (~-50% for ``crossasset_steady``/``steady`` to ~-66% for
+``skeleton``/``alpha360_steady``). Re-run under determinism (``T0011``) before claiming an edge.
 """
 
 from cli.experiment.recipes.base import Recipe
