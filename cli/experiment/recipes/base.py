@@ -31,7 +31,7 @@ class Recipe:
     name: str
     handler_kwargs: dict  # extra Alpha158 kwargs (infer_processors, learn_processors)
     model_config: dict  # full init_instance_by_config dict for the model
-    strategy_kwargs: dict  # TopkDropoutStrategy kwargs (topk, n_drop)
+    strategy_config: dict  # full init_instance_by_config dict for the strategy
     segments: dict  # {"train": (s, e), "valid": (s, e), "test": (s, e)} ISO date strings
     universe: tuple  # traded USDT symbols (uppercase)
     reference_instruments: tuple  # chart-only, not traded
@@ -44,6 +44,11 @@ class Recipe:
     feature_lookback_days: int = field(default=60)
     cv_n_groups: int = field(default=6)
     cv_test_groups: int = field(default=2)
+    # Walk-forward holdout retraining (see docs/specs/00011). Off = single-fit holdout.
+    wf_enabled: bool = field(default=False)
+    wf_retrain_freq: str = field(default="quarter")  # quarter | year
+    wf_window: str = field(default="expanding")  # expanding | rolling
+    wf_rolling_years: int = field(default=3)
 
 
 def resolve_recipe(name: str) -> Recipe:

@@ -88,7 +88,11 @@ RECIPE = Recipe(
     # Lever 2: diversified + sticky book to cut the dominant after-cost term at
     # 12 bps. topk=10 holds ~half the universe; hold_thresh=5 blocks selling a
     # name held fewer than 5 days.
-    strategy_kwargs={"topk": 10, "n_drop": 1, "hold_thresh": 5},
+    strategy_config={
+        "class": "TopkDropoutStrategy",
+        "module_path": "qlib.contrib.strategy.signal_strategy",
+        "kwargs": {"topk": 10, "n_drop": 1, "hold_thresh": 5},
+    },
     # --- below: identical to skeleton (clean A/B; guarded by tests) ---
     segments={
         "train": ("2020-01-01", "2023-12-31"),

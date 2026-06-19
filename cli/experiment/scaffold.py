@@ -27,6 +27,11 @@ logger = get_logger("experiment.scaffold")
 _METRICS = ["annualized_return", "information_ratio", "max_drawdown"]
 
 
+def strategy_config_with_signal(strategy_config: dict, signal) -> dict:
+    """Inject the runtime ``signal`` into a recipe's static strategy config."""
+    return {**strategy_config, "kwargs": {**strategy_config.get("kwargs", {}), "signal": signal}}
+
+
 @dataclass
 class RunResult:
     """Everything downstream tasks (trades, report, command) need from one run."""
@@ -112,11 +117,7 @@ def _port_analysis_config(recipe: Recipe, model, dataset) -> dict:
             "module_path": "qlib.backtest.executor",
             "kwargs": {"time_per_step": "day", "generate_portfolio_metrics": True},
         },
-        "strategy": {
-            "class": "TopkDropoutStrategy",
-            "module_path": "qlib.contrib.strategy.signal_strategy",
-            "kwargs": {**recipe.strategy_kwargs, "signal": (model, dataset)},
-        },
+        "strategy": strategy_config_with_signal(recipe.strategy_config, (model, dataset)),
         "backtest": {
             "start_time": recipe.segments["test"][0],
             "end_time": recipe.segments["test"][1],

@@ -22,7 +22,7 @@ import pandas as pd
 from cli.experiment.cache import ensure_cache_fresh
 from cli.experiment.cv import assemble_paths, build_cv_plan
 from cli.experiment.recipes.base import Recipe
-from cli.experiment.scaffold import exchange_kwargs, redis_preflight
+from cli.experiment.scaffold import exchange_kwargs, redis_preflight, strategy_config_with_signal
 from cli.logging import get_logger
 
 logger = get_logger("experiment.cpcv")
@@ -196,11 +196,7 @@ def run_cpcv(recipe: Recipe, *, data_dir: Path, refresh_cache: bool = False) -> 
             pmd, _ = backtest(
                 start_time=dates.min(),
                 end_time=dates.max(),
-                strategy={
-                    "class": "TopkDropoutStrategy",
-                    "module_path": "qlib.contrib.strategy.signal_strategy",
-                    "kwargs": {**recipe.strategy_kwargs, "signal": signal},
-                },
+                strategy=strategy_config_with_signal(recipe.strategy_config, signal),
                 executor={
                     "class": "SimulatorExecutor",
                     "module_path": "qlib.backtest.executor",
