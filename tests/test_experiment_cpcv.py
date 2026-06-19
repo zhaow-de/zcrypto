@@ -8,6 +8,41 @@ from importlib.resources import as_file, files
 import pytest
 
 
+def test_lgb_params_default_has_no_seed_or_determinism():
+    from cli.experiment.cpcv import _lgb_params
+    from cli.experiment.recipes.base import resolve_recipe
+
+    params, _ = _lgb_params(resolve_recipe("steady"))
+    assert "seed" not in params and "deterministic" not in params and "force_row_wise" not in params
+
+
+def test_lgb_params_injects_seed_and_determinism():
+    from cli.experiment.cpcv import _lgb_params
+    from cli.experiment.recipes.base import resolve_recipe
+
+    params, _ = _lgb_params(resolve_recipe("steady"), seed=7, deterministic=True)
+    assert params["seed"] == 7
+    assert params["deterministic"] is True and params["force_row_wise"] is True
+
+
+def test_lgb_params_seed_without_determinism():
+    from cli.experiment.cpcv import _lgb_params
+    from cli.experiment.recipes.base import resolve_recipe
+
+    params, _ = _lgb_params(resolve_recipe("steady"), seed=3)
+    assert params["seed"] == 3 and "deterministic" not in params
+
+
+def test_seeded_model_config_injects_into_kwargs():
+    from cli.experiment.scaffold import _seeded_model_config
+
+    mc = {"class": "LGBModel", "module_path": "m", "kwargs": {"learning_rate": 0.03}}
+    out = _seeded_model_config(mc, seed=5, deterministic=True)
+    assert out["kwargs"]["seed"] == 5 and out["kwargs"]["deterministic"] is True and out["kwargs"]["force_row_wise"] is True
+    assert mc["kwargs"] == {"learning_rate": 0.03}  # input not mutated
+    assert _seeded_model_config(mc)["kwargs"] == {"learning_rate": 0.03}  # no-op default
+
+
 def _redis_up() -> bool:
     try:
         import redis
