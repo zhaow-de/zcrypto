@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from cli.experiment.features import cross_asset as ca
 from cli.experiment.features.cross_asset import cross_asset_features
 
 
@@ -91,3 +92,18 @@ def test_leak_safe_interior():
     a = full.xs(t, level="datetime").sort_index()
     b = truncated.xs(t, level="datetime").sort_index()
     pd.testing.assert_frame_equal(a, b, check_like=True)
+
+
+def test_cross_asset_processor_appends_feature_columns(monkeypatch):
+    # synthetic loaded df: MultiIndex (datetime, instrument) rows, MultiIndex (group, name) cols
+    idx = pd.MultiIndex.from_product(
+        [pd.date_range("2020-01-01", periods=120, freq="D"), ["BTCUSDT", "ETHUSDT", "XRPUSDT"]],
+        names=["datetime", "instrument"],
+    )
+    df = pd.DataFrame({("feature", "KMID"): 0.0, ("label", "LABEL0"): 0.0}, index=idx)
+    monkeypatch.setattr(ca, "_load_close", lambda insts, start, end: _panel())
+    out = ca.CrossAssetProcessor()(df)
+    assert ("feature", "rs_20") in out.columns and ("feature", "beta_20") in out.columns
+    assert ("label", "LABEL0") in out.columns  # label preserved
+    assert ("feature", "KMID") in out.columns  # pre-existing feature preserved
+    assert len(out) == len(df)

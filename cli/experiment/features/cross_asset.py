@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from qlib.data.dataset.processor import Processor
 
 
 def cross_asset_features(
@@ -105,3 +106,36 @@ def _stack(wide: pd.DataFrame, col_name: str) -> pd.DataFrame:
     s = wide.stack(future_stack=True)
     s.index.names = ["datetime", "instrument"]
     return s.rename(col_name).to_frame()
+
+
+def _load_close(insts, start, end) -> pd.DataFrame:
+    """Load raw `$close` for `insts` over [start, end] as a wide date × instrument panel.
+
+    Thin seam over qlib's `D.features` so the processor can be tested without qlib init / redis.
+    """
+    from qlib.data import D
+
+    s = D.features(list(insts), ["$close"], start_time=start, end_time=end, freq="day")["$close"]
+    return s.unstack(level="instrument")
+
+
+class CrossAssetProcessor(Processor):
+    """qlib `Processor` appending `cross_asset_features` as `("feature", <name>)` columns.
+
+    Wire it FIRST in a recipe's `infer_processors` so a later `RobustZScoreNorm`
+    normalizes the appended features. `kwargs` are forwarded to `cross_asset_features`.
+    """
+
+    def __init__(self, btc: str = "BTCUSDT", **kwargs):
+        self.btc = btc
+        self.kwargs = kwargs
+
+    def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
+        dt = df.index.get_level_values("datetime")
+        insts = df.index.get_level_values("instrument").unique()
+        close = _load_close(insts, dt.min(), dt.max())
+        feats = cross_asset_features(close, btc=self.btc, **self.kwargs)
+        feats = feats.reindex(df.index)
+        for name in feats.columns:
+            df[("feature", name)] = feats[name]
+        return df
