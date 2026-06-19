@@ -276,6 +276,100 @@ def test_verify_detects_orphan_in_instruments_dir(tmp_path):
     assert any("orphan" in p and "stray.txt" in p for p in report.problems)
 
 
+def _mk_pair_with_funding(
+    tmp_path: Path,
+    cal: list[dt.date],
+    sym: str,
+    base: str,
+    start: int,
+    rows: int,
+    funding_values: list[float] | None = None,
+) -> PairEntry:
+    """Build a PairEntry that includes a funding.day.bin alongside the kline fields."""
+    fields = {}
+    for f in FIELDS:
+        bin_rel = f"features/{sym.lower()}/{f}.day.bin"
+        write_bin(tmp_path / bin_rel, [1.0] * rows, start_index=start)
+        fields[f] = FieldEntry(bin=bin_rel, sha256=compute_sha256(tmp_path / bin_rel), updated_at=utc_now_iso())
+    # funding field — values default to real data (non-NaN) spanning the full row range
+    fvals = funding_values if funding_values is not None else [0.0001] * rows
+    funding_rel = f"features/{sym.lower()}/funding.day.bin"
+    write_bin(tmp_path / funding_rel, fvals, start_index=start)
+    fields["funding"] = FieldEntry(bin=funding_rel, sha256=compute_sha256(tmp_path / funding_rel), updated_at=utc_now_iso())
+    return PairEntry(
+        base_asset=base,
+        quote_asset="USDT",
+        intervals={
+            "1d": PairIntervalEntry(
+                from_date=cal[start].isoformat(),
+                to_date=cal[start + rows - 1].isoformat(),
+                rows=rows,
+                fields=fields,
+            )
+        },
+    )
+
+
+def test_verify_funding_reports_coverage_check(tmp_path):
+    """A dataset with funding bins should have a per-instrument coverage check reported."""
+    cal = [dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(5)]
+    pairs = {"BTCUSDT": _mk_pair_with_funding(tmp_path, cal, "BTCUSDT", "BTC", start=0, rows=5)}
+    _finalize(tmp_path, cal, pairs)
+    report = verify_dataset(tmp_path)
+    assert report.ok, report.problems
+    # A human-readable funding coverage check must appear
+    funding_checks = [c for c in report.checks if "funding" in c.lower()]
+    assert funding_checks, f"No funding check in report.checks: {report.checks}"
+    # Should mention the instrument and a date range
+    assert any("BTCUSDT" in c for c in funding_checks), funding_checks
+
+
+def test_verify_funding_all_nan_reported_not_failed(tmp_path):
+    """An all-NaN funding bin is reported as an observation but must NOT add to problems."""
+    cal = [dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(5)]
+    all_nan = [float("nan")] * 5
+    pairs = {"PEPEUSDT": _mk_pair_with_funding(tmp_path, cal, "PEPEUSDT", "PEPE", start=0, rows=5, funding_values=all_nan)}
+    _finalize(tmp_path, cal, pairs)
+    report = verify_dataset(tmp_path)
+    assert report.ok, report.problems  # all-NaN funding is NOT a hard failure
+    # But the situation must be surfaced (in checks or synthetic)
+    all_text = " ".join(report.checks + report.synthetic)
+    assert "PEPEUSDT" in all_text and ("no coverage" in all_text or "all NaN" in all_text or "all-NaN" in all_text)
+
+
+def test_verify_funding_absent_reported_not_failed(tmp_path):
+    """When funding.day.bin is missing entirely, it is reported but does NOT fail the dataset."""
+    cal = [dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(5)]
+    # Build a pair WITHOUT a funding field
+    pairs = {"NEWUSDT": _mk_pair(tmp_path, cal, "NEWUSDT", "NEW", start=0, rows=5)}
+    _finalize(tmp_path, cal, pairs)
+    report = verify_dataset(tmp_path)
+    assert report.ok, report.problems  # absent funding is NOT a hard failure
+    all_text = " ".join(report.checks + report.synthetic)
+    assert "NEWUSDT" in all_text and ("no coverage" in all_text or "absent" in all_text or "no funding" in all_text)
+
+
+def test_verify_funding_structural_corruption_is_problem(tmp_path):
+    """A funding.day.bin with a wrong start_index (structural corruption) IS a problem."""
+    cal = [dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(5)]
+    pairs = {"BTCUSDT": _mk_pair_with_funding(tmp_path, cal, "BTCUSDT", "BTC", start=0, rows=5)}
+    _finalize(tmp_path, cal, pairs)
+
+    # Overwrite funding.day.bin with a wrong start_index (2 instead of 0)
+    funding_path = tmp_path / "features" / "btcusdt" / "funding.day.bin"
+    import json as _json  # noqa: PLC0415 (local import for test isolation)
+
+    write_bin(funding_path, [0.0001] * 5, start_index=2)  # wrong: BTC starts at 0
+    # Patch SHA in index so the sha check doesn't fire first
+    raw = _json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
+    raw["pairs"]["BTCUSDT"]["intervals"]["1d"]["fields"]["funding"]["sha256"] = compute_sha256(funding_path)
+    (tmp_path / "index.json").write_text(_json.dumps(raw), encoding="utf-8")
+
+    report = verify_dataset(tmp_path)
+    assert not report.ok
+    assert any("funding" in p and "header" in p for p in report.problems)
+
+
 def test_verify_ignores_cache_and_staging_dirs(tmp_path):
     """cache/ (qlib disk cache) and .staging/ (pipeline work dir) must not trip the orphan scan.
 

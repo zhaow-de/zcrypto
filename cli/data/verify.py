@@ -177,6 +177,19 @@ def verify_dataset(out_dir: Path, *, fail_on_gap: bool = False) -> VerifyReport:
                                 f"{sym} {interval}: {nan_offsets.size} synthetic day(s) "
                                 f"({', '.join(_collapse_date_ranges(syn_dates))})"
                             )
+                    # Funding coverage: report date range of non-NaN values (informational, never a hard failure).
+                    if fname == "funding":
+                        non_nan = np.nonzero(~np.isnan(values))[0]
+                        if non_nan.size == 0:
+                            checks.append(f"{sym} funding: no coverage (all NaN)")
+                        else:
+                            first_d = expected_dates[start_idx + int(non_nan[0])]
+                            last_d = expected_dates[start_idx + int(non_nan[-1])]
+                            checks.append(f"{sym} funding: {first_d}..{last_d} ({non_nan.size}/{len(values)} days)")
+
+        # Report funding absent (no funding field registered in any interval) — expected for some coins, not a hard failure.
+        if not any("funding" in e.fields for e in pair.intervals.values()):
+            checks.append(f"{sym} funding: absent (no funding field in index)")
     checks.append(
         f"per-pair ({len(index.pairs)}): from in calendar, rows>0, to == calendar[from+rows-1], every field bin sha256/size/header"
     )
