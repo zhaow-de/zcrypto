@@ -241,15 +241,28 @@ By default `experiment` runs combinatorial purged cross-validation (CPCV) over `
 
 ##### Built-in recipes
 
-| Recipe          | Description                                                                                                                                          |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `skeleton`      | Naive baseline: `TopkDropoutStrategy` (topk=5), Alpha158 2-day label, no regime filter. Benchmark only — not a profitable strategy.                  |
-| `steady`        | Low-turnover book: `TopkDropoutStrategy` (topk=10, hold_thresh=5), 5-day label, stronger regularization. Validated but beats neither steady market.  |
-| `regime_steady` | `steady`'s model + book with a BTC-trend regime overlay (`RegimeGatedTopkStrategy`, binary 200-day SMA, vol-targeting off) and walk-forward holdout. |
+| Recipe              | Description                                                                                                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skeleton`          | Naive baseline: `TopkDropoutStrategy` (topk=5), Alpha158 2-day label, no regime filter. Benchmark only — not a profitable strategy.                                                                     |
+| `steady`            | Low-turnover book: `TopkDropoutStrategy` (topk=10, hold_thresh=5), 5-day label, stronger regularization. Validated but beats neither steady market.                                                     |
+| `regime_steady`     | `steady`'s model + book with a BTC-trend regime overlay (`RegimeGatedTopkStrategy`, binary 200-day SMA, vol-targeting off) and walk-forward holdout.                                                    |
+| `alpha360_steady`   | `steady`'s book + qlib's built-in `Alpha360` feature handler (~360 raw OHLCV factors) instead of Alpha158. A/B against `steady`.                                                                        |
+| `crossasset_steady` | `steady`'s book + Alpha158 features + `CrossAssetProcessor`: BTC-anchored cross-asset features (relative strength, rolling beta, lead-lag, cointegration-deviation, cross-sectional momentum/vol rank). |
 
-##### Recipe fields: `strategy_config` and walk-forward knobs
+##### Recipe fields: `feature_config`, `strategy_config`, and walk-forward knobs
 
-Each recipe is a Python dataclass. Two sets of fields control the strategy class and holdout retraining:
+Each recipe is a Python dataclass. Three sets of fields control the feature handler, the strategy class, and holdout retraining:
+
+**`feature_config`** — selects the qlib feature handler class. Defaults to `Alpha158`; override to use `Alpha360` or a custom handler.
+
+```python
+feature_config = {
+    "class": "Alpha158",
+    "module_path": "qlib.contrib.data.handler",
+}
+```
+
+The scaffold assembles the full handler config (instruments, segments, processors, label) from this dict; only the `class` and `module_path` vary across recipes.
 
 **`strategy_config`** — a full strategy init dict (mirrors `model_config`) that the scaffold passes to `init_instance_by_config`. This makes the strategy class recipe-selectable; the runtime `signal=(model, dataset)` is injected automatically.
 

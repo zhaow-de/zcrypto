@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 priority: medium
 ---
 
@@ -32,15 +32,33 @@ at runtime. A `feature_config` field would follow the same pattern. References:
 research §5, spec `00011` (decisions table: "pluggable feature handler" listed
 as deferred).
 
+## Done so far
+
+Shipped in iter-13 (spec `00012`, branch `feat/pluggable-feature-handler`):
+
+- **`feature_config` seam** — `Recipe.feature_config = {class, module_path}` added to
+  `cli/experiment/recipes/base.py`; defaults to Alpha158. `scaffold.handler_config()`
+  helper builds the full qlib handler config dict from `feature_config` + instruments +
+  segments + `handler_kwargs`; used in both `scaffold.py` and `cpcv.py:_materialize_span`,
+  replacing the previously hardcoded `Alpha158` dict.
+- **Benchmark migration** — `skeleton`, `steady`, and `regime_steady` migrated
+  behavior-preservingly to explicit `feature_config`; a regression test asserts the built
+  handler config is unchanged.
+- **`Alpha360` wired** — `alpha360_steady` recipe: `steady`'s book + qlib built-in `Alpha360`
+  handler, exercising the seam end-to-end.
+- **Custom cross-asset handler** — `cli/experiment/features/cross_asset.py`: pure
+  `cross_asset_features(panel, ...)` function + `CrossAssetProcessor` qlib wrapper;
+  surfaced via the `crossasset_steady` recipe (Alpha158 + BTC-anchored relative
+  strength / rolling beta / lead-lag / cointegration-deviation / cross-sectional rank).
+
+The edge verdict for `alpha360_steady` and `crossasset_steady` is recorded separately in
+`docs/iterations-history.md` (iter-13 entry).
+
 ## Suggested next steps
 
-- Add a `feature_config` field to `Recipe` (mirroring `strategy_config` /
-  `model_config`) that accepts a full `{class, module_path, kwargs}` dict.
-- Refactor `scaffold.py` and `cpcv.py` to build the dataset handler from
-  `feature_config` instead of hardcoding `Alpha158`.
-- Migrate `skeleton`/`steady`/`regime_steady` to explicit `feature_config`
-  (behavior-preserving; `Alpha158` with their current kwargs).
-- Add a recipe using `Alpha360` and compare factor richness vs `Alpha158`
-  on the same universe.
-- Prototype a custom crypto feature module (funding rate, cointegration
-  deviation, cross-pair momentum) and wire it in as a recipe-selectable handler.
+- Explore **learned / embedding feature layers** (e.g. autoencoder on OHLCV, transformer
+  tick-level features) as `feature_config`-selectable handlers.
+- Wire in other qlib built-in handler classes beyond Alpha158/360 (e.g. `Alpha101`) to
+  complete the built-in survey.
+- Non-OHLCV features (funding-rate / on-chain / order-book) require a new data source —
+  tracked in `T0010`.
