@@ -27,6 +27,22 @@ logger = get_logger("experiment.scaffold")
 _METRICS = ["annualized_return", "information_ratio", "max_drawdown"]
 
 
+def handler_config(feature_config, *, instruments, start, end, fit_start, fit_end, handler_kwargs):
+    """Build the full qlib handler config from a recipe's feature_config + runtime kwargs."""
+    return {
+        **feature_config,
+        "kwargs": {
+            **handler_kwargs,
+            "instruments": list(instruments),
+            "start_time": start,
+            "end_time": end,
+            "fit_start_time": fit_start,
+            "fit_end_time": fit_end,
+            "freq": "day",
+        },
+    }
+
+
 def strategy_config_with_signal(strategy_config: dict, signal) -> dict:
     """Inject the runtime ``signal`` into a recipe's static strategy config."""
     return {**strategy_config, "kwargs": {**strategy_config.get("kwargs", {}), "signal": signal}}
@@ -65,30 +81,25 @@ def redis_preflight() -> None:
 
 
 def _dataset_config(recipe: Recipe) -> dict:
-    """Alpha158 over the traded universe, wrapped in a DatasetH.
+    """Feature handler over the traded universe, wrapped in a DatasetH.
 
     Passing ``instruments`` restricts the tradable set to the USDT pairs and
-    excludes the reference instruments (BTCEUR, ETHBTC). The Alpha158 default
-    label (2-day forward return) is left untouched.
+    excludes the reference instruments (BTCEUR, ETHBTC). The handler class is
+    recipe-pluggable via ``recipe.feature_config`` (default: Alpha158).
     """
-    handler_kwargs = {
-        **recipe.handler_kwargs,
-        "instruments": list(recipe.universe),
-        "start_time": recipe.segments["train"][0],
-        "end_time": recipe.segments["test"][1],
-        "fit_start_time": recipe.segments["train"][0],
-        "fit_end_time": recipe.segments["train"][1],
-        "freq": "day",
-    }
     return {
         "class": "DatasetH",
         "module_path": "qlib.data.dataset",
         "kwargs": {
-            "handler": {
-                "class": "Alpha158",
-                "module_path": "qlib.contrib.data.handler",
-                "kwargs": handler_kwargs,
-            },
+            "handler": handler_config(
+                recipe.feature_config,
+                instruments=recipe.universe,
+                start=recipe.segments["train"][0],
+                end=recipe.segments["test"][1],
+                fit_start=recipe.segments["train"][0],
+                fit_end=recipe.segments["train"][1],
+                handler_kwargs=recipe.handler_kwargs,
+            ),
             "segments": recipe.segments,
         },
     }

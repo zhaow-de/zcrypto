@@ -44,6 +44,8 @@ class Recipe:
     feature_lookback_days: int = field(default=60)
     cv_n_groups: int = field(default=6)
     cv_test_groups: int = field(default=2)
+    # Pluggable feature handler class (see docs/specs/00013). Default = Alpha158.
+    feature_config: dict = field(default_factory=lambda: {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"})
     # Walk-forward holdout retraining (see docs/specs/00011). Off = single-fit holdout.
     wf_enabled: bool = field(default=False)
     wf_retrain_freq: str = field(default="quarter")  # quarter | year

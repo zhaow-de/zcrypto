@@ -191,3 +191,58 @@ def test_regime_steady_matches_steady_book_and_label():
     assert rg.wf_enabled is True  # Phase B: walk-forward holdout retraining enabled
     assert rg.wf_retrain_freq == "quarter"
     assert rg.wf_window == "expanding"
+
+
+# --- feature_config seam: pluggable handler class (iter-13 Task 1) ---
+
+
+def test_handler_config_builds_full_handler_dict():
+    from cli.experiment.scaffold import handler_config
+
+    out = handler_config(
+        {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"},
+        instruments=["BTCUSDT", "ETHUSDT"],
+        start="2020-01-01",
+        end="2025-12-31",
+        fit_start="2020-01-01",
+        fit_end="2023-12-31",
+        handler_kwargs={"label": (["x"], ["L"])},
+    )
+    assert out["class"] == "Alpha158" and out["module_path"] == "qlib.contrib.data.handler"
+    assert out["kwargs"]["instruments"] == ["BTCUSDT", "ETHUSDT"]
+    assert out["kwargs"]["start_time"] == "2020-01-01" and out["kwargs"]["end_time"] == "2025-12-31"
+    assert out["kwargs"]["fit_start_time"] == "2020-01-01" and out["kwargs"]["fit_end_time"] == "2023-12-31"
+    assert out["kwargs"]["freq"] == "day" and out["kwargs"]["label"] == (["x"], ["L"])
+
+
+def test_benchmarks_use_alpha158_feature_config():
+    for name in ("skeleton", "steady", "regime_steady"):
+        fc = resolve_recipe(name).feature_config
+        assert fc == {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"}
+
+
+# --- alpha360_steady recipe: steady book + Alpha360 features (A/B on feature handler) ---
+
+
+def test_alpha360_steady_uses_alpha360_and_steady_book():
+    r = resolve_recipe("alpha360_steady")
+    assert r.feature_config == {"class": "Alpha360", "module_path": "qlib.contrib.data.handler"}
+    st = resolve_recipe("steady")
+    assert r.universe == st.universe and r.segments == st.segments
+    assert r.strategy_config == st.strategy_config and r.model_config == st.model_config
+    assert r.label_horizon_days == st.label_horizon_days
+
+
+# --- crossasset_steady recipe: steady book + cross-asset features (A/B on feature information) ---
+
+
+def test_crossasset_steady_prepends_cross_asset_processor():
+    r = resolve_recipe("crossasset_steady")
+    assert r.feature_config == {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"}
+    procs = r.handler_kwargs["infer_processors"]
+    assert procs[0]["class"] == "CrossAssetProcessor"
+    assert procs[0]["module_path"] == "cli.experiment.features.cross_asset"
+    # steady's normalization still present, after the cross-asset step
+    assert any(p["class"] == "RobustZScoreNorm" for p in procs)
+    st = resolve_recipe("steady")
+    assert r.universe == st.universe and r.model_config == st.model_config

@@ -93,6 +93,7 @@ RECIPE = Recipe(
         "module_path": "qlib.contrib.strategy.signal_strategy",
         "kwargs": {"topk": 10, "n_drop": 1, "hold_thresh": 5},
     },
+    feature_config={"class": "Alpha158", "module_path": "qlib.contrib.data.handler"},
     # --- below: identical to skeleton (clean A/B; guarded by tests) ---
     segments={
         "train": ("2020-01-01", "2023-12-31"),

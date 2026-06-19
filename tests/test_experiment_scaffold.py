@@ -15,9 +15,10 @@ from pathlib import Path
 
 import pytest
 
+from cli.experiment import cpcv as _cpcv_mod
 from cli.experiment.recipes import skeleton
 from cli.experiment.recipes.base import resolve_recipe
-from cli.experiment.scaffold import run_experiment, strategy_config_with_signal
+from cli.experiment.scaffold import handler_config, run_experiment, strategy_config_with_signal
 from cli.experiment.strategies.regime import regime_exposure_series
 
 PROVIDER = Path(__file__).resolve().parents[1] / "cli" / "experiment" / "data" / "provider"
@@ -183,3 +184,98 @@ def test_walkforward_holdout_stitches_multiple_periods(tmp_path):
     assert result.ending_value > 0
     assert not result.account_curve.empty
     assert result.account_curve.index.is_monotonic_increasing
+
+
+def test_feature_seam_preserves_skeleton_handler_class():
+    """Phase-A feature seam: handler_config from skeleton.feature_config yields Alpha158.
+
+    Verifies that the pluggable-feature-handler seam (iter-13) correctly threads
+    feature_config through handler_config so the skeleton recipe still produces an
+    Alpha158 handler config — i.e. the seam is transparent for existing recipes.
+    """
+    recipe = resolve_recipe("skeleton")
+    cfg = handler_config(
+        recipe.feature_config,
+        instruments=list(recipe.universe)[:3],
+        start="2023-01-01",
+        end="2023-12-31",
+        fit_start="2023-01-01",
+        fit_end="2023-12-31",
+        handler_kwargs=recipe.handler_kwargs,
+    )
+    assert cfg["class"] == "Alpha158", f"Expected Alpha158, got {cfg['class']}"
+
+
+def test_alpha360_steady_runs_end_to_end(tmp_path):
+    """Phase-A integration: alpha360_steady completes + produces finite metrics on the fixture.
+
+    Alpha360 (~360 raw OHLCV features) is the A/B against Alpha158 for the steady book.
+    This guards that the feature_config seam threads Alpha360 correctly through qlib's
+    DatasetH + handler init, and that the recipe runs without error on the fixture span.
+    """
+    data_dir = tmp_path / "provider"
+    shutil.copytree(PROVIDER, data_dir)
+    out_dir = tmp_path / "out"
+
+    recipe = dataclasses.replace(resolve_recipe("alpha360_steady"), segments=_FIXTURE_SEGMENTS)
+    result = run_experiment(recipe, data_dir=data_dir, out_dir=out_dir, refresh_cache=True)
+
+    for key in ["strategy_absolute", "excess_return_with_cost", "excess_return_without_cost"]:
+        for m in ["annualized_return", "information_ratio", "max_drawdown"]:
+            assert math.isfinite(result.metrics[key][m]), f"alpha360_steady: {key}/{m} not finite"
+
+    assert result.ending_value > 0
+
+
+def test_crossasset_steady_runs_and_column_present(tmp_path):
+    """Phase-A integration: crossasset_steady completes + cross-asset column appears in the feature matrix.
+
+    Asserts three things:
+    1. The end-to-end run completes and produces finite metrics.
+    2. The materialized infer_df (via _materialize_span) contains a cross-asset feature
+       column — specifically `rs_20` (20-day relative-strength vs BTC), whose window fits
+       the fixture warmup span (~43 trading days / ~60 calendar days before train start on 2023-03-01).
+    3. The run result's ending_value is positive (backtest completed, not flat).
+
+    Note on NaN tolerance: the fixture is ~544 trading days; longer windows (beta_60, coint_z
+    at 60d, leadlag at 60d) warm up slowly and may be NaN-filled on the early rows. The
+    assertion guards column presence + run completion, not specific values.
+    """
+    # --- 1. End-to-end run ---
+    data_dir = tmp_path / "provider"
+    shutil.copytree(PROVIDER, data_dir)
+    out_dir = tmp_path / "out"
+
+    recipe = dataclasses.replace(resolve_recipe("crossasset_steady"), segments=_FIXTURE_SEGMENTS)
+    result = run_experiment(recipe, data_dir=data_dir, out_dir=out_dir, refresh_cache=True)
+
+    for key in ["strategy_absolute", "excess_return_with_cost", "excess_return_without_cost"]:
+        for m in ["annualized_return", "information_ratio", "max_drawdown"]:
+            assert math.isfinite(result.metrics[key][m]), f"crossasset_steady: {key}/{m} not finite"
+
+    assert result.ending_value > 0
+
+    # --- 2. Cross-asset column present in the materialized feature matrix ---
+    # Re-use the same data_dir (already cache-primed by the run above) to materialise
+    # just the train span and inspect the ("feature", *) columns.
+    import contextlib
+    import tempfile
+
+    import qlib
+    from qlib.constant import REG_US
+
+    train_start, train_end = _FIXTURE_SEGMENTS["train"]
+    with tempfile.TemporaryDirectory(prefix="zcrypto-xasset-check-") as cwd_tmp, contextlib.chdir(cwd_tmp):
+        # qlib.init reinitializes module-level globals; safe here because data_dir is the
+        # same cache-primed dir used by run_experiment above, so no cold-cache penalty.
+        qlib.init(
+            provider_uri=str(data_dir),
+            region=REG_US,
+            expression_cache="DiskExpressionCache",
+            dataset_cache="DiskDatasetCache",
+            logging_config=None,
+        )
+        infer_df, _ = _cpcv_mod._materialize_span(recipe, train_start, train_end)
+
+    feat_cols = infer_df["feature"].columns.tolist()
+    assert "rs_20" in feat_cols, f"Expected 'rs_20' in feature columns; got: {feat_cols}"
