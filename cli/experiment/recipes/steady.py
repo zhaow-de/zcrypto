@@ -36,7 +36,7 @@ Sharpe / PSR / excess-vs-BTC, and both lose ~63-66%. Both also show a positive
 CPCV out-of-sample Sharpe on 2020-2024 (~+1.0) that inverts to negative on the
 holdout (~-0.63), with PBO = 0.91: a market-regime mismatch that recipe-only
 tuning cannot fix. The lever that could is the BTC-regime overlay — open-topic
-00003 (scaffold-level), not another recipe.
+T0003 (scaffold-level), not another recipe.
 
 The non-lever fields below (universe, segments, fees, account, benchmark,
 reference_instruments, feature_lookback_days, cv knobs) are deliberately

@@ -96,7 +96,7 @@ Switches reviewer attribution from a single closeout-commit aggregation to per-c
 
 *[#15](https://github.com/zhaow-de/zcrypto/pull/15) by @zhaow-de*
 
-#### park pandas concat-with-empty FutureWarning as open-topic 00001
+#### park pandas concat-with-empty FutureWarning as open-topic T0001
 
 Tracks a benign pandas `FutureWarning` from the backfill staging step as an open topic so it isn't lost before a future pandas upgrade.
 

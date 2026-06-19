@@ -104,7 +104,7 @@ The rule codifies these behaviors:
     order (append-only at close time), which may differ from serial order.
   - Each bullet: a markdown link to the topic file followed by a
     one-sentence description, e.g.
-    `- [00000 — qlib empty-slice warnings](00000-qlib-empty-slice-warnings.md) — benign numpy diagnostic from qlib's per-step aggregation; revisit when the logger gains warning filters.`
+    `- [T0000 — qlib empty-slice warnings](T0000-qlib-empty-slice-warnings.md) — benign numpy diagnostic from qlib's per-step aggregation; revisit when the logger gains warning filters.`
   - The pre-commit `mdformat` hook covers this file; let it regenerate the
     TOC — never hand-edit the `<!-- mdformat-toc … -->` block.
 

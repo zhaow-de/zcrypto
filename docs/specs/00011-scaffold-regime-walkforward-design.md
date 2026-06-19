@@ -5,12 +5,12 @@
 - **Iteration:** iter-12
 - **Scope:** Open the experiment scaffold's hardcoded **strategy** seam so strategies
   are recipe-pluggable; ship (A) a parameterized **BTC-trend regime overlay**
-  (resolves open-topic `00003`) and (B) **walk-forward retraining** for the holdout.
+  (resolves open-topic `T0003`) and (B) **walk-forward retraining** for the holdout.
   Both are direct responses to the regime non-stationarity the `steady` validation
   exposed. All from existing daily-kline data — **no new data**.
 - **Depends on:** spec `00006` (experiment scaffold), `00008` (CPCV), `00010`
   (PSR/DSR/PBO + `rank`).
-- **Resolves:** open-topic `00003` (BTC-trend regime overlay + vol-targeting).
+- **Resolves:** open-topic `T0003` (BTC-trend regime overlay + vol-targeting).
 
 ## Goal
 
@@ -53,7 +53,7 @@ levers here are the two scaffold-level answers to that: **gate the left tail**
 | Vol-targeting | A **knob on the regime strategy, default OFF**. |
 | Walk-forward | Holdout-only; **quarterly + expanding** default; cadence (`wf_retrain_freq`) and window (`wf_window` ∈ expanding/rolling, `wf_rolling_years`) are recipe knobs. **Orthogonal to CPCV**; composable with `--quick`. |
 | Benchmark preservation | `skeleton` + `steady` migrate behavior-preservingly (`wf_enabled=False`, identical `TopkDropout`); regression test guards it. |
-| Deferred | Enhance `00004` (parametric size-scaled slippage, separable from data-gated aggTrades maker-fill); new `00007` (multi-window stress harness); new `00008` (pluggable feature handler). Authored at closeout. |
+| Deferred | Enhance `T0004` (parametric size-scaled slippage, separable from data-gated aggTrades maker-fill); new `T0007` (multi-window stress harness); new `T0008` (pluggable feature handler). Authored at closeout. |
 
 ## Components
 
@@ -68,7 +68,7 @@ cli/experiment/
 ├── walkforward.py         # NEW: pure period-splitting (build_wf_periods)
 ├── scaffold.py            # MODIFY: build strategy from strategy_config; walk-forward holdout loop
 └── cpcv.py                # MODIFY: build strategy from strategy_config (path backtests)
-docs/open-topics/          # CLOSEOUT: 00003 resolved; 00004 enhanced; 00007 + 00008 new
+docs/open-topics/          # CLOSEOUT: T0003 resolved; T0004 enhanced; T0007 + T0008 new
 README.md                  # CLOSEOUT: Usage (regime recipe, strategy_config, wf knobs)
 docs/iterations-history.md # CLOSEOUT: iter-12 entry
 ```
@@ -166,20 +166,20 @@ walk-forward on (Phase B). Same universe/segments/fees ⇒ clean A/B vs
 
 ## Out of scope
 
-- aggTrades-calibrated slippage / maker-fill (`00004` data part); multi-window
-  training stress (`00007`); pluggable feature handler / Alpha360 (`00008`);
-  point-in-time universe (`00005`); paper trading (`00006`); long/short (spot — N/A).
+- aggTrades-calibrated slippage / maker-fill (`T0004` data part); multi-window
+  training stress (`T0007`); pluggable feature handler / Alpha360 (`T0008`);
+  point-in-time universe (`T0005`); paper trading (`T0006`); long/short (spot — N/A).
 
 ## Closeout (executed at end of iteration)
 
-- **`docs/open-topics/00003`** → `status: resolved` (regime overlay + vol-targeting
+- **`docs/open-topics/T0003`** → `status: resolved` (regime overlay + vol-targeting
   knob shipped); move its bullet to `## Resolved`.
-- **`docs/open-topics/00004`** → enhance `## Findings so far`: a parametric
+- **`docs/open-topics/T0004`** → enhance `## Findings so far`: a parametric
   size-scaled slippage term is a scaffold extension separable from the data-gated
   aggTrades maker-fill; §13 Stage 2 specified it for the baseline.
-- **`docs/open-topics/00007`** (new) — multi-window training-stress harness
+- **`docs/open-topics/T0007`** (new) — multi-window training-stress harness
   (§13 Stage 3: stress across 2017 vs 2020 start + LUNA/FTX).
-- **`docs/open-topics/00008`** (new) — pluggable feature handler (Alpha360 / custom
+- **`docs/open-topics/T0008`** (new) — pluggable feature handler (Alpha360 / custom
   crypto features: momentum, funding, cointegration-deviations per §5).
 - **README `## Usage`** — the `regime_steady` recipe, the `strategy_config` recipe field,
   and the `wf_*` knobs.
@@ -191,7 +191,7 @@ walk-forward on (Phase B). Same universe/segments/fees ⇒ clean A/B vs
 ## References
 
 - `steady` negative verdict + the regime-mismatch evidence: PR #41,
-  `docs/open-topics/00003-btc-regime-overlay.md`.
+  `docs/open-topics/T0003-btc-regime-overlay.md`.
 - Research roadmap §5 (strategy family + regime overlay), §13 Stage 3 (robustness).
 - qlib `TopkDropoutStrategy` / `BaseSignalStrategy.get_risk_degree`
   (`qlib/contrib/strategy/signal_strategy.py`).

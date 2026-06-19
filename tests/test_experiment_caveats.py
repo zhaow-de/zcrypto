@@ -5,5 +5,5 @@ def test_experiment_caveats_shape_and_survivorship_present():
     for c in EXPERIMENT_CAVEATS:
         assert {"topic", "summary"} <= set(c)
         assert c["topic"] and c["summary"]
-    assert "00005" in {c["topic"] for c in EXPERIMENT_CAVEATS}  # survivorship caveat present
+    assert "T0005" in {c["topic"] for c in EXPERIMENT_CAVEATS}  # survivorship caveat present
     assert isinstance(SURVIVORSHIP_MARKER, str) and SURVIVORSHIP_MARKER.strip()
