@@ -22,7 +22,7 @@ import pandas as pd
 from cli.experiment.cache import ensure_cache_fresh
 from cli.experiment.cv import assemble_paths, build_cv_plan
 from cli.experiment.recipes.base import Recipe
-from cli.experiment.scaffold import exchange_kwargs, redis_preflight, strategy_config_with_signal
+from cli.experiment.scaffold import exchange_kwargs, handler_config, redis_preflight, strategy_config_with_signal
 from cli.logging import get_logger
 
 logger = get_logger("experiment.cpcv")
@@ -73,25 +73,20 @@ def _materialize_span(recipe: Recipe, start: str, end: str):
     from qlib.data.dataset.handler import DataHandlerLP
     from qlib.utils import init_instance_by_config
 
-    handler_kwargs = {
-        **recipe.handler_kwargs,
-        "instruments": list(recipe.universe),
-        "start_time": start,
-        "end_time": end,
-        "fit_start_time": start,
-        "fit_end_time": end,
-        "freq": "day",
-    }
     dataset = init_instance_by_config(
         {
             "class": "DatasetH",
             "module_path": "qlib.data.dataset",
             "kwargs": {
-                "handler": {
-                    "class": "Alpha158",
-                    "module_path": "qlib.contrib.data.handler",
-                    "kwargs": handler_kwargs,
-                },
+                "handler": handler_config(
+                    recipe.feature_config,
+                    instruments=recipe.universe,
+                    start=start,
+                    end=end,
+                    fit_start=start,
+                    fit_end=end,
+                    handler_kwargs=recipe.handler_kwargs,
+                ),
                 "segments": {"all": (start, end)},
             },
         }

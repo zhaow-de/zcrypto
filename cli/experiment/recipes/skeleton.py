@@ -35,6 +35,7 @@ RECIPE = Recipe(
         "module_path": "qlib.contrib.strategy.signal_strategy",
         "kwargs": {"topk": 5, "n_drop": 1},
     },
+    feature_config={"class": "Alpha158", "module_path": "qlib.contrib.data.handler"},
     segments={
         "train": ("2020-01-01", "2023-12-31"),
         "valid": ("2024-01-01", "2024-12-31"),

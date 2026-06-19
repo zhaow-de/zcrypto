@@ -191,3 +191,31 @@ def test_regime_steady_matches_steady_book_and_label():
     assert rg.wf_enabled is True  # Phase B: walk-forward holdout retraining enabled
     assert rg.wf_retrain_freq == "quarter"
     assert rg.wf_window == "expanding"
+
+
+# --- feature_config seam: pluggable handler class (iter-13 Task 1) ---
+
+
+def test_handler_config_builds_full_handler_dict():
+    from cli.experiment.scaffold import handler_config
+
+    out = handler_config(
+        {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"},
+        instruments=["BTCUSDT", "ETHUSDT"],
+        start="2020-01-01",
+        end="2025-12-31",
+        fit_start="2020-01-01",
+        fit_end="2023-12-31",
+        handler_kwargs={"label": (["x"], ["L"])},
+    )
+    assert out["class"] == "Alpha158" and out["module_path"] == "qlib.contrib.data.handler"
+    assert out["kwargs"]["instruments"] == ["BTCUSDT", "ETHUSDT"]
+    assert out["kwargs"]["start_time"] == "2020-01-01" and out["kwargs"]["end_time"] == "2025-12-31"
+    assert out["kwargs"]["fit_start_time"] == "2020-01-01" and out["kwargs"]["fit_end_time"] == "2023-12-31"
+    assert out["kwargs"]["freq"] == "day" and out["kwargs"]["label"] == (["x"], ["L"])
+
+
+def test_benchmarks_use_alpha158_feature_config():
+    for name in ("skeleton", "steady", "regime_steady"):
+        fc = resolve_recipe(name).feature_config
+        assert fc == {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"}

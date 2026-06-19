@@ -75,6 +75,7 @@ RECIPE = Recipe(
             "vol_target": None,
         },
     },
+    feature_config={"class": "Alpha158", "module_path": "qlib.contrib.data.handler"},
     # --- below: identical to steady (clean A/B; guarded by tests) ---
     segments={
         "train": ("2020-01-01", "2023-12-31"),
