@@ -219,7 +219,7 @@ zcrypto data rename MATICUSDT POLUSDT --dry-run                             # pr
 
 #### `zcrypto experiment`<a name="zcrypto-experiment"></a>
 
-Run an end-to-end Qlib pipeline — Alpha158 features (158-factor library, default 2-day-forward label) → LightGBM ranker → TopkDropout long/cash daily backtest → 3- or 4-panel Plotly report — and write a predict-ready run bundle. The **recipe is the single swappable moving part**: swap `cli/experiment/recipes/<name>.py` to change the universe, features, model, or strategy parameters and iterate.
+Run an end-to-end Qlib pipeline — Alpha158 features (158-factor library, default 2-day-forward label) → LightGBM ranker → TopkDropout long/cash daily backtest → 3- or 4-panel Plotly report — and write a predict-ready run bundle. The **recipe is the single swappable moving part**: swap `cli/experiment/recipes/<name>.py` to change the universe, features, model, strategy class, or strategy parameters and iterate.
 
 > **Prerequisite:** Redis must be running before you invoke this command (`./scripts/redis.sh start`). The command performs a Redis pre-flight check and exits with a clear error if Redis is unreachable.
 
@@ -238,6 +238,53 @@ By default `experiment` runs combinatorial purged cross-validation (CPCV) over `
 | `--refresh-cache`    | off                          | Force-wipe qlib's on-disk feature/dataset cache before the run.                         |
 | `--quick/--no-quick` | off                          | Skip CPCV; run only the single train→backtest holdout.                                  |
 | `--open/--no-open`   | on when stdout is a TTY      | Open `report.html` in a browser when done. Auto-detected from whether stdout is a TTY.  |
+
+##### Built-in recipes
+
+| Recipe          | Description                                                                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skeleton`      | Naive baseline: `TopkDropoutStrategy` (topk=5), Alpha158 2-day label, no regime filter. Benchmark only — not a profitable strategy.                  |
+| `steady`        | Low-turnover book: `TopkDropoutStrategy` (topk=10, hold_thresh=5), 5-day label, stronger regularization. Validated but beats neither steady market.  |
+| `regime_steady` | `steady`'s model + book with a BTC-trend regime overlay (`RegimeGatedTopkStrategy`, binary 200-day SMA, vol-targeting off) and walk-forward holdout. |
+
+##### Recipe fields: `strategy_config` and walk-forward knobs
+
+Each recipe is a Python dataclass. Two sets of fields control the strategy class and holdout retraining:
+
+**`strategy_config`** — a full strategy init dict (mirrors `model_config`) that the scaffold passes to `init_instance_by_config`. This makes the strategy class recipe-selectable; the runtime `signal=(model, dataset)` is injected automatically.
+
+```python
+strategy_config = {
+    "class": "RegimeGatedTopkStrategy",
+    "module_path": "cli.experiment.strategies.regime",
+    "kwargs": {
+        "topk": 10,
+        "n_drop": 2,
+        "hold_thresh": 5,
+        "regime_mode": "binary",       # "binary" | "graded" | "cross"
+        "regime_benchmark": "BTCUSDT",
+        "regime_ma_window": 200,       # primary SMA window (days)
+        "regime_ma_fast": None,        # fast SMA for "cross" mode
+        "regime_band": 0.0,            # ±band around SMA for "graded" mode
+        "chop_exposure": 0.5,          # exposure in the graded middle tier
+        "vol_target": None,            # annualized vol target (None = off)
+        "vol_lookback": 30,            # realized-vol lookback (days)
+    },
+}
+```
+
+`skeleton` and `steady` use `strategy_config` pointing at `TopkDropoutStrategy` — behavior-identical to before the seam was opened.
+
+**Walk-forward knobs** (holdout only; CPCV is unaffected):
+
+| Field              | Default       | Description                                                                         |
+| ------------------ | ------------- | ----------------------------------------------------------------------------------- |
+| `wf_enabled`       | `False`       | Enable walk-forward holdout retraining (off by default; `regime_steady` sets True). |
+| `wf_retrain_freq`  | `"quarter"`   | Retrain cadence: `"quarter"` or `"year"`.                                           |
+| `wf_window`        | `"expanding"` | Window type: `"expanding"` (all history to period start) or `"rolling"`.            |
+| `wf_rolling_years` | `3`           | Training window length when `wf_window="rolling"` (years).                          |
+
+When `wf_enabled=True`, the holdout is produced by looping retrain periods: fit on the train window, predict the period, backtest it, then stitch the per-period daily returns into one holdout curve. The stitched curve feeds the same `metrics.json` / `returns.csv` / holdout PSR outputs as the single-fit path. Each period starts all-cash (conservative; mirrors CPCV path independence).
 
 **Run bundle layout** — each run writes a timestamped directory `runs/<recipe>/<UTC-timestamp>/`:
 
@@ -259,12 +306,13 @@ By default `experiment` runs combinatorial purged cross-validation (CPCV) over `
 Every run emits a survivorship caveat (universe is today's surviving pairs; delisted pairs absent) — shown in the report title and stdout, and recorded under `caveats` in `run_meta.json`; see open-topic `00005`.
 
 ```bash
-./scripts/redis.sh start                                   # ensure Redis is up
-zcrypto experiment                                         # run with CPCV + holdout (default)
-zcrypto experiment --quick                                 # holdout only; skip CPCV
-zcrypto experiment --recipe my_recipe                      # run a custom recipe
-zcrypto experiment --refresh-cache --no-open               # bust the cache; no browser
-mlflow ui --backend-store-uri runs/skeleton/<ts>/mlruns    # inspect the MLflow run
+./scripts/redis.sh start                                      # ensure Redis is up
+zcrypto experiment                                            # run with CPCV + holdout (default)
+zcrypto experiment --quick                                    # holdout only; skip CPCV
+zcrypto experiment --recipe regime_steady                     # BTC-regime overlay + walk-forward
+zcrypto experiment --recipe my_recipe                         # run a custom recipe
+zcrypto experiment --refresh-cache --no-open                  # bust the cache; no browser
+mlflow ui --backend-store-uri runs/skeleton/<ts>/mlruns       # inspect the MLflow run
 ```
 
 #### `zcrypto rank`<a name="zcrypto-rank"></a>

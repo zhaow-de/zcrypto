@@ -24,6 +24,15 @@ Deferred from the experiment skeleton (spec `00006`). Fee presets already live i
 the recipe; slippage/fill realism need an aggTrades sample (absent from the daily
 dataset). References: research §6 (trade/aggTrade), §8 (fees), §13 Stage 3.
 
+**Parametric size-scaled slippage (iter-12, spec `00011`).** Research §13 Stage 2
+specifies the cost baseline as "12 bps + a size-scaled slippage term" (bps
+proportional to order size / daily $-volume). This parametric term is a scaffold
+extension (a new cost-model argument to the recipe/backtest) that is **separable**
+from the data-gated aggTrades maker-fill path — it requires no new data, only a
+formula applied to the daily-kline volume already in the dataset. It was identified
+during iter-12 scoping but deferred; the aggTrades fill-realism work (the harder
+data-gated part) remains the primary open item.
+
 ## Suggested next steps
 
 - Pull a representative aggTrades window; estimate size-scaled slippage vs daily

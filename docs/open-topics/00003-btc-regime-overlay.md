@@ -1,5 +1,5 @@
 ---
-status: open
+status: resolved
 priority: medium
 ---
 
@@ -49,3 +49,13 @@ TopkDropout-compatible exposure gate — not purely a recipe.
 - Gate exposure (full / reduced / cash) off it; optionally vol-target sizing.
 - Implement as a new strategy in a recipe; compare to the baseline on the same
   window.
+
+## Resolution
+
+Shipped in iter-12 (spec `00011`, PR targeting `develop`). `RegimeGatedTopkStrategy`
+subclasses `TopkDropoutStrategy` and gates gross exposure via qlib's native
+`get_risk_degree(trade_step)` hook. Three modes are recipe-tunable: `binary`
+(price vs SMA, default 200-day), `graded` (±band around SMA with a `chop_exposure`
+middle tier), and `cross` (dual-SMA crossover). A vol-targeting knob (default off)
+scales exposure by `min(1, vol_target / realized_vol)`. Demo recipe `regime_steady`
+pairs steady's model+book with binary-200d regime and walk-forward holdout retraining.
