@@ -100,6 +100,8 @@ Prepare a Qlib-ready dataset from Binance spot klines. Bare `zcrypto data` print
 
 **Status-aware behavior:** Pairs with Binance status `TRADING` are extended to `--to`; non-`TRADING` pairs (e.g. delisted — status `BREAK`, `HALT`, etc.) are downloaded as historical archive only or skipped during backfill.
 
+**Funding rates (`$funding`):** alongside OHLCV, each instrument also carries a `$funding` field — the daily-summed Binance USDT-perpetual funding rate (the carry signal), fetched from the Binance Vision `futures/um/monthly/fundingRate` archives and aligned same-day with `$close`. It is handled transparently by every subcommand: `download`/`backfill` fetch and write it, `verify` reports its per-coin coverage, `delist` removes it, and `rename` carries it across the old→new symbol. The spot↔perp mapping is mostly identity, with `PEPE`→`1000PEPEUSDT` and a MATIC→POL time-split; instruments without a perp (or before its launch) read `NaN`. No extra flags — funding rides the normal data lifecycle.
+
 ##### Layout
 
 The dataset uses a **two-root layout**:
