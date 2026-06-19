@@ -72,7 +72,7 @@ def test_recipe_has_cv_defaults():
             name="x",
             handler_kwargs={},
             model_config={},
-            strategy_kwargs={},
+            strategy_config={},
             segments={},
             universe=(),
             reference_instruments=(),
@@ -92,7 +92,7 @@ def test_resolve_steady_name():
 
 def test_steady_low_turnover_strategy():
     # Lever 2: diversified, sticky book to cut the 12 bps turnover drag.
-    assert resolve_recipe("steady").strategy_kwargs == {"topk": 10, "n_drop": 1, "hold_thresh": 5}
+    assert resolve_recipe("steady").strategy_config["kwargs"] == {"topk": 10, "n_drop": 1, "hold_thresh": 5}
 
 
 def test_steady_label_horizon_matches_label():
@@ -134,3 +134,60 @@ def test_steady_model_more_regularized_than_skeleton():
     # lower row/column subsampling = more bagging regularization
     assert s["colsample_bytree"] < k["colsample_bytree"]
     assert s["subsample"] < k["subsample"]
+
+
+def test_strategy_config_with_signal_injects_signal():
+    from cli.experiment.scaffold import strategy_config_with_signal
+
+    cfg = {"class": "TopkDropoutStrategy", "module_path": "m", "kwargs": {"topk": 5}}
+    out = strategy_config_with_signal(cfg, signal="SIG")
+    assert out["class"] == "TopkDropoutStrategy" and out["module_path"] == "m"
+    assert out["kwargs"] == {"topk": 5, "signal": "SIG"}
+    assert cfg["kwargs"] == {"topk": 5}  # input not mutated
+
+
+def test_skeleton_strategy_config_is_topk_dropout_unchanged():
+    r = resolve_recipe("skeleton")
+    sc = r.strategy_config
+    assert sc["class"] == "TopkDropoutStrategy"
+    assert sc["module_path"] == "qlib.contrib.strategy.signal_strategy"
+    assert sc["kwargs"] == {"topk": 5, "n_drop": 1}
+
+
+def test_steady_strategy_config_is_topk_dropout_unchanged():
+    sc = resolve_recipe("steady").strategy_config
+    assert sc["class"] == "TopkDropoutStrategy"
+    assert sc["kwargs"] == {"topk": 10, "n_drop": 1, "hold_thresh": 5}
+
+
+def test_recipe_walkforward_defaults_off():
+    r = resolve_recipe("skeleton")
+    assert r.wf_enabled is False
+    assert r.wf_retrain_freq == "quarter"
+    assert r.wf_window == "expanding"
+    assert r.wf_rolling_years == 3
+
+
+# --- regime_steady recipe: steady book + binary-200 regime overlay, walk-forward off for now ---
+
+
+def test_regime_steady_uses_regime_strategy():
+    r = resolve_recipe("regime_steady")
+    sc = r.strategy_config
+    assert sc["class"] == "RegimeGatedTopkStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["regime_mode"] == "binary"
+    assert sc["kwargs"]["regime_ma_window"] == 200
+    assert sc["kwargs"]["vol_target"] is None  # default off
+    # steady's book preserved
+    assert sc["kwargs"]["topk"] == 10 and sc["kwargs"]["hold_thresh"] == 5
+
+
+def test_regime_steady_matches_steady_book_and_label():
+    rg, st = resolve_recipe("regime_steady"), resolve_recipe("steady")
+    assert rg.universe == st.universe and rg.segments == st.segments
+    assert rg.handler_kwargs["label"] == st.handler_kwargs["label"]
+    assert rg.label_horizon_days == st.label_horizon_days == 6
+    assert rg.wf_enabled is True  # Phase B: walk-forward holdout retraining enabled
+    assert rg.wf_retrain_freq == "quarter"
+    assert rg.wf_window == "expanding"

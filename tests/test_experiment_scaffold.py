@@ -16,7 +16,9 @@ from pathlib import Path
 import pytest
 
 from cli.experiment.recipes import skeleton
-from cli.experiment.scaffold import run_experiment
+from cli.experiment.recipes.base import resolve_recipe
+from cli.experiment.scaffold import run_experiment, strategy_config_with_signal
+from cli.experiment.strategies.regime import regime_exposure_series
 
 PROVIDER = Path(__file__).resolve().parents[1] / "cli" / "experiment" / "data" / "provider"
 
@@ -91,3 +93,93 @@ def test_run_experiment_against_fixture(tmp_path):
     assert (out_dir / "mlruns").exists()
     assert (data_dir / "features_cache").exists() or (data_dir / "dataset_cache").exists()
     assert (data_dir / ".experiment_cache_fingerprint").exists()
+
+
+def test_seam_preserves_skeleton_strategy_class():
+    """Phase-A seam smoke: strategy_config_with_signal round-trips the skeleton class name."""
+    sc = resolve_recipe("skeleton").strategy_config
+    built = strategy_config_with_signal(sc, "dummy_signal")
+    assert built["class"] == "TopkDropoutStrategy"
+
+
+def test_phase_a_regime_steady_runs_and_gate_engages(tmp_path):
+    """Phase-A integration: regime_steady completes + BTC regime gate yields 0.0 on a downtrend.
+
+    The fixture (2023-01-02 to 2024-06-28, ~544 trading days) contains a sustained BTC downtrend
+    (peak ~22k down to ~14k, -39% peak-to-trough). A 20-day MA window — not the production 200-day
+    window — is used here to keep the exposure assertion fixture-length-independent; this test guards
+    wiring, not the production hyperparameter.
+    """
+    import numpy as np
+
+    # --- 1. Seam assertion: resolve_recipe returns the right class ---
+    sc = resolve_recipe("regime_steady").strategy_config
+    assert sc["class"] == "RegimeGatedTopkStrategy"
+
+    # --- 2. Regime gate assertion: exposure series yields 0.0 somewhere on the fixture's BTC close ---
+    # Read the raw BTCUSDT close from the committed fixture provider dir (no qlib init needed).
+    close_bin = PROVIDER / "features" / "btcusdt" / "close.day.bin"
+    raw = np.frombuffer(close_bin.read_bytes(), dtype="<f4")
+    # qlib binary format: first element is a 0.0 placeholder; data starts at index 1.
+    close_vals = raw[1:].astype("float64")
+    cal_lines = (PROVIDER / "calendars" / "day.txt").read_text().strip().splitlines()
+    import pandas as pd
+
+    btc_close = pd.Series(close_vals, index=pd.to_datetime(cal_lines))
+
+    # Use ma_window=20 (not production 200) so the test works on a ~544-day fixture.
+    exposure = regime_exposure_series(btc_close, mode="binary", ma_window=20)
+    assert (exposure == 0.0).any(), "Expected at least one 0.0 (risk-off) day with ma_window=20 on the fixture BTC downtrend"
+
+    # --- 3. End-to-end smoke: regime_steady runs and produces finite metrics ---
+    data_dir = tmp_path / "provider"
+    shutil.copytree(PROVIDER, data_dir)
+    out_dir = tmp_path / "out"
+
+    recipe = dataclasses.replace(resolve_recipe("regime_steady"), segments=_FIXTURE_SEGMENTS)
+    result = run_experiment(recipe, data_dir=data_dir, out_dir=out_dir, refresh_cache=True)
+
+    for key in ["strategy_absolute", "excess_return_with_cost", "excess_return_without_cost"]:
+        for m in ["annualized_return", "information_ratio", "max_drawdown"]:
+            assert math.isfinite(result.metrics[key][m]), f"regime_steady: {key}/{m} not finite"
+
+    assert result.ending_value > 0
+
+
+def test_walkforward_holdout_stitches_multiple_periods(tmp_path):
+    """Phase-B integration: wf_enabled retrains per quarter and stitches a contiguous holdout.
+
+    On the fixture's test window (2024-03-01..2024-06-27) quarterly walk-forward yields two
+    periods (Q1 tail + Q2); the runner concatenates their per-period report_df into one
+    monotonically-increasing holdout with finite metrics. Heavier than the single-fit path
+    (it fits one booster per period), so it is the wf-specific smoke.
+    """
+    data_dir = tmp_path / "provider"
+    shutil.copytree(PROVIDER, data_dir)
+    out_dir = tmp_path / "out"
+
+    recipe = dataclasses.replace(
+        resolve_recipe("steady"),
+        name="wf_probe",
+        segments=_FIXTURE_SEGMENTS,
+        wf_enabled=True,
+        wf_retrain_freq="quarter",
+    )
+    result = run_experiment(recipe, data_dir=data_dir, out_dir=out_dir, refresh_cache=True)
+
+    # The walk-forward path ran and stitched more than one retrain period.
+    assert result.wf_periods is not None and result.wf_periods > 1
+
+    # Stitched holdout is non-empty and contiguous (>1 period concatenated in order).
+    assert len(result.report_df) > 0
+    assert result.report_df.index.is_monotonic_increasing
+    assert not result.report_df.index.has_duplicates
+
+    # Metrics present (the validation outputs the report / rank consume).
+    assert "strategy_absolute" in result.metrics
+    for m in ["annualized_return", "information_ratio", "max_drawdown"]:
+        assert math.isfinite(result.metrics["strategy_absolute"][m]), f"wf: strategy_absolute/{m} not finite"
+
+    assert result.ending_value > 0
+    assert not result.account_curve.empty
+    assert result.account_curve.index.is_monotonic_increasing

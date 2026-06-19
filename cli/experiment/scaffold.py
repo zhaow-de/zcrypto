@@ -27,6 +27,11 @@ logger = get_logger("experiment.scaffold")
 _METRICS = ["annualized_return", "information_ratio", "max_drawdown"]
 
 
+def strategy_config_with_signal(strategy_config: dict, signal) -> dict:
+    """Inject the runtime ``signal`` into a recipe's static strategy config."""
+    return {**strategy_config, "kwargs": {**strategy_config.get("kwargs", {}), "signal": signal}}
+
+
 @dataclass
 class RunResult:
     """Everything downstream tasks (trades, report, command) need from one run."""
@@ -43,6 +48,9 @@ class RunResult:
     recorder_dir: Path
     recipe: Recipe
     data_fingerprint: str
+    # Walk-forward provenance: None for the single-fit holdout, else the number of
+    # retrain periods stitched into report_df (see cli/experiment/walkforward.py).
+    wf_periods: int | None = None
 
 
 def redis_preflight() -> None:
@@ -112,11 +120,7 @@ def _port_analysis_config(recipe: Recipe, model, dataset) -> dict:
             "module_path": "qlib.backtest.executor",
             "kwargs": {"time_per_step": "day", "generate_portfolio_metrics": True},
         },
-        "strategy": {
-            "class": "TopkDropoutStrategy",
-            "module_path": "qlib.contrib.strategy.signal_strategy",
-            "kwargs": {**recipe.strategy_kwargs, "signal": (model, dataset)},
-        },
+        "strategy": strategy_config_with_signal(recipe.strategy_config, (model, dataset)),
         "backtest": {
             "start_time": recipe.segments["test"][0],
             "end_time": recipe.segments["test"][1],
@@ -172,6 +176,13 @@ def run_experiment(
     data_dir = Path(data_dir).resolve()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if recipe.wf_enabled:
+        # Walk-forward holdout: periodic retraining + stitched report_df. Returns a
+        # single-fit-compatible RunResult; the single-fit path below is untouched.
+        from cli.experiment.walkforward import run_walkforward_holdout
+
+        return run_walkforward_holdout(recipe, data_dir=data_dir, refresh_cache=refresh_cache)
 
     redis_preflight()
     logger.info("redis-ok", extra={"port": int(os.environ.get("ZCRYPTO_REDIS_PORT", "6379"))})
