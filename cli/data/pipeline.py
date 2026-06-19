@@ -17,6 +17,7 @@ from cli.config import FetchConfig
 from cli.data import mirror
 from cli.data.binance import Source
 from cli.data.config import FIELDS, SCHEMA_VERSION, SUPPORTED_INTERVALS
+from cli.data.funding import daily_funding, parse_funding, perp_symbol
 from cli.data.index import (
     CalendarEntry,
     FieldEntry,
@@ -569,6 +570,58 @@ def _read_existing_pair(
     return _pd.DataFrame(rec)
 
 
+def _fetch_funding_archive_cached(source: Source, perp: str, year: int, month: int, mirror_root: Path) -> bytes | None:
+    """Monthly funding-rate zip bytes for `perp`/`year-month`, mirror-cached.
+
+    Mirror hit → return cached bytes. Miss → fetch from the source; a 404 (None) is
+    cached as a miss (not persisted — a later run re-probes in case the archive
+    appears); otherwise the bytes are saved to the mirror and returned.
+    """
+    mpath = mirror.funding_mirror_path(mirror_root, perp, year, month)
+    cached = mirror.read_zip(mpath)
+    if cached is not None:
+        logger.debug("funding mirror hit %s %d-%02d: %s", perp, year, month, mpath)
+        return cached
+    raw = source.fetch_funding_archive(perp, year, month)
+    if raw is None:
+        return None
+    mirror.save_zip(mpath, raw)
+    return raw
+
+
+def _funding_for_pair(
+    source: Source, instrument: str, from_date: dt.date, to_date: dt.date, mirror_root: Path
+) -> dict[dt.date, float]:
+    """Daily-summed funding for `instrument` over [from_date, to_date], honoring the
+    per-date perp mapping (PEPE→1000PEPEUSDT, POL→MATIC/POL split with a rename gap).
+
+    Each (perp, UTC-month) archive is fetched at most once. Months where `perp_symbol`
+    is None (rename gap) or `fetch_funding_archive` returns None (404) contribute no
+    funding — those dates are simply absent from the returned map (→ NaN on write).
+    """
+    # The (perp, year, month) tuples needed across the range — deduped. We scan
+    # day-by-day (cheap: pure date arithmetic, no I/O) rather than once-per-month so
+    # the POL split is captured: September 2024 maps to BOTH MATICUSDT (≤09-10) and
+    # POLUSDT (≥09-13), and a once-per-month probe would miss the second perp.
+    needed: dict[tuple[str, int, int], None] = {}
+    cur = from_date
+    while cur <= to_date:
+        perp = perp_symbol(instrument, cur)
+        if perp is not None:
+            needed[(perp, cur.year, cur.month)] = None
+        cur += dt.timedelta(days=1)
+
+    out: dict[dt.date, float] = {}
+    for perp, year, month in needed:
+        raw = _fetch_funding_archive_cached(source, perp, year, month, mirror_root)
+        if raw is None:
+            continue
+        for day, rate in daily_funding(parse_funding(raw)).items():
+            if from_date <= day <= to_date:
+                out[day] = rate
+    return out
+
+
 def _build_staging(
     out_dir: Path,
     staging: Path,
@@ -576,6 +629,8 @@ def _build_staging(
     new_rows_per_sym: dict[str, _pd.DataFrame],
     existing: IndexData | None,
     interval: str,
+    source: Source,
+    mirror_root: Path,
 ) -> None:
     """Assemble the complete dataset in `staging/`. Old + new rows merged per pair."""
     if staging.exists():
@@ -623,6 +678,18 @@ def _build_staging(
             rel = f"features/{p.symbol.lower()}/{f}.day.bin"
             write_bin(staging / rel, [float(v) for v in df[f].tolist()], start_index=start_idx)
             fields_entries[f] = FieldEntry(bin=rel, sha256=compute_sha256(staging / rel), updated_at=utc_now_iso())
+        # Funding: a registered field aligned to the same calendar slots as the kline
+        # bins (same start_index, same row count). Dates with no funding (pre-perp-launch,
+        # the MATIC→POL rename gap, or an archive 404) are absent from the map → NaN,
+        # matching how the kline path leaves missing days (qlib returns NaN on query).
+        pair_from, pair_to = df["date"].iloc[0], df["date"].iloc[-1]
+        fmap = _funding_for_pair(source, p.symbol, pair_from, pair_to, mirror_root)
+        funding_values = [fmap.get(d, float("nan")) for d in df["date"].tolist()]
+        funding_rel = f"features/{p.symbol.lower()}/funding.day.bin"
+        write_bin(staging / funding_rel, funding_values, start_index=start_idx)
+        fields_entries["funding"] = FieldEntry(
+            bin=funding_rel, sha256=compute_sha256(staging / funding_rel), updated_at=utc_now_iso()
+        )
         pairs_entries[p.symbol] = PairEntry(
             base_asset=p.base,
             quote_asset=p.quote,
@@ -799,7 +866,9 @@ def _download_apply(paths: DatasetPaths, staging: Path, plan: DownloadPlan, sour
     new_rows_per_sym: dict[str, _pd.DataFrame] = {
         p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan.per_pair
     }
-    _build_staging(paths.data_dir, staging, plan.per_pair, new_rows_per_sym, plan.existing, plan.interval)
+    _build_staging(
+        paths.data_dir, staging, plan.per_pair, new_rows_per_sym, plan.existing, plan.interval, source, mirror.root_for(paths)
+    )
 
 
 def download_pipeline(
@@ -952,7 +1021,7 @@ def _backfill_apply(
     for p in carry_over:
         new_rows_per_sym[p.symbol] = _pd.DataFrame(columns=["date"] + list(FIELDS))
 
-    _build_staging(paths.data_dir, staging, all_pairs, new_rows_per_sym, existing, interval)
+    _build_staging(paths.data_dir, staging, all_pairs, new_rows_per_sym, existing, interval, source, mirror.root_for(paths))
 
 
 def backfill_pipeline(
@@ -1180,6 +1249,9 @@ _FIELD_SYNTH: dict[str, float] = {
     "taker_buy_base": 0.0,
     "taker_buy_amount": 0.0,
     "factor": 1.0,
+    # Funding has no value across a rename gap (the perp was halted), so NaN —
+    # mirroring the price fields' suspension marker.
+    "funding": _NAN,
 }
 
 
@@ -1370,12 +1442,17 @@ def _build_pair_entry_from_staging(
     rows: int,
     interval: str = "1d",
 ) -> PairEntry:
-    """Build a PairEntry by computing sha256 of each field bin in staging."""
+    """Build a PairEntry by computing sha256 of each field bin in staging.
+
+    Registers every ``*.bin`` actually present in the pair's staging dir (not the FIELDS
+    constant) so carried-over fields such as funding are registered, never orphaned.
+    """
     fields_entries: dict[str, FieldEntry] = {}
     feat_lower = sym.lower()
-    for fname in FIELDS:
+    feat_dir = staging / "features" / feat_lower
+    for bin_path in sorted(feat_dir.glob("*.day.bin")):
+        fname = bin_path.name.removesuffix(".day.bin")
         rel = f"features/{feat_lower}/{fname}.day.bin"
-        bin_path = staging / rel
         fields_entries[fname] = FieldEntry(
             bin=rel,
             sha256=compute_sha256(bin_path),
@@ -1424,7 +1501,9 @@ def _rename_apply_variant1(paths: DatasetPaths, staging: Path, plan: RenamePlan)
 
         if sym == plan.old_symbol and plan.gap_dates:
             # Append synthetic float32 values for each gap day to each field bin.
-            for field in FIELDS:
+            # Iterate the pair's ACTUAL registered fields (not the FIELDS constant) so
+            # any field carried in the dataset — e.g. funding — gets gap-filled too.
+            for field in pair_entry.intervals[interval].fields:
                 bin_path = dst_dir / f"{field}.day.bin"
                 gap_bytes = b""
                 for _d in plan.gap_dates:
@@ -1472,7 +1551,9 @@ def _rename_apply_variant1(paths: DatasetPaths, staging: Path, plan: RenamePlan)
             feat_lower = sym.lower()
 
         fields_entries: dict[str, FieldEntry] = {}
-        for fname in FIELDS:
+        # Register the pair's ACTUAL fields (not the FIELDS constant) so a carried-over
+        # field such as funding is registered and never left as an orphan bin.
+        for fname in pair_entry.intervals[interval].fields:
             rel = f"features/{feat_lower}/{fname}.day.bin"
             bin_path = staging / rel
             fields_entries[fname] = FieldEntry(
@@ -1558,7 +1639,9 @@ def _rename_apply_variant2(paths: DatasetPaths, staging: Path, plan: RenamePlan)
 
     new_start_index = new_cal_dates.index(merged_from)
 
-    for field in FIELDS:
+    # Merge the NEW pair's ACTUAL fields (not the FIELDS constant) so a carried-over
+    # field such as funding is merged (OLD + gap + NEW) and registered, not orphaned.
+    for field in new_interval.fields:
         old_bytes = (old_dir_live / f"{field}.day.bin").read_bytes()
         new_bytes = (new_dir_live / f"{field}.day.bin").read_bytes()
         # Strip the 4-byte start_index header from each.

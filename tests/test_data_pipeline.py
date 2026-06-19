@@ -290,6 +290,73 @@ def test_download_extend_contiguous_no_adjust(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Funding write tests (iter-15 Task 3)
+# ---------------------------------------------------------------------------
+
+
+import math  # noqa: E402
+
+from cli.data.qlib_writer import read_bin  # noqa: E402
+
+
+def test_download_writes_funding_bin_aligned_to_calendar(tmp_path):
+    """download writes features/<inst>/funding.day.bin aligned to the kline calendar.
+
+    The synthetic funding zip puts three settlements (0.0001+0.0002+0.0003 = 0.0006)
+    on day 1 of each month and nothing else, so day-1 funding == 0.0006 and every
+    other day in the month is absent (NaN)."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    data_dir = tmp_path / "data"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=tmp_path / "bk")
+
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    for d in (dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(4)):
+        src.add_kline("BTCUSDT", "1d", d, base_price=20000.0)
+    src.add_funding("BTCUSDT", 2024, 1)  # day-1 funding == 0.0006, days 2-4 absent
+
+    download_pipeline(paths, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 4), src)
+    assert verify_dataset(data_dir).ok
+
+    start_idx, values = read_bin(data_dir / "features" / "btcusdt" / "funding.day.bin")
+    assert start_idx == 0  # same start_index as the kline bins (calendar starts 2024-01-01)
+    _, close_values = read_bin(data_dir / "features" / "btcusdt" / "close.day.bin")
+    assert len(values) == len(close_values)  # same row count as the kline bins
+    assert values[0] == pytest.approx(0.0006)  # 2024-01-01: sum of the three settlements
+    assert all(math.isnan(v) for v in values[1:])  # 2024-01-02..04 absent → NaN
+
+
+def test_download_funding_starts_late_has_nan_early(tmp_path):
+    """A pair whose funding archive starts in a later month than its klines has the
+    early (pre-funding) dates absent/NaN, aligned to the same calendar."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    data_dir = tmp_path / "data"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=tmp_path / "bk")
+
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    # Klines span Jan→Feb 2024; funding archive only exists for February.
+    cur = dt.date(2024, 1, 30)
+    while cur <= dt.date(2024, 2, 2):
+        src.add_kline("BTCUSDT", "1d", cur, base_price=20000.0)
+        cur += dt.timedelta(days=1)
+    src.add_funding("BTCUSDT", 2024, 2)  # Jan archive is a 404 (not registered)
+
+    download_pipeline(paths, pairs, "1d", dt.date(2024, 1, 30), dt.date(2024, 2, 2), src)
+    assert verify_dataset(data_dir).ok
+
+    start_idx, values = read_bin(data_dir / "features" / "btcusdt" / "funding.day.bin")
+    assert start_idx == 0
+    # Calendar: 2024-01-30, 01-31, 02-01, 02-02.
+    assert math.isnan(values[0])  # 2024-01-30 — no Jan archive
+    assert math.isnan(values[1])  # 2024-01-31 — no Jan archive
+    assert values[2] == pytest.approx(0.0006)  # 2024-02-01 — three Feb settlements
+    assert math.isnan(values[3])  # 2024-02-02 — absent within Feb archive
+
+
+# ---------------------------------------------------------------------------
 # Concurrent fetcher tests (Slice 5)
 # ---------------------------------------------------------------------------
 
