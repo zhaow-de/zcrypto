@@ -231,3 +231,18 @@ def test_alpha360_steady_uses_alpha360_and_steady_book():
     assert r.universe == st.universe and r.segments == st.segments
     assert r.strategy_config == st.strategy_config and r.model_config == st.model_config
     assert r.label_horizon_days == st.label_horizon_days
+
+
+# --- crossasset_steady recipe: steady book + cross-asset features (A/B on feature information) ---
+
+
+def test_crossasset_steady_prepends_cross_asset_processor():
+    r = resolve_recipe("crossasset_steady")
+    assert r.feature_config == {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"}
+    procs = r.handler_kwargs["infer_processors"]
+    assert procs[0]["class"] == "CrossAssetProcessor"
+    assert procs[0]["module_path"] == "cli.experiment.features.cross_asset"
+    # steady's normalization still present, after the cross-asset step
+    assert any(p["class"] == "RobustZScoreNorm" for p in procs)
+    st = resolve_recipe("steady")
+    assert r.universe == st.universe and r.model_config == st.model_config
