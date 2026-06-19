@@ -219,3 +219,15 @@ def test_benchmarks_use_alpha158_feature_config():
     for name in ("skeleton", "steady", "regime_steady"):
         fc = resolve_recipe(name).feature_config
         assert fc == {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"}
+
+
+# --- alpha360_steady recipe: steady book + Alpha360 features (A/B on feature handler) ---
+
+
+def test_alpha360_steady_uses_alpha360_and_steady_book():
+    r = resolve_recipe("alpha360_steady")
+    assert r.feature_config == {"class": "Alpha360", "module_path": "qlib.contrib.data.handler"}
+    st = resolve_recipe("steady")
+    assert r.universe == st.universe and r.segments == st.segments
+    assert r.strategy_config == st.strategy_config and r.model_config == st.model_config
+    assert r.label_horizon_days == st.label_horizon_days
