@@ -48,3 +48,40 @@ def test_vol_target_scales_down_high_vol():
 def test_multiplier_bounded_unit_interval():
     s = regime_exposure_series(_close(list(range(1, 60))), mode="binary", ma_window=10)
     assert s.min() >= 0.0 and s.max() <= 1.0
+
+
+def test_regime_get_risk_degree_scales_base_by_multiplier(monkeypatch):
+    from cli.experiment.strategies import regime as rg
+
+    # Avoid the qlib data query in __init__: stub _build_exposure to a fixed series.
+    idx = pd.date_range("2025-01-01", periods=3, freq="D")
+    monkeypatch.setattr(
+        rg.RegimeGatedTopkStrategy,
+        "_build_exposure",
+        lambda self: pd.Series([1.0, 0.0, 0.5], index=idx),
+    )
+    strat = rg.RegimeGatedTopkStrategy(topk=5, n_drop=1, signal=pd.Series(dtype="float64"), risk_degree=0.95)
+
+    class _Cal:  # minimal trade_calendar stub
+        def __init__(self, d):
+            self._d = d
+
+        def get_trade_step(self):
+            return 0
+
+        def get_step_time(self, step, shift=0):
+            return (self._d, self._d)
+
+    # qlib's `trade_calendar` is a read-only property; stub it at the class level.
+    def _use(cal):
+        monkeypatch.setattr(rg.RegimeGatedTopkStrategy, "trade_calendar", property(lambda self: cal), raising=False)
+
+    _use(_Cal(idx[1]))  # risk-off date -> multiplier 0.0
+    assert strat.get_risk_degree(0) == 0.0
+    _use(_Cal(idx[0]))  # full
+    assert strat.get_risk_degree(0) == 0.95
+    _use(_Cal(idx[2]))  # chop -> 0.95 * 0.5
+    assert abs(strat.get_risk_degree(0) - 0.475) < 1e-9
+    # a date past the series -> carry forward the last value (0.5)
+    _use(_Cal(pd.Timestamp("2025-06-01")))
+    assert abs(strat.get_risk_degree(0) - 0.475) < 1e-9
