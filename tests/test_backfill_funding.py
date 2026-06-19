@@ -1,4 +1,4 @@
-"""Tests for scripts/backfill_funding.py — FakeSource only, no network.
+"""Tests for cli/data/scripts/backfill_funding.py — FakeSource only, no network.
 
 Task 6 (iter-15): one-time idempotent $funding retrofit script.
 """
@@ -58,7 +58,7 @@ def _seed_klines_only(tmp_path: Path) -> tuple[DatasetPaths, FakeSource]:
 
 def test_retrofit_funding_writes_bins(tmp_path: Path) -> None:
     """First run: retrofit_funding writes funding.day.bin for each instrument."""
-    from scripts.backfill_funding import retrofit_funding
+    from cli.data.scripts.backfill_funding import retrofit_funding
 
     paths, src = _seed_klines_only(tmp_path)
 
@@ -94,7 +94,7 @@ def test_retrofit_funding_writes_bins(tmp_path: Path) -> None:
 
 def test_retrofit_funding_idempotent(tmp_path: Path) -> None:
     """Second run: retrofit_funding is byte-identical — nothing overwritten."""
-    from scripts.backfill_funding import retrofit_funding
+    from cli.data.scripts.backfill_funding import retrofit_funding
 
     paths, src = _seed_klines_only(tmp_path)
     src.add_funding("BTCUSDT", 2024, 1)
@@ -125,7 +125,7 @@ def test_retrofit_funding_idempotent(tmp_path: Path) -> None:
 
 def test_retrofit_funding_does_not_touch_ohlcv(tmp_path: Path) -> None:
     """retrofit_funding must not modify OHLCV bins."""
-    from scripts.backfill_funding import retrofit_funding
+    from cli.data.scripts.backfill_funding import retrofit_funding
 
     paths, src = _seed_klines_only(tmp_path)
     src.add_funding("BTCUSDT", 2024, 1)
@@ -150,8 +150,8 @@ def test_retrofit_funding_does_not_touch_ohlcv(tmp_path: Path) -> None:
 
 def test_retrofit_funding_dataset_passes_verify(tmp_path: Path) -> None:
     """After retrofit, verify_dataset must pass — funding.day.bin must be indexed, not orphaned."""
+    from cli.data.scripts.backfill_funding import retrofit_funding
     from cli.data.verify import verify_dataset
-    from scripts.backfill_funding import retrofit_funding
 
     paths, src = _seed_klines_only(tmp_path)
     src.add_funding("BTCUSDT", 2024, 1)
@@ -169,7 +169,7 @@ def test_main_resolves_paths_and_calls_core(tmp_path: Path, monkeypatch) -> None
     import sys
 
     from cli.config import AppConfig, FetchConfig
-    from scripts.backfill_funding import main
+    from cli.data.scripts.backfill_funding import main
 
     called_with = {}
 
@@ -181,8 +181,8 @@ def test_main_resolves_paths_and_calls_core(tmp_path: Path, monkeypatch) -> None
         called_with["source"] = source
         return {"written": 0, "skipped": 0}
 
-    monkeypatch.setattr("scripts.backfill_funding.load_config", fake_load_config)
-    monkeypatch.setattr("scripts.backfill_funding.retrofit_funding", fake_retrofit)
+    monkeypatch.setattr("cli.data.scripts.backfill_funding.load_config", fake_load_config)
+    monkeypatch.setattr("cli.data.scripts.backfill_funding.retrofit_funding", fake_retrofit)
     # Isolate sys.argv so argparse does not see pytest's own arguments.
     monkeypatch.setattr(sys, "argv", ["backfill_funding"])
 

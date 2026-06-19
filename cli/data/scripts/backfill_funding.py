@@ -2,13 +2,13 @@
 in an existing dataset that was built before the funding layer was added.
 
 Usage:
-    uv run python scripts/backfill_funding.py [--data-dir <path>]
+    uv run python cli/data/scripts/backfill_funding.py [--data-dir <path>]
 
 Idempotency: if an instrument's funding.day.bin already exists AND its row count
 matches the instrument's kline row count (full coverage), that instrument is skipped.
 A full re-run writes nothing new and leaves the dataset byte-identical.
 
-This script is NOT part of the routine `zcrypto data` flow — see scripts/README.md.
+This script is NOT part of the routine `zcrypto data` flow — see cli/data/scripts/README.md.
 """
 
 from __future__ import annotations
