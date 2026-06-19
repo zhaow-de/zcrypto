@@ -46,6 +46,205 @@ def test_experiment_errors_when_no_data_dir_configured(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# Fast wiring tests: monkeypatch heavy fns to capture kwargs.
+# --------------------------------------------------------------------------
+def _make_fake_result(tmp_path):
+    """Build a minimal RunResult-alike that lets command.py run to completion."""
+    import numpy as np
+    import pandas as pd
+
+    dates = pd.date_range("2024-01-01", periods=5, freq="D")
+    report_df = pd.DataFrame({"return": np.zeros(5), "cost": np.zeros(5), "bench": np.zeros(5)}, index=dates)
+    return type(
+        "RunResult",
+        (),
+        {
+            "run_id": "fake-run-id",
+            "ending_value": 10000.0,
+            "report_df": report_df,
+            "positions": {},
+            "analysis_df": pd.DataFrame(),
+            "account_curve": pd.Series(np.ones(5), index=dates),
+            "benchmark_curve": pd.Series(np.ones(5), index=dates),
+            "context_prices": {},
+            "metrics": {
+                "strategy_absolute": {"information_ratio": 0.5, "annualized_return": 0.1, "max_drawdown": -0.1},
+                "excess_return_with_cost": {"annualized_return": 0.05, "max_drawdown": -0.05, "information_ratio": 0.3},
+                "excess_return_without_cost": {},
+            },
+            "recorder_dir": tmp_path,
+            "recipe": None,
+            "data_fingerprint": "abc123",
+            "wf_periods": None,
+        },
+    )()
+
+
+def _patch_experiment_heavy_fns(monkeypatch, tmp_path, captured, fake_result):
+    """Monkeypatch the deferred-import heavy functions and supporting helpers."""
+    import cli.experiment.cpcv as cpcv_mod
+    import cli.experiment.multiseed as multiseed_mod
+    import cli.experiment.scaffold as scaffold_mod
+
+    def fake_run_cpcv(recipe, *, data_dir, refresh_cache=False, seed=None, deterministic=False):
+        captured["run_cpcv_kwargs"] = {"seed": seed, "deterministic": deterministic, "refresh_cache": refresh_cache}
+        return type(
+            "CPCVResult",
+            (),
+            {
+                "meta": {"n_paths": 3},
+                "paths": [{"sharpe": 0.5}],
+                "distribution": {"sharpe_mean": 0.5, "sharpe_std": 0.1, "sharpe_worst": 0.2},
+                "rank_ic": {"mean": 0.05},
+            },
+        )()
+
+    def fake_run_experiment(recipe, *, data_dir, out_dir, refresh_cache=False, seed=None, deterministic=False):
+        captured["run_experiment_kwargs"] = {"seed": seed, "deterministic": deterministic, "refresh_cache": refresh_cache}
+        return fake_result
+
+    def fake_run_holdout_seeds(recipe, *, data_dir, seeds, deterministic=False):
+        captured["run_holdout_seeds_kwargs"] = {"seeds": seeds, "deterministic": deterministic}
+        return {
+            "per_seed": [
+                {"seed": k, "ending_value": 10000.0, "sharpe": 0.5, "psr": 0.7, "max_drawdown": -0.1} for k in range(1, seeds + 1)
+            ],
+            "summary": {"ending_value": {"mean": 10000.0, "std": 0.0, "min": 10000.0, "max": 10000.0, "n": seeds}},
+        }
+
+    monkeypatch.setattr(cpcv_mod, "run_cpcv", fake_run_cpcv)
+    monkeypatch.setattr(scaffold_mod, "run_experiment", fake_run_experiment)
+    monkeypatch.setattr(multiseed_mod, "run_holdout_seeds", fake_run_holdout_seeds)
+
+    # Also stub the report/chart helpers so no kaleido/plotly is needed.
+    import cli.experiment.report as report_mod
+
+    monkeypatch.setattr(report_mod, "build_report", lambda *a, **kw: object())
+    monkeypatch.setattr(report_mod, "write_report", lambda *a, **kw: None)
+
+    # Stub trades helpers.
+    import cli.experiment.trades as trades_mod
+
+    monkeypatch.setattr(
+        trades_mod, "trades_from_positions", lambda positions: __import__("pandas").DataFrame({"side": [], "size": [], "price": []})
+    )
+    monkeypatch.setattr(trades_mod, "trade_summary", lambda trades: {"total": 0, "buys": 0, "sells": 0})
+
+
+def test_experiment_passes_seeds_and_deterministic(monkeypatch, tmp_path):
+    """--seeds 5 --deterministic wires through to run_experiment + run_holdout_seeds."""
+    import dataclasses as dc
+
+    from cli.experiment.recipes import skeleton
+
+    short_recipe = dc.replace(
+        skeleton.RECIPE,
+        segments={
+            "train": ("2023-03-01", "2023-12-31"),
+            "valid": ("2024-01-01", "2024-02-29"),
+            "test": ("2024-03-01", "2024-06-27"),
+        },
+    )
+    monkeypatch.setattr("cli.experiment.command.resolve_recipe", lambda name: short_recipe)
+    monkeypatch.setattr("cli.experiment.command.load_config", lambda: {})
+    monkeypatch.setattr("cli.experiment.command.resolve_data_dir", lambda d, cfg: tmp_path)
+
+    captured = {}
+    fake_result = _make_fake_result(tmp_path)
+    _patch_experiment_heavy_fns(monkeypatch, tmp_path, captured, fake_result)
+
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "--recipe",
+            "skeleton",
+            "--data-dir",
+            str(tmp_path),
+            "--out",
+            str(tmp_path / "runs"),
+            "--no-open",
+            "--quick",
+            "--seeds",
+            "5",
+            "--deterministic",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    # run_experiment must receive seed=1, deterministic=True
+    assert captured["run_experiment_kwargs"]["seed"] == 1
+    assert captured["run_experiment_kwargs"]["deterministic"] is True
+
+    # run_holdout_seeds must be called with seeds=5, deterministic=True
+    assert "run_holdout_seeds_kwargs" in captured
+    assert captured["run_holdout_seeds_kwargs"]["seeds"] == 5
+    assert captured["run_holdout_seeds_kwargs"]["deterministic"] is True
+
+    # holdout_seeds.json must be written inside the bundle
+    bundles = list((tmp_path / "runs" / "skeleton").glob("*"))
+    assert bundles, "no bundle directory created"
+    bundle = bundles[0]
+    assert (bundle / "holdout_seeds.json").exists()
+    hs = json.loads((bundle / "holdout_seeds.json").read_text())
+    assert "per_seed" in hs
+    assert "summary" in hs
+    assert len(hs["per_seed"]) == 5
+
+
+def test_experiment_default_no_holdout_seeds(monkeypatch, tmp_path):
+    """Default invocation (--seeds 1, no --deterministic) must NOT call run_holdout_seeds."""
+    import dataclasses as dc
+
+    from cli.experiment.recipes import skeleton
+
+    short_recipe = dc.replace(
+        skeleton.RECIPE,
+        segments={
+            "train": ("2023-03-01", "2023-12-31"),
+            "valid": ("2024-01-01", "2024-02-29"),
+            "test": ("2024-03-01", "2024-06-27"),
+        },
+    )
+    monkeypatch.setattr("cli.experiment.command.resolve_recipe", lambda name: short_recipe)
+    monkeypatch.setattr("cli.experiment.command.load_config", lambda: {})
+    monkeypatch.setattr("cli.experiment.command.resolve_data_dir", lambda d, cfg: tmp_path)
+
+    captured = {}
+    fake_result = _make_fake_result(tmp_path)
+    _patch_experiment_heavy_fns(monkeypatch, tmp_path, captured, fake_result)
+
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "--recipe",
+            "skeleton",
+            "--data-dir",
+            str(tmp_path),
+            "--out",
+            str(tmp_path / "runs"),
+            "--no-open",
+            "--quick",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    # Default: seed=None, deterministic=False
+    assert captured["run_experiment_kwargs"]["seed"] is None
+    assert captured["run_experiment_kwargs"]["deterministic"] is False
+
+    # run_holdout_seeds must NOT be called
+    assert "run_holdout_seeds_kwargs" not in captured
+
+    # No holdout_seeds.json
+    bundles = list((tmp_path / "runs" / "skeleton").glob("*"))
+    assert bundles
+    bundle = bundles[0]
+    assert not (bundle / "holdout_seeds.json").exists()
+
+
+# --------------------------------------------------------------------------
 # End-to-end, redis-gated (~100s).
 # --------------------------------------------------------------------------
 @pytest.mark.skipif(not _redis_up(), reason="needs redis (scripts/redis.sh start)")

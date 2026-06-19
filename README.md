@@ -229,15 +229,17 @@ zcrypto experiment [--recipe skeleton] [--data-dir ./data] [--out ./runs] [--svg
 
 By default `experiment` runs combinatorial purged cross-validation (CPCV) over `train+valid` — writing `cv_results.json` (per-path Sharpe distribution + rank-IC + holdout PSR) and a 4th report panel — then the single holdout backtest on `test`. `--quick` skips CPCV. Every run also writes `returns.csv` (holdout cost-adjusted daily returns) and prints a **holdout PSR** (Probabilistic Sharpe Ratio) line — P(true holdout Sharpe > 0), corrected for sample length and non-normality.
 
-| Option               | Default                      | Description                                                                             |
-| -------------------- | ---------------------------- | --------------------------------------------------------------------------------------- |
-| `--recipe`           | `skeleton`                   | Recipe name to run (see `cli/experiment/recipes/`).                                     |
-| `--data-dir`         | `[zcrypto].data_dir` in toml | Qlib provider directory (the `index.json` / `features/` / `calendars/` tree).           |
-| `--out`              | `./runs`                     | Root directory for run bundles; each bundle lands at `<out>/<recipe>/<UTC timestamp>/`. |
-| `--svg/--no-svg`     | off                          | Also render `report.svg` (requires kaleido).                                            |
-| `--refresh-cache`    | off                          | Force-wipe qlib's on-disk feature/dataset cache before the run.                         |
-| `--quick/--no-quick` | off                          | Skip CPCV; run only the single train→backtest holdout.                                  |
-| `--open/--no-open`   | on when stdout is a TTY      | Open `report.html` in a browser when done. Auto-detected from whether stdout is a TTY.  |
+| Option                               | Default                      | Description                                                                                                                                                    |
+| ------------------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--recipe`                           | `skeleton`                   | Recipe name to run (see `cli/experiment/recipes/`).                                                                                                            |
+| `--data-dir`                         | `[zcrypto].data_dir` in toml | Qlib provider directory (the `index.json` / `features/` / `calendars/` tree).                                                                                  |
+| `--out`                              | `./runs`                     | Root directory for run bundles; each bundle lands at `<out>/<recipe>/<UTC timestamp>/`.                                                                        |
+| `--svg/--no-svg`                     | off                          | Also render `report.svg` (requires kaleido).                                                                                                                   |
+| `--refresh-cache`                    | off                          | Force-wipe qlib's on-disk feature/dataset cache before the run.                                                                                                |
+| `--quick/--no-quick`                 | off                          | Skip CPCV; run only the single train→backtest holdout.                                                                                                         |
+| `--open/--no-open`                   | on when stdout is a TTY      | Open `report.html` in a browser when done. Auto-detected from whether stdout is a TTY.                                                                         |
+| `--seeds N`                          | `1`                          | Run the holdout N times with seeds 1…N and write `holdout_seeds.json` (per-seed metrics + distribution summary). No-op when `N=1` (default).                   |
+| `--deterministic/--no-deterministic` | off                          | Fully deterministic mode: fixes seed=1 + LightGBM `force_row_wise`. Makes repeated runs byte-identical. Combine with `--seeds` for a canonical multi-seed run. |
 
 ##### Built-in recipes
 
@@ -311,6 +313,7 @@ When `wf_enabled=True`, the holdout is produced by looping retrain periods: fit 
 | `trades.csv`           | Flat trade log (one row per executed order).                                                                                                                                   |
 | `run_meta.json`        | Manifest: recipe, git commit, qlib/lightgbm versions, segments, universe, fee preset, index fingerprint.                                                                       |
 | `recipe_snapshot.json` | Full recipe parameters as a JSON dict (reproducibility).                                                                                                                       |
+| `holdout_seeds.json`   | Per-seed holdout metrics + distribution summary (only with `--seeds N` where N>1): `{"per_seed": [{seed, ending_value, sharpe, psr, max_drawdown}, …], "summary": {…}}`.       |
 | `model.pkl`            | Predict-ready serialized LightGBM model (copied from the per-run MLflow store).                                                                                                |
 | `mlruns/`              | Per-run MLflow experiment store; inspect with `mlflow ui --backend-store-uri runs/<recipe>/<ts>/mlruns`.                                                                       |
 
@@ -325,6 +328,8 @@ zcrypto experiment --quick                                    # holdout only; sk
 zcrypto experiment --recipe regime_steady                     # BTC-regime overlay + walk-forward
 zcrypto experiment --recipe my_recipe                         # run a custom recipe
 zcrypto experiment --refresh-cache --no-open                  # bust the cache; no browser
+zcrypto experiment --deterministic                            # reproducible canonical run (seed=1)
+zcrypto experiment --seeds 20 --deterministic                 # canonical run + 20-seed holdout distribution → holdout_seeds.json
 mlflow ui --backend-store-uri runs/skeleton/<ts>/mlruns       # inspect the MLflow run
 ```
 
