@@ -186,6 +186,32 @@ def test_walkforward_holdout_stitches_multiple_periods(tmp_path):
     assert result.account_curve.index.is_monotonic_increasing
 
 
+def test_exchange_kwargs_realistic_default_adds_impact_and_haircut():
+    from cli.experiment.recipes.base import FEE_PRESETS, resolve_recipe
+    from cli.experiment.scaffold import exchange_kwargs
+
+    r = resolve_recipe("steady")  # fees_only defaults False
+    ek = exchange_kwargs(r)
+    fee_open, fee_close = FEE_PRESETS[r.fee_preset]
+    assert ek["impact_cost"] == r.impact_cost
+    assert ek["open_cost"] == fee_open + r.maker_fill_haircut
+    assert ek["close_cost"] == fee_close + r.maker_fill_haircut
+    assert ek["deal_price"] == "close" and ek["trade_unit"] is None
+
+
+def test_exchange_kwargs_fees_only_is_todays_behavior():
+    import dataclasses
+
+    from cli.experiment.recipes.base import FEE_PRESETS, resolve_recipe
+    from cli.experiment.scaffold import exchange_kwargs
+
+    r = dataclasses.replace(resolve_recipe("steady"), fees_only=True)
+    ek = exchange_kwargs(r)
+    fee_open, fee_close = FEE_PRESETS[r.fee_preset]
+    assert ek["open_cost"] == fee_open and ek["close_cost"] == fee_close
+    assert "impact_cost" not in ek  # raw fees-only path, byte-identical to pre-iter-19
+
+
 def test_feature_seam_preserves_skeleton_handler_class():
     """Phase-A feature seam: handler_config from skeleton.feature_config yields Alpha158.
 
