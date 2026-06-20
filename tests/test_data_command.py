@@ -280,17 +280,17 @@ def test_data_backfill_dry_run_flag_accepted(tmp_path, monkeypatch):
     assert captured.get("dry_run") is True
 
 
-def test_data_delist_dry_run_flag_accepted(tmp_path, monkeypatch):
-    """`data delist --dry-run` is parsed; the CLI handler passes dry_run=True to delist_pipeline."""
+def test_data_drop_dry_run_flag_accepted(tmp_path, monkeypatch):
+    """`data drop --dry-run` is parsed; the CLI handler passes dry_run=True to drop_pipeline."""
     captured = {}
 
     def fake_pipeline(*args, dry_run=False, **kw):
         captured["dry_run"] = dry_run
 
-    monkeypatch.setattr(cmd_mod, "delist_pipeline", fake_pipeline)
+    monkeypatch.setattr(cmd_mod, "drop_pipeline", fake_pipeline)
 
     result = runner.invoke(
-        app, ["data", "delist", "BTCUSDT", "--data-dir", str(tmp_path / "data"), "--backup-dir", str(tmp_path / "bk"), "--dry-run"]
+        app, ["data", "drop", "BTCUSDT", "--data-dir", str(tmp_path / "data"), "--backup-dir", str(tmp_path / "bk"), "--dry-run"]
     )
     assert result.exit_code == 0, result.output
     assert captured.get("dry_run") is True

@@ -1,4 +1,4 @@
-"""Tests for delist_pipeline and _delist_plan."""
+"""Tests for drop_pipeline and _drop_plan."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 
 from cli.data.index import load_index
 from cli.data.layout import DatasetPaths
-from cli.data.pipeline import PipelineError, delist_pipeline, download_pipeline
+from cli.data.pipeline import PipelineError, download_pipeline, drop_pipeline
 from cli.data.qlib_writer import read_bin
 from cli.data.verify import verify_dataset
 from tests.data_fixtures import FakeSource
@@ -69,11 +69,11 @@ def _seed_single_pair(tmp_path: Path) -> DatasetPaths:
 # ---------------------------------------------------------------------------
 
 
-def test_delist_happy_no_calendar_trim(tmp_path):
+def test_drop_happy_no_calendar_trim(tmp_path):
     """Remove one of three uniform pairs; calendar stays identical."""
     paths = _seed_three_pairs_uniform(tmp_path)
     data_dir = paths.data_dir
-    delist_pipeline(paths, "BTCUSDT")
+    drop_pipeline(paths, "BTCUSDT")
     idx = load_index(data_dir)
     assert set(idx.pairs.keys()) == {"ETHUSDT", "SOLUSDT"}
     cal = (data_dir / "calendars" / "day.txt").read_text().strip().splitlines()
@@ -81,11 +81,11 @@ def test_delist_happy_no_calendar_trim(tmp_path):
     assert verify_dataset(data_dir).ok
 
 
-def test_delist_front_trim_rewrites_headers(tmp_path):
+def test_drop_front_trim_rewrites_headers(tmp_path):
     """Remove BTC (covers 2024-01-01..02 uniquely); ETH's bins get headers rewritten to 0."""
     paths = _seed_ragged_left_two_pairs(tmp_path)
     data_dir = paths.data_dir
-    delist_pipeline(paths, "BTCUSDT")
+    drop_pipeline(paths, "BTCUSDT")
     # Calendar should now start at 2024-01-03 (ETH's first date)
     cal = (data_dir / "calendars" / "day.txt").read_text().strip().splitlines()
     assert cal[0] == "2024-01-03"
@@ -99,26 +99,26 @@ def test_delist_front_trim_rewrites_headers(tmp_path):
     assert verify_dataset(data_dir).ok
 
 
-def test_delist_refuses_not_in_index(tmp_path):
-    """Delisting a symbol not in the index raises PipelineError."""
+def test_drop_refuses_not_in_index(tmp_path):
+    """Dropping a symbol not in the index raises PipelineError."""
     paths = _seed_three_pairs_uniform(tmp_path)
     with pytest.raises(PipelineError, match=r"not in index"):
-        delist_pipeline(paths, "XYZUSDT")
+        drop_pipeline(paths, "XYZUSDT")
 
 
-def test_delist_refuses_last_pair(tmp_path):
-    """Delisting the only pair raises PipelineError about empty dataset."""
+def test_drop_refuses_last_pair(tmp_path):
+    """Dropping the only pair raises PipelineError about empty dataset."""
     paths = _seed_single_pair(tmp_path)
     with pytest.raises(PipelineError, match=r"would leave|empty"):
-        delist_pipeline(paths, "BTCUSDT")
+        drop_pipeline(paths, "BTCUSDT")
 
 
-def test_delist_refuses_gap_creating(tmp_path):
-    """Delisting a pair that uniquely covers a date range in the middle of the calendar
+def test_drop_refuses_gap_creating(tmp_path):
+    """Dropping a pair that uniquely covers a date range in the middle of the calendar
     (no remaining pair covers it) → PipelineError, no mutation."""
     # Seed three pairs: A covers Jan 1-3, B covers Jan 1-7 (the bridge), C covers Jan 5-7.
     # Calendar union: Jan 1-7 (contiguous, because B covers everything).
-    # Delisting B leaves A (Jan 1-3) and C (Jan 5-7) — gap on Jan 4.
+    # Dropping B leaves A (Jan 1-3) and C (Jan 5-7) — gap on Jan 4.
     pairs = tmp_path / "pairs.txt"
     pairs.write_text("AUSDT\nBUSDT\nCUSDT\n")
     data_dir = tmp_path / "data"
@@ -140,7 +140,7 @@ def test_delist_refuses_gap_creating(tmp_path):
 
     snaps_before = sorted((backup_dir / "snapshots").glob("*.tar.gz"))
     with pytest.raises(PipelineError, match=r"non-contiguous|gap"):
-        delist_pipeline(paths, "BUSDT")
+        drop_pipeline(paths, "BUSDT")
     snaps_after = sorted((backup_dir / "snapshots").glob("*.tar.gz"))
     assert snaps_before == snaps_after, "refusal must not take a snapshot"
     # Dataset unchanged
@@ -148,13 +148,13 @@ def test_delist_refuses_gap_creating(tmp_path):
     assert "BUSDT" in idx.pairs
 
 
-def test_delist_dry_run_no_mutation(tmp_path, capsys):
+def test_drop_dry_run_no_mutation(tmp_path, capsys):
     """--dry-run prints the plan but leaves the dataset intact."""
     paths = _seed_three_pairs_uniform(tmp_path)
     data_dir = paths.data_dir
     backup_dir = paths.backup_dir
     snaps_before = sorted((backup_dir / "snapshots").glob("*.tar.gz"))
-    delist_pipeline(paths, "BTCUSDT", dry_run=True)
+    drop_pipeline(paths, "BTCUSDT", dry_run=True)
     snaps_after = sorted((backup_dir / "snapshots").glob("*.tar.gz"))
     assert snaps_before == snaps_after
     captured = capsys.readouterr()

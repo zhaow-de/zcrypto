@@ -1,7 +1,7 @@
-"""Explicit funding-specific tests for delist_pipeline and rename_pipeline.
+"""Explicit funding-specific tests for drop_pipeline and rename_pipeline.
 
 Task 4 (iter-15): these tests lock the behavior that was added in Task 3 —
-delist removes funding.day.bin along with OHLCV bins, and rename carries
+drop removes funding.day.bin along with OHLCV bins, and rename carries
 funding.day.bin across old→new with the rename gap left as NaN.
 No production changes expected; any FAIL indicates a real gap.
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from cli.data.index import load_index
 from cli.data.layout import DatasetPaths
-from cli.data.pipeline import delist_pipeline, download_pipeline, rename_pipeline
+from cli.data.pipeline import download_pipeline, drop_pipeline, rename_pipeline
 from cli.data.qlib_writer import read_bin
 from cli.data.verify import verify_dataset
 from tests.data_fixtures import FakeSource
@@ -67,10 +67,10 @@ def _seed_old_pair_with_funding(tmp_path: Path, old_sym: str, base: str, last_da
 # ---------------------------------------------------------------------------
 
 
-def test_delist_removes_funding_bin(tmp_path):
-    """delist_pipeline must remove funding.day.bin for the delisted pair.
+def test_drop_removes_funding_bin(tmp_path):
+    """drop_pipeline must remove funding.day.bin for the delisted pair.
 
-    After delisting BTCUSDT the entire features/btcusdt/ dir is gone,
+    After dropping BTCUSDT the entire features/btcusdt/ dir is gone,
     including funding.day.bin. The remaining ETH pair still has its
     funding.day.bin intact and the dataset passes verify.
     """
@@ -81,14 +81,14 @@ def test_delist_removes_funding_bin(tmp_path):
     assert (data_dir / "features" / "btcusdt" / "funding.day.bin").exists()
     assert (data_dir / "features" / "ethusdt" / "funding.day.bin").exists()
 
-    delist_pipeline(paths, "BTCUSDT")
+    drop_pipeline(paths, "BTCUSDT")
 
     # Post: BTC dir is gone (funding + OHLCV all removed)
     assert not (data_dir / "features" / "btcusdt").exists()
 
     # ETH funding.day.bin still present
     eth_funding = data_dir / "features" / "ethusdt" / "funding.day.bin"
-    assert eth_funding.exists(), "remaining pair's funding.day.bin must survive delist"
+    assert eth_funding.exists(), "remaining pair's funding.day.bin must survive drop"
 
     # ETH funding bin is readable and has the right length
     _, funding_vals = read_bin(eth_funding)

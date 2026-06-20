@@ -10,7 +10,7 @@ import typer
 from cli.config import ConfigError, load_config, resolve_backup_dir, resolve_data_dir
 from cli.data.binance import BinanceSource
 from cli.data.layout import DatasetPaths
-from cli.data.pipeline import PipelineError, backfill_pipeline, delist_pipeline, download_pipeline, rename_pipeline
+from cli.data.pipeline import PipelineError, backfill_pipeline, download_pipeline, drop_pipeline, rename_pipeline
 from cli.data.verify import verify_dataset
 
 _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -118,6 +118,12 @@ def download_cmd(
         None, "--to", callback=_to_callback, help="ISO date YYYY-MM-DD (default: yesterday UTC)."
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
+    allow_interior_gaps: bool = typer.Option(
+        False,
+        "--allow-interior-gaps",
+        help="Fill a 404 inside a pair's [from, to] range with a NaN suspension row (for a trading-halted "
+        "pair, e.g. FTT during the FTX collapse) instead of hard-erroring. Off by default.",
+    ),
 ) -> None:
     """Fetch Binance spot klines and write/append a Qlib-ready dataset."""
     fd: dt.date = from_date if isinstance(from_date, dt.date) else dt.date(2020, 1, 1)  # type: ignore[assignment]
@@ -126,7 +132,15 @@ def download_cmd(
     paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     try:
         download_pipeline(
-            paths, pairs_file, interval, fd, td, source=BinanceSource(fetch=cfg.fetch), fetch=cfg.fetch, dry_run=dry_run
+            paths,
+            pairs_file,
+            interval,
+            fd,
+            td,
+            source=BinanceSource(fetch=cfg.fetch),
+            fetch=cfg.fetch,
+            dry_run=dry_run,
+            allow_interior_gaps=allow_interior_gaps,
         )
     except PipelineError as e:
         typer.echo(f"ERROR: {e}", err=True)
@@ -165,8 +179,8 @@ def backfill_cmd(
         typer.echo(f"backfill complete: {data_dir}")
 
 
-@data_app.command("delist")
-def delist_cmd(
+@data_app.command("drop")
+def drop_cmd(
     symbol: str = typer.Argument(..., help="Symbol to remove (e.g. BTCUSDT)."),
     data_dir: Optional[Path] = typer.Option(  # noqa: UP007
         None, "--data-dir", help="Compiled dataset dir. Defaults to [zcrypto].data_dir in zcrypto.toml.", file_okay=False
@@ -179,17 +193,17 @@ def delist_cmd(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
 ) -> None:
-    """Remove SYMBOL from the dataset."""
+    """Remove SYMBOL from the dataset (e.g. a mistaken or unwanted pair)."""
     symbol = symbol.upper()
     _cfg, data_dir, backup_dir = _load_and_resolve(data_dir, backup_dir, need_backup=True)
     paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     try:
-        delist_pipeline(paths, symbol, dry_run=dry_run)
+        drop_pipeline(paths, symbol, dry_run=dry_run)
     except PipelineError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1)
     if not dry_run:
-        typer.echo(f"delist complete: {symbol} removed from {data_dir}")
+        typer.echo(f"drop complete: {symbol} removed from {data_dir}")
 
 
 @data_app.command("rename")

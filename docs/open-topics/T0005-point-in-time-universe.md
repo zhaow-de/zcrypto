@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 priority: medium
 ---
 
@@ -32,17 +32,32 @@ so a real fix must first acquire historically-delisted pairs. iter-10 added an
 honest survivorship caveat to the experiment outputs (report title, stdout,
 `run_meta.json` `caveats`) but changed no results.
 
+## Done so far
+
+**Survivorship-free data substrate landed (iter-16, spec `00015`).** The dataset now
+includes 10 ever-top-25 USDT majors that blew up / faded out of the current 19, acquired
+with their real listing→delisting ranges so the panel is no longer survivor-only:
+`DASHUSDT`/`ZECUSDT`/`QTUMUSDT`/`ICXUSDT` (full history), `FTTUSDT` (full, with the
+FTX-collapse suspension `2022-11-16..2023-09-21` carried as NaN), and the delisted
+`WAVESUSDT`/`OMGUSDT`/`XEMUSDT` (archive-only to 2024-06-17), `BTGUSDT` (..2022-10-24),
+`NANOUSDT` (..2022-01-24). The RECON corrected the original premise: Binance keeps
+delisted symbols in `exchangeInfo` as `status="BREAK"` (not removed), so the existing
+`download` acquires them archive-only — no not-in-`exchangeInfo` path was needed.
+Two supporting changes shipped: `delist` was **renamed → `drop`** (a pure pair-removal
+tool — market delistings are now *retained*, not deleted, removing the survivorship
+footgun), and an opt-in **`--allow-interior-gaps`** download flag NaN-fills interior 404s
+(trading halts) so halted blow-ups acquire honestly without weakening the regular
+download. qlib returns each pair's rows only within its real range → point-in-time
+membership is free the moment a recipe's `universe` includes them.
+
 ## Suggested next steps
 
-- Acquire historically-delisted Binance USDT pairs' data (enumerate
-  `data.binance.vision` for symbols whose daily-kline archives end before today)
-  so the panel is survivorship-free.
-- Change `zcrypto data delist` to retain-with-end-date (or keep a delisted
-  registry) instead of deleting history.
-- Build point-in-time membership over the expanded panel (qlib market-name
-  instruments file honoring per-symbol listing/delist dates) and feed it to the
-  experiment.
-- Add a delisting-loss assumption (forced liquidation at the last close / a
-  size-scaled haircut).
-- Re-measure the baseline's edge under the point-in-time universe vs the current
-  survivor universe.
+- **Expand each `recipe.universe` to include the delisted majors** (PIT membership — qlib
+  already honors the per-symbol ranges; the universe tuples just gain the symbols).
+- **Add a delisting-loss assumption** — liquidate a held position at its last available
+  close when a pair delists (the klines capture the crash; FTT's suspension is NaN).
+- **Re-measure** the baseline on the PIT universe vs the survivor universe to quantify the
+  survivorship inflation → flips `T0005` → resolved. (The systematic multi-window/crisis
+  sweep is `T0007`, now data-enabled by this substrate.)
+- (Stretch) acquire the Terra collapse (`LUNC`/`USTC`) — deferred here for the
+  LUNA→LUNC/Luna-2.0 symbol-reuse complication.

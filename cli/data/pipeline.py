@@ -47,8 +47,8 @@ __all__ = [
     "DownloadPlan",
     "backfill_pipeline",
     "BackfillPlan",
-    "delist_pipeline",
-    "DelistPlan",
+    "drop_pipeline",
+    "DropPlan",
     "rename_pipeline",
     "RenamePlan",
 ]
@@ -358,7 +358,7 @@ def _resolve_ranges(
     requested = set(pair_to_assets.keys())
     absent_from_file = sorted(indexed_pairs - requested)
     if absent_from_file:
-        raise PipelineError(f"indexed pairs absent from pairs file (use delist/rename): {absent_from_file}")
+        raise PipelineError(f"indexed pairs absent from pairs file (use drop/rename): {absent_from_file}")
 
     total_pairs = len(pair_to_assets)
     for i, (sym, (base, quote, status)) in enumerate(pair_to_assets.items(), start=1):
@@ -385,7 +385,7 @@ def _resolve_ranges(
                     raise PipelineError(
                         f"{sym}: no new archive data since {existing_to} ({days_since} days > "
                         f"{fetch.backfill_right_edge_grace_days}-day publishing-lag grace); "
-                        "likely delisted or renamed. Reconcile with `zcrypto data delist` or "
+                        "likely delisted or renamed. Reconcile with `zcrypto data drop` or "
                         "`zcrypto data rename`."
                     )
                 logger.info(
@@ -439,8 +439,16 @@ def _resolve_ranges(
     return plan
 
 
+def _synthetic_gap_row(date: dt.date) -> _pd.DataFrame:
+    """A single-row DataFrame for an interior-404 suspension day: gap `date` + every
+    kline field set to its synthetic value (`_FIELD_SYNTH` — OHLC/VWAP NaN, volume-like
+    0.0, factor 1.0). Same schema as a parsed kline row, so it merges seamlessly and the
+    per-pair gap-check sees the date present. Funding is left to the funding path (NaN)."""
+    return _pd.DataFrame([{"date": date, **{f: _synthetic_value(f) for f in FIELDS}}])
+
+
 def _fetch_one_date(
-    source: Source, sym: str, interval: str, date: dt.date, mirror_root: Path
+    source: Source, sym: str, interval: str, date: dt.date, mirror_root: Path, *, allow_interior_gaps: bool = False
 ) -> tuple[str, dt.date, _pd.DataFrame]:
     """Resolve one (sym, interval, date) tuple to its parsed single-row DataFrame.
 
@@ -448,12 +456,21 @@ def _fetch_one_date(
     from the remote, verify, save to the mirror, and parse. Verification has two modes —
     a published `.CHECKSUM` is compared by sha256 (then save → parse); a missing one
     (fetch returns None) makes the parse itself (extractable + exactly one csv + parse-able)
-    the integrity gate, so we parse → warn → save, never caching an unparseable zip."""
+    the integrity gate, so we parse → warn → save, never caching an unparseable zip.
+
+    `allow_interior_gaps` (opt-in, off by default): on a mirror miss, probe `exists_kline`
+    first; a missing date (a real 404) within the pair's resolved range becomes a synthetic
+    NaN suspension row (logged as a warning) instead of raising. Flag off is byte-identical to
+    before — the probe and gap branch are skipped, so a 404 raises as today."""
     mpath = mirror.mirror_path(mirror_root, sym, interval, date)
     cached = mirror.read_zip(mpath)
     if cached is not None:
         logger.debug("mirror hit %s %s: %s", sym, date, mpath)
         return sym, date, parse_kline_zip(cached, sym, interval, date)
+
+    if allow_interior_gaps and not source.exists_kline(sym, interval, date):
+        logger.warning("%s %s: interior archive gap (404); filling with a NaN suspension row", sym, date)
+        return sym, date, _synthetic_gap_row(date)
 
     zip_bytes = source.fetch_kline_zip(sym, interval, date)
     checksum = source.fetch_kline_checksum(sym, interval, date)
@@ -471,7 +488,13 @@ def _fetch_one_date(
 
 
 def _fetch_all_concurrent(
-    source: Source, plan: list[_PerPair], interval: str, fetch: FetchConfig, mirror_root: Path
+    source: Source,
+    plan: list[_PerPair],
+    interval: str,
+    fetch: FetchConfig,
+    mirror_root: Path,
+    *,
+    allow_interior_gaps: bool = False,
 ) -> dict[str, _pd.DataFrame]:
     """Fetch every (pair, date) tuple via a bounded thread pool. Per-pair gap-check runs after collection.
 
@@ -504,7 +527,13 @@ def _fetch_all_concurrent(
     completed = 0
     log_every = fetch.fetch_progress_log_interval
     with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="zcrypto-fetch") as pool:
-        futures = {pool.submit(_fetch_one_date, source, sym, interval, d, mirror_root): (sym, d) for sym, d in work}
+        futures = {
+            pool.submit(_fetch_one_date, source, sym, interval, d, mirror_root, allow_interior_gaps=allow_interior_gaps): (
+                sym,
+                d,
+            )
+            for sym, d in work
+        }
         try:
             for fut in as_completed(futures):
                 sym, d = futures[fut]
@@ -859,10 +888,20 @@ def _download_plan(
     return DownloadPlan(per_pair=per_pair, existing=existing, arg_to=arg_to, interval=interval, is_noop=is_noop)
 
 
-def _download_apply(paths: DatasetPaths, staging: Path, plan: DownloadPlan, source: Source, fetch: FetchConfig) -> None:
+def _download_apply(
+    paths: DatasetPaths,
+    staging: Path,
+    plan: DownloadPlan,
+    source: Source,
+    fetch: FetchConfig,
+    *,
+    allow_interior_gaps: bool = False,
+) -> None:
     """Fetch + build staging. The harness handles snapshot, post-verify, commit."""
     non_empty = [p for p in plan.per_pair if p.effective_from <= p.effective_to]
-    fetched = _fetch_all_concurrent(source, non_empty, plan.interval, fetch, mirror.root_for(paths))
+    fetched = _fetch_all_concurrent(
+        source, non_empty, plan.interval, fetch, mirror.root_for(paths), allow_interior_gaps=allow_interior_gaps
+    )
     new_rows_per_sym: dict[str, _pd.DataFrame] = {
         p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan.per_pair
     }
@@ -881,10 +920,16 @@ def download_pipeline(
     *,
     fetch: FetchConfig = FetchConfig(),
     dry_run: bool = False,
+    allow_interior_gaps: bool = False,
 ) -> None:
-    """Orchestrate: parse → validate → resolve → fetch → stage → verify → commit."""
+    """Orchestrate: parse → validate → resolve → fetch → stage → verify → commit.
+
+    `allow_interior_gaps` (opt-in, off by default): a 404 strictly inside a pair's resolved
+    `[from, to]` range is filled with a NaN suspension row (each gap day logged as a warning)
+    instead of hard-erroring — for deliberately acquiring a trading-halted pair (e.g. FTT during
+    the FTX collapse). Off is byte-identical to before: an interior 404 still hard-errors."""
     plan_fn = lambda d: _download_plan(d, pairs_file, interval, from_date, to_date, source, fetch)
-    apply_fn = lambda paths, s, p: _download_apply(paths, s, p, source, fetch)
+    apply_fn = lambda paths, s, p: _download_apply(paths, s, p, source, fetch, allow_interior_gaps=allow_interior_gaps)
     _execute_mutation(paths, "download", plan_fn, apply_fn, dry_run=dry_run)
 
 
@@ -954,7 +999,7 @@ def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source
                     f"{sym}: no new archive data since {current_to} ({days_since} days > "
                     f"{fetch.backfill_right_edge_grace_days}-day publishing-lag grace); "
                     "likely delisted or renamed. Reconcile with "
-                    "'zcrypto data delist' or 'zcrypto data rename'."
+                    "'zcrypto data drop' or 'zcrypto data rename'."
                 )
             logger.info(
                 "%s: no new archive data since %s (%d-day publishing-lag grace not yet exceeded); skipping.",
@@ -1040,12 +1085,12 @@ def backfill_pipeline(
 
 
 # ---------------------------------------------------------------------------
-# Delist pipeline
+# Drop pipeline
 # ---------------------------------------------------------------------------
 
 
 @_dc.dataclass
-class DelistPlan:
+class DropPlan:
     symbol: str
     new_calendar: list[dt.date]
     front_trim: int
@@ -1055,7 +1100,7 @@ class DelistPlan:
     is_noop: bool
 
     def dry_run_summary(self) -> str:
-        lines = [f"DRY-RUN: delist plan: {self.symbol}"]
+        lines = [f"DRY-RUN: drop plan: {self.symbol}"]
         lines.append(f"  features/{self.symbol.lower()}/ → deleted")
         lines.append(f"  instruments/all.txt → 1 line removed")
         lines.append(f"  index.json → 1 pair entry removed")
@@ -1068,10 +1113,10 @@ class DelistPlan:
         return "\n".join(lines)
 
 
-def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
+def _drop_plan(out_dir: Path, symbol: str) -> DropPlan:
     """Read-only: validate symbol is in the index, compute calendar shrink plan."""
     idx = load_index(out_dir)
-    assert idx is not None, "_delist_plan called on empty/missing index"
+    assert idx is not None, "_drop_plan called on empty/missing index"
     sym = symbol.upper()
 
     if sym not in idx.pairs:
@@ -1079,7 +1124,7 @@ def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
 
     remaining = {s: p for s, p in idx.pairs.items() if s != sym}
     if not remaining:
-        raise PipelineError(f"delisting {sym} would leave the dataset empty; remove {out_dir} manually if that's intended")
+        raise PipelineError(f"dropping {sym} would leave the dataset empty; remove {out_dir} manually if that's intended")
 
     interval = "1d"
     new_from = min(dt.date.fromisoformat(p.intervals[interval].from_date) for p in remaining.values())
@@ -1094,8 +1139,8 @@ def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
         )
         if not covers:
             raise PipelineError(
-                f"delisting {sym} would create a non-contiguous calendar "
-                f"(no remaining pair covers {cur}); reconcile manually before delisting"
+                f"dropping {sym} would create a non-contiguous calendar "
+                f"(no remaining pair covers {cur}); reconcile manually before dropping"
             )
         cur += dt.timedelta(days=1)
 
@@ -1105,7 +1150,7 @@ def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
     back_trim = (old_to - new_to).days
     new_cal = [new_from + dt.timedelta(days=i) for i in range((new_to - new_from).days + 1)]
 
-    return DelistPlan(
+    return DropPlan(
         symbol=sym,
         new_calendar=new_cal,
         front_trim=front_trim,
@@ -1127,7 +1172,7 @@ def _rewrite_bin_start_index(bin_path: Path, delta: int) -> None:
     bin_path.write_bytes(bytes(data))
 
 
-def _delist_apply(paths: DatasetPaths, staging: Path, plan: DelistPlan) -> None:
+def _drop_apply(paths: DatasetPaths, staging: Path, plan: DropPlan) -> None:
     """Copy remaining pairs' bins, conditionally rewrite headers, write calendar/instruments/index."""
     interval = "1d"
     idx = load_index(paths.data_dir)
@@ -1213,16 +1258,16 @@ def _delist_apply(paths: DatasetPaths, staging: Path, plan: DelistPlan) -> None:
     save_index(staging, new_index)
 
 
-def delist_pipeline(
+def drop_pipeline(
     paths: DatasetPaths,
     symbol: str,
     *,
     dry_run: bool = False,
 ) -> None:
     """Remove SYMBOL from the dataset under the snapshot+commit discipline."""
-    plan_fn = lambda d: _delist_plan(d, symbol)
-    apply_fn = lambda paths, s, p: _delist_apply(paths, s, p)
-    _execute_mutation(paths, "delist", plan_fn, apply_fn, dry_run=dry_run)
+    plan_fn = lambda d: _drop_plan(d, symbol)
+    apply_fn = lambda paths, s, p: _drop_apply(paths, s, p)
+    _execute_mutation(paths, "drop", plan_fn, apply_fn, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------
