@@ -118,6 +118,12 @@ def download_cmd(
         None, "--to", callback=_to_callback, help="ISO date YYYY-MM-DD (default: yesterday UTC)."
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
+    allow_interior_gaps: bool = typer.Option(
+        False,
+        "--allow-interior-gaps",
+        help="Fill a 404 inside a pair's [from, to] range with a NaN suspension row (for a trading-halted "
+        "pair, e.g. FTT during the FTX collapse) instead of hard-erroring. Off by default.",
+    ),
 ) -> None:
     """Fetch Binance spot klines and write/append a Qlib-ready dataset."""
     fd: dt.date = from_date if isinstance(from_date, dt.date) else dt.date(2020, 1, 1)  # type: ignore[assignment]
@@ -126,7 +132,15 @@ def download_cmd(
     paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     try:
         download_pipeline(
-            paths, pairs_file, interval, fd, td, source=BinanceSource(fetch=cfg.fetch), fetch=cfg.fetch, dry_run=dry_run
+            paths,
+            pairs_file,
+            interval,
+            fd,
+            td,
+            source=BinanceSource(fetch=cfg.fetch),
+            fetch=cfg.fetch,
+            dry_run=dry_run,
+            allow_interior_gaps=allow_interior_gaps,
         )
     except PipelineError as e:
         typer.echo(f"ERROR: {e}", err=True)

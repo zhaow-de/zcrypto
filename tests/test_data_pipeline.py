@@ -899,3 +899,73 @@ def test_find_available_range_arb_shaped_mid_window_listing_does_not_degrade_to_
         "this suggests the algorithm regressed back to the recursive bisect that "
         "exhausted the no-data left half on ARB-shaped pairs"
     )
+
+
+# ---------------------------------------------------------------------------
+# --allow-interior-gaps tests (iter-16 Task 3)
+# ---------------------------------------------------------------------------
+
+
+def _seed_interior_gap_source() -> FakeSource:
+    """A pair listed contiguously [2024-01-01..2024-01-05] EXCEPT an interior 404 at 2024-01-03.
+
+    Endpoints (01-01, 01-05) and 01-02, 01-04 have klines; 01-03 has none, so
+    `find_available_range` resolves [2024-01-01, 2024-01-05] and 2024-01-03 is a
+    strictly-interior missing date that 404s during the fetch."""
+    src = FakeSource()
+    src.add_pair("FTTUSDT", "FTT", "USDT")
+    for d in (dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(5)):
+        if d == dt.date(2024, 1, 3):
+            continue  # interior gap — no kline
+        src.add_kline("FTTUSDT", "1d", d, base_price=20.0)
+    return src
+
+
+def test_download_interior_gap_filled_with_nan_when_flag_set(tmp_path, caplog, monkeypatch):
+    """With allow_interior_gaps=True, an interior 404 becomes a NaN suspension row + a warning."""
+    import logging
+
+    monkeypatch.setattr(logging.getLogger("zcrypto"), "propagate", True)
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("FTTUSDT\n")
+    data_dir = tmp_path / "data"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=tmp_path / "bk")
+    src = _seed_interior_gap_source()
+
+    with caplog.at_level(logging.WARNING):
+        download_pipeline(
+            paths,
+            pairs,
+            "1d",
+            dt.date(2024, 1, 1),
+            dt.date(2024, 1, 5),
+            src,
+            allow_interior_gaps=True,
+        )
+
+    assert verify_dataset(data_dir).ok
+    # Pair spans its full [from, to] (the gap day is included, not truncated).
+    instr = (data_dir / "instruments" / "all.txt").read_text(encoding="utf-8").splitlines()
+    assert "FTTUSDT\t2024-01-01\t2024-01-05" in instr
+    # The gap day (offset 2 → 2024-01-03) is NaN; the other days are real.
+    start_idx, close_values = read_bin(data_dir / "features" / "fttusdt" / "close.day.bin")
+    assert start_idx == 0
+    assert len(close_values) == 5
+    assert math.isnan(close_values[2])  # 2024-01-03 — synthetic NaN suspension row
+    assert not math.isnan(close_values[0])  # 2024-01-01 — real data
+    assert not math.isnan(close_values[4])  # 2024-01-05 — real data
+    # A per-gap warning was logged.
+    assert any("2024-01-03" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+
+
+def test_download_interior_gap_hard_errors_without_flag(tmp_path):
+    """Without the flag (default), the same interior 404 still hard-errors — unchanged behavior."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("FTTUSDT\n")
+    data_dir = tmp_path / "data"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=tmp_path / "bk")
+    src = _seed_interior_gap_source()
+
+    # The hard error is the SAME interior 404 (2024-01-03) the flag-on test fills.
+    with pytest.raises(PipelineError, match="2024-01-03"):
+        download_pipeline(paths, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)

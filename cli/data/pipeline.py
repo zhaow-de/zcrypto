@@ -439,8 +439,16 @@ def _resolve_ranges(
     return plan
 
 
+def _synthetic_gap_row(date: dt.date) -> _pd.DataFrame:
+    """A single-row DataFrame for an interior-404 suspension day: gap `date` + every
+    kline field set to its synthetic value (`_FIELD_SYNTH` — OHLC/VWAP NaN, volume-like
+    0.0, factor 1.0). Same schema as a parsed kline row, so it merges seamlessly and the
+    per-pair gap-check sees the date present. Funding is left to the funding path (NaN)."""
+    return _pd.DataFrame([{"date": date, **{f: _synthetic_value(f) for f in FIELDS}}])
+
+
 def _fetch_one_date(
-    source: Source, sym: str, interval: str, date: dt.date, mirror_root: Path
+    source: Source, sym: str, interval: str, date: dt.date, mirror_root: Path, *, allow_interior_gaps: bool = False
 ) -> tuple[str, dt.date, _pd.DataFrame]:
     """Resolve one (sym, interval, date) tuple to its parsed single-row DataFrame.
 
@@ -448,12 +456,21 @@ def _fetch_one_date(
     from the remote, verify, save to the mirror, and parse. Verification has two modes —
     a published `.CHECKSUM` is compared by sha256 (then save → parse); a missing one
     (fetch returns None) makes the parse itself (extractable + exactly one csv + parse-able)
-    the integrity gate, so we parse → warn → save, never caching an unparseable zip."""
+    the integrity gate, so we parse → warn → save, never caching an unparseable zip.
+
+    `allow_interior_gaps` (opt-in, off by default): on a mirror miss, probe `exists_kline`
+    first; a missing date (a real 404) within the pair's resolved range becomes a synthetic
+    NaN suspension row (logged as a warning) instead of raising. Flag off is byte-identical to
+    before — the probe and gap branch are skipped, so a 404 raises as today."""
     mpath = mirror.mirror_path(mirror_root, sym, interval, date)
     cached = mirror.read_zip(mpath)
     if cached is not None:
         logger.debug("mirror hit %s %s: %s", sym, date, mpath)
         return sym, date, parse_kline_zip(cached, sym, interval, date)
+
+    if allow_interior_gaps and not source.exists_kline(sym, interval, date):
+        logger.warning("%s %s: interior archive gap (404); filling with a NaN suspension row", sym, date)
+        return sym, date, _synthetic_gap_row(date)
 
     zip_bytes = source.fetch_kline_zip(sym, interval, date)
     checksum = source.fetch_kline_checksum(sym, interval, date)
@@ -471,7 +488,13 @@ def _fetch_one_date(
 
 
 def _fetch_all_concurrent(
-    source: Source, plan: list[_PerPair], interval: str, fetch: FetchConfig, mirror_root: Path
+    source: Source,
+    plan: list[_PerPair],
+    interval: str,
+    fetch: FetchConfig,
+    mirror_root: Path,
+    *,
+    allow_interior_gaps: bool = False,
 ) -> dict[str, _pd.DataFrame]:
     """Fetch every (pair, date) tuple via a bounded thread pool. Per-pair gap-check runs after collection.
 
@@ -504,7 +527,13 @@ def _fetch_all_concurrent(
     completed = 0
     log_every = fetch.fetch_progress_log_interval
     with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="zcrypto-fetch") as pool:
-        futures = {pool.submit(_fetch_one_date, source, sym, interval, d, mirror_root): (sym, d) for sym, d in work}
+        futures = {
+            pool.submit(_fetch_one_date, source, sym, interval, d, mirror_root, allow_interior_gaps=allow_interior_gaps): (
+                sym,
+                d,
+            )
+            for sym, d in work
+        }
         try:
             for fut in as_completed(futures):
                 sym, d = futures[fut]
@@ -859,10 +888,20 @@ def _download_plan(
     return DownloadPlan(per_pair=per_pair, existing=existing, arg_to=arg_to, interval=interval, is_noop=is_noop)
 
 
-def _download_apply(paths: DatasetPaths, staging: Path, plan: DownloadPlan, source: Source, fetch: FetchConfig) -> None:
+def _download_apply(
+    paths: DatasetPaths,
+    staging: Path,
+    plan: DownloadPlan,
+    source: Source,
+    fetch: FetchConfig,
+    *,
+    allow_interior_gaps: bool = False,
+) -> None:
     """Fetch + build staging. The harness handles snapshot, post-verify, commit."""
     non_empty = [p for p in plan.per_pair if p.effective_from <= p.effective_to]
-    fetched = _fetch_all_concurrent(source, non_empty, plan.interval, fetch, mirror.root_for(paths))
+    fetched = _fetch_all_concurrent(
+        source, non_empty, plan.interval, fetch, mirror.root_for(paths), allow_interior_gaps=allow_interior_gaps
+    )
     new_rows_per_sym: dict[str, _pd.DataFrame] = {
         p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan.per_pair
     }
@@ -881,10 +920,16 @@ def download_pipeline(
     *,
     fetch: FetchConfig = FetchConfig(),
     dry_run: bool = False,
+    allow_interior_gaps: bool = False,
 ) -> None:
-    """Orchestrate: parse → validate → resolve → fetch → stage → verify → commit."""
+    """Orchestrate: parse → validate → resolve → fetch → stage → verify → commit.
+
+    `allow_interior_gaps` (opt-in, off by default): a 404 strictly inside a pair's resolved
+    `[from, to]` range is filled with a NaN suspension row (each gap day logged as a warning)
+    instead of hard-erroring — for deliberately acquiring a trading-halted pair (e.g. FTT during
+    the FTX collapse). Off is byte-identical to before: an interior 404 still hard-errors."""
     plan_fn = lambda d: _download_plan(d, pairs_file, interval, from_date, to_date, source, fetch)
-    apply_fn = lambda paths, s, p: _download_apply(paths, s, p, source, fetch)
+    apply_fn = lambda paths, s, p: _download_apply(paths, s, p, source, fetch, allow_interior_gaps=allow_interior_gaps)
     _execute_mutation(paths, "download", plan_fn, apply_fn, dry_run=dry_run)
 
 

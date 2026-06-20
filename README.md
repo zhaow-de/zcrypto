@@ -124,6 +124,7 @@ Fetch Binance spot 1d klines from `data.binance.vision`, sha256-validate them, a
 | `--from`                            | `2020-01-01`                   | Lower bound (ISO `YYYY-MM-DD`).                                                                                               |
 | `--to`                              | yesterday (UTC)                | Upper bound (ISO `YYYY-MM-DD`).                                                                                               |
 | `--dry-run`                         | off                            | Print the fetch plan and exit without writing anything.                                                                       |
+| `--allow-interior-gaps`             | off                            | Fill a 404 inside a pair's resolved `[from, to]` range with a NaN suspension row (each gap day logged) instead of erroring.   |
 
 ```bash
 echo BTCUSDT > pairs.txt
@@ -137,6 +138,8 @@ zcrypto data download pairs.txt --dry-run                            # preview o
 **Local mirror & recovery:** every verified zip is saved to the `--backup-dir` mirror at `<backup-dir>/raw`, under a tree that mirrors the remote archive layout plus a year subdir — e.g. `./bk/raw/spot/daily/klines/DOTUSDT/1d/2025/DOTUSDT-1d-2025-10-14.zip`. On a later run a present zip is read from the mirror instead of re-downloaded, so a partial or failed download resumes cheaply rather than starting over. The `raw/` directory lives inside `backup-dir` and is excluded from snapshots, verification, and the atomic commit. The mirror is trusted as immutable and read without re-checksumming; delete a file (or the tree) to force a re-fetch.
 
 **Missing `.CHECKSUM`:** some recent archive days ship the zip without a sibling `.CHECKSUM`. Rather than fail, the download verifies the zip structurally (it extracts to exactly one parse-able CSV), logs a warning, and continues.
+
+**Interior gaps (`--allow-interior-gaps`):** by default a 404 strictly inside a pair's resolved `[from, to]` range is a hard error — a genuine archive problem that should not be silently tolerated. Pass `--allow-interior-gaps` to instead fill each such day with a NaN suspension row (OHLC/VWAP `NaN` — qlib's not-tradable marker — volume-like `0.0`, `factor` `1.0`, the same synthetic row `rename` uses for its gap fill), logging every gap day as a warning. This is for deliberately acquiring a trading-halted pair — e.g. FTT, whose Binance archive has a 404 hole at `2022-11-16` from the FTX-collapse halt. Routine `download`/`backfill` leave the flag off and stay strict.
 
 ##### `zcrypto data verify`
 
