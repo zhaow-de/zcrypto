@@ -48,11 +48,30 @@ def test_experiment_errors_when_no_data_dir_configured(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------
 # Fast wiring tests: monkeypatch heavy fns to capture kwargs.
 # --------------------------------------------------------------------------
-def _make_fake_result(tmp_path):
+def _short_recipe():
+    """Return a minimal Recipe with short segments (avoids loading heavy fixtures)."""
+    import dataclasses as dc
+
+    from cli.experiment.recipes import skeleton
+
+    return dc.replace(
+        skeleton.RECIPE,
+        segments={
+            "train": ("2023-03-01", "2023-12-31"),
+            "valid": ("2024-01-01", "2024-02-29"),
+            "test": ("2024-03-01", "2024-06-27"),
+        },
+    )
+
+
+def _fake_result(tmp_path=None):
     """Build a minimal RunResult-alike that lets command.py run to completion."""
+    from pathlib import Path
+
     import numpy as np
     import pandas as pd
 
+    recorder_dir = tmp_path if tmp_path is not None else Path("/tmp")
     dates = pd.date_range("2024-01-01", periods=5, freq="D")
     report_df = pd.DataFrame({"return": np.zeros(5), "cost": np.zeros(5), "bench": np.zeros(5)}, index=dates)
     return type(
@@ -72,12 +91,17 @@ def _make_fake_result(tmp_path):
                 "excess_return_with_cost": {"annualized_return": 0.05, "max_drawdown": -0.05, "information_ratio": 0.3},
                 "excess_return_without_cost": {},
             },
-            "recorder_dir": tmp_path,
+            "recorder_dir": recorder_dir,
             "recipe": None,
             "data_fingerprint": "abc123",
             "wf_periods": None,
         },
     )()
+
+
+def _make_fake_result(tmp_path):
+    """Build a minimal RunResult-alike that lets command.py run to completion."""
+    return _fake_result(tmp_path)
 
 
 def _patch_experiment_heavy_fns(monkeypatch, tmp_path, captured, fake_result):
@@ -101,6 +125,7 @@ def _patch_experiment_heavy_fns(monkeypatch, tmp_path, captured, fake_result):
 
     def fake_run_experiment(recipe, *, data_dir, out_dir, refresh_cache=False, seed=None, deterministic=False):
         captured["run_experiment_kwargs"] = {"seed": seed, "deterministic": deterministic, "refresh_cache": refresh_cache}
+        captured["run_experiment_recipe_universe"] = tuple(recipe.universe)
         return fake_result
 
     def fake_run_holdout_seeds(recipe, *, data_dir, seeds, deterministic=False):
@@ -131,20 +156,53 @@ def _patch_experiment_heavy_fns(monkeypatch, tmp_path, captured, fake_result):
     monkeypatch.setattr(trades_mod, "trade_summary", lambda trades: {"total": 0, "buys": 0, "sells": 0})
 
 
+def test_experiment_pit_universe_expands_and_flips_marker(monkeypatch, tmp_path):
+    """--pit-universe expands the universe with PIT_ADDITIONS and flips the marker."""
+    from cli.experiment.caveats import PIT_MARKER
+    from cli.experiment.recipes.base import PIT_ADDITIONS
+
+    captured = {}
+    short_recipe = _short_recipe()  # same helper/inline recipe the seeds test uses
+    monkeypatch.setattr("cli.experiment.command.resolve_recipe", lambda name: short_recipe)
+    monkeypatch.setattr("cli.experiment.command.load_config", lambda: {})
+    monkeypatch.setattr("cli.experiment.command.resolve_data_dir", lambda d, cfg: tmp_path)
+    _patch_experiment_heavy_fns(monkeypatch, tmp_path, captured, _fake_result(tmp_path))
+
+    result = runner.invoke(app, ["experiment", "--recipe", "steady", "--quick", "--pit-universe", "--out", str(tmp_path / "runs")])
+
+    assert result.exit_code == 0, result.stdout
+    uni = captured["run_experiment_recipe_universe"]
+    assert uni[: len(short_recipe.universe)] == short_recipe.universe  # survivors kept
+    for sym in PIT_ADDITIONS:
+        assert sym in uni
+    assert PIT_MARKER in result.stdout
+
+
+def test_experiment_default_universe_is_survivor(monkeypatch, tmp_path):
+    """Without --pit-universe the universe and marker are unchanged (byte-identical path)."""
+    from cli.experiment.caveats import SURVIVORSHIP_MARKER
+    from cli.experiment.recipes.base import PIT_ADDITIONS
+
+    captured = {}
+    short_recipe = _short_recipe()
+    monkeypatch.setattr("cli.experiment.command.resolve_recipe", lambda name: short_recipe)
+    monkeypatch.setattr("cli.experiment.command.load_config", lambda: {})
+    monkeypatch.setattr("cli.experiment.command.resolve_data_dir", lambda d, cfg: tmp_path)
+    _patch_experiment_heavy_fns(monkeypatch, tmp_path, captured, _fake_result(tmp_path))
+
+    result = runner.invoke(app, ["experiment", "--recipe", "steady", "--quick", "--out", str(tmp_path / "runs")])
+
+    assert result.exit_code == 0, result.stdout
+    uni = captured["run_experiment_recipe_universe"]
+    assert uni == short_recipe.universe
+    for sym in PIT_ADDITIONS:
+        assert sym not in uni
+    assert SURVIVORSHIP_MARKER in result.stdout
+
+
 def test_experiment_passes_seeds_and_deterministic(monkeypatch, tmp_path):
     """--seeds 5 --deterministic wires through to run_experiment + run_holdout_seeds."""
-    import dataclasses as dc
-
-    from cli.experiment.recipes import skeleton
-
-    short_recipe = dc.replace(
-        skeleton.RECIPE,
-        segments={
-            "train": ("2023-03-01", "2023-12-31"),
-            "valid": ("2024-01-01", "2024-02-29"),
-            "test": ("2024-03-01", "2024-06-27"),
-        },
-    )
+    short_recipe = _short_recipe()
     monkeypatch.setattr("cli.experiment.command.resolve_recipe", lambda name: short_recipe)
     monkeypatch.setattr("cli.experiment.command.load_config", lambda: {})
     monkeypatch.setattr("cli.experiment.command.resolve_data_dir", lambda d, cfg: tmp_path)
@@ -194,18 +252,7 @@ def test_experiment_passes_seeds_and_deterministic(monkeypatch, tmp_path):
 
 def test_experiment_default_no_holdout_seeds(monkeypatch, tmp_path):
     """Default invocation (--seeds 1, no --deterministic) must NOT call run_holdout_seeds."""
-    import dataclasses as dc
-
-    from cli.experiment.recipes import skeleton
-
-    short_recipe = dc.replace(
-        skeleton.RECIPE,
-        segments={
-            "train": ("2023-03-01", "2023-12-31"),
-            "valid": ("2024-01-01", "2024-02-29"),
-            "test": ("2024-03-01", "2024-06-27"),
-        },
-    )
+    short_recipe = _short_recipe()
     monkeypatch.setattr("cli.experiment.command.resolve_recipe", lambda name: short_recipe)
     monkeypatch.setattr("cli.experiment.command.load_config", lambda: {})
     monkeypatch.setattr("cli.experiment.command.resolve_data_dir", lambda d, cfg: tmp_path)

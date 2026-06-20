@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 # (open_cost, close_cost) round-trip fee fractions
@@ -51,6 +51,40 @@ class Recipe:
     wf_retrain_freq: str = field(default="quarter")  # quarter | year
     wf_window: str = field(default="expanding")  # expanding | rolling
     wf_rolling_years: int = field(default=3)
+
+
+# Point-in-time universe additions (see docs/specs/00017). These ever-top-25 USDT majors
+# blew up (NANO/BTG/OMG/WAVES/XEM delisted) or faded out of today's survivor universe while
+# still listed (DASH/FTT/ICX/QTUM/ZEC); iter-16 acquired all 10 archive-only with real
+# listing/delisting ranges. LUNCUSDT is the Terra blow-up: old LUNA's full arc (2020-08-21 →
+# the 2022-05-13 crash) acquired capped before the reused-symbol Luna 2.0, renamed to its
+# canonical Luna-Classic identity (see cli/data/scripts/acquire_old_luna.py). Appending these
+# to a recipe's universe (the --pit-universe flag) makes a run survivorship-free — qlib trades
+# each only within its real range.
+PIT_ADDITIONS: tuple[str, ...] = (
+    "DASHUSDT",
+    "ZECUSDT",
+    "QTUMUSDT",
+    "ICXUSDT",
+    "FTTUSDT",
+    "WAVESUSDT",
+    "OMGUSDT",
+    "XEMUSDT",
+    "BTGUSDT",
+    "NANOUSDT",
+    "LUNCUSDT",
+)
+
+
+def with_pit_universe(recipe: Recipe) -> Recipe:
+    """Return a copy of *recipe* with its universe expanded to point-in-time membership.
+
+    Appends :data:`PIT_ADDITIONS` to ``recipe.universe``, de-duplicated and order-preserving
+    (survivors first). Every downstream stage reads ``recipe.universe``, so swapping it here
+    threads the PIT universe through cpcv/scaffold/multiseed with no other change.
+    """
+    merged = tuple(dict.fromkeys(recipe.universe + PIT_ADDITIONS))
+    return replace(recipe, universe=merged)
 
 
 def resolve_recipe(name: str) -> Recipe:

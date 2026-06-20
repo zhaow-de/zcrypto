@@ -226,6 +226,21 @@ def test_build_report_title_carries_survivorship_marker():
     assert SURVIVORSHIP_MARKER in build_report(result, cv=cv).layout.title.text
 
 
+def test_build_report_default_marker_is_survivorship():
+    from cli.experiment.caveats import SURVIVORSHIP_MARKER
+
+    fig = build_report(_make_result())
+    assert SURVIVORSHIP_MARKER in fig.layout.title.text
+
+
+def test_build_report_marker_override():
+    from cli.experiment.caveats import PIT_MARKER
+
+    fig = build_report(_make_result(), marker=PIT_MARKER)
+    assert PIT_MARKER in fig.layout.title.text
+    assert "survivorship-biased" not in fig.layout.title.text
+
+
 def test_build_report_psr_and_holdout_relabel():
     import types
 

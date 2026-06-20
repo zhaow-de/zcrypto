@@ -15,8 +15,22 @@ SURVIVORSHIP = {
     ),
 }
 
+POINT_IN_TIME = {
+    "topic": "T0005",
+    "summary": (
+        "point-in-time universe — historically delisted/faded majors are included over their "
+        "real listing ranges, so the run is survivorship-free. Delisting-loss is captured by "
+        "qlib's position freeze at the last close (frozen capital is not redeployed — a "
+        "conservative imperfection). See docs/open-topics/T0005-point-in-time-universe.md."
+    ),
+}
+
 # All caveats applicable to an experiment run (extend as topics warrant).
 EXPERIMENT_CAVEATS = [SURVIVORSHIP]
 
 # Short marker for the report subtitle and the stdout line.
 SURVIVORSHIP_MARKER = "survivorship-biased universe — see open-topic T0005"
+
+# Marker for the report subtitle + stdout line when --pit-universe is on (the run is
+# survivorship-free, so the SURVIVORSHIP_MARKER above must not appear).
+PIT_MARKER = "point-in-time universe (survivorship-free) — see open-topic T0005"
