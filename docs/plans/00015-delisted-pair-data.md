@@ -4,13 +4,13 @@
 
 **Goal:** Acquire the curated blown-up top-25-ever USDT majors into the dataset (via the *existing* `download`, since Binance keeps delisted symbols as `BREAK`) so the panel is survivorship-free; confirm `verify` reports them; rename `delist`→`drop`. Data-only; advances `T0005` → `partial`.
 
-**Architecture:** No acquisition-pipeline change — the RECON established that delisted majors stay in `exchangeInfo` as `status="BREAK"` and the existing non-`TRADING` discovery already fetches them archive-only. The iteration is: (1) a `delist`→`drop` rename (a pure command rename, delete-mechanics unchanged); (2) a `verify` confirmation that an archive-only pair with `TO < today` is valid + reported (today's 19 are all `TRADING`, so this may be untested); (3) a closeout that acquires the real curated majors via `download` and records coverage.
+**Architecture:** The RECON established that delisted majors stay in `exchangeInfo` as `status="BREAK"` and the existing non-`TRADING` discovery fetches them archive-only — so no *not-in-`exchangeInfo`* change. The one enhancement needed surfaced from the real acquisition: the survivorship-critical blow-ups were trading-*halted* mid-collapse (FTT 2022-11-16, FTX), leaving interior 404 gaps the strict download rejects. The iteration is: (1) `delist`→`drop` rename; (2) `verify` confirmation for archive-only `TO<today` pairs; (3) an opt-in **`--allow-interior-gaps`** flag that NaN-fills interior 404s (reusing `rename`'s synthetic-NaN), default off so regular `download` stays strict; (4) a closeout that acquires the curated majors via `download … --allow-interior-gaps` and records coverage.
 
 **Tech Stack:** Python 3.12, uv, pandas, pytest, Typer + `CliRunner`, ruff (line length 132). Data source: `data.binance.vision` (no qlib/redis in the data layer).
 
 ## Global Constraints
 
-- **Acquisition pipeline is untouched** — only `delist`→`drop` is renamed; the existing `TRADING`/`BREAK` download paths acquire the majors. Surviving pairs byte-identical.
+- **Regular `download`/`backfill` stay byte-identical** — the interior-gap tolerance is **opt-in (`--allow-interior-gaps`, default off)**; with the flag off, an interior 404 is still a hard error, exactly as today. The existing `TRADING`/`BREAK` discovery is reused for range-finding.
 - **`drop` (ex-`delist`) delete-mechanics are unchanged** — only the command/function name + help text change; **no `!`, no major bump** (plain `refactor(data): …`), no back-compat alias.
 - **No experiment/recipe/universe change** — the acquired majors sit in the dataset for a future iteration; no recipe's `universe` tuple changes here.
 - ruff clean; data tests use `tests/data_fixtures.py::FakeSource` (no network); each commit gets a subagent `Reviewed-by:` before push.
@@ -60,11 +60,27 @@ docs/iterations-history.md# MODIFY (closeout): iter-16 entry.
 
 ---
 
-## Task 3: Closeout — acquire the real delisted majors + docs
+## Task 3: `--allow-interior-gaps` download flag (interior 404 → NaN suspension)
 
-**Files:** real `./data` (acquire); Modify `docs/open-topics/T0005-point-in-time-universe.md` + `docs/open-topics/README.md`; `README.md` (if not fully covered in Task 1); `docs/iterations-history.md`.
+**Files:** Modify `cli/data/command.py` (add the flag to `download`), `cli/data/pipeline.py` (thread it into the fetch; NaN-fill an interior 404 when set); Test `tests/test_data_pipeline.py`.
 
-- [ ] **Step 1: Finalize the curated list + acquire.** From the spec's RECON candidate set (`FTTUSDT, WAVESUSDT, DASHUSDT, ZECUSDT, QTUMUSDT, OMGUSDT, XEMUSDT, BTGUSDT, NANOUSDT, ICXUSDT, LUNCUSDT, USTCUSDT`, + borderline `HNTUSDT/SRMUSDT`), finalize the cut (ever-top-25 that left the current 19), add them to a pairs file, and `uv run zcrypto data download <pairs>` against the real `./data` — `TRADING` targets extend, `BREAK` targets fetch archive-only over their real range. Record which acquired and each one's `[listing, delisting]` range.
+**Design:** A `--allow-interior-gaps` flag (default `False`) on `zcrypto data download`, threaded into `download_pipeline` + the fetch. Flag **off** (default): an interior 404 (a date *within* a pair's resolved `[from, to]`) is a hard error — exactly as today. Flag **on**: that date becomes a **NaN suspension row** (reuse the synthetic-NaN mechanic `rename` uses — `_FIELD_SYNTH` / the suspension row), and each gap day is logged as a **WARNING**. Regular `download`/`backfill` (flag off) are byte-identical.
+
+- [ ] **Step 1: Failing tests** `tests/test_data_pipeline.py` (FakeSource — a pair whose `exists_kline` is True over a range EXCEPT one interior date that 404s):
+  - WITH `allow_interior_gaps=True`: `download_pipeline` writes the pair over its full `[from, to]` with a NaN row at the gap date (`read_bin` shows NaN there) + a warning is logged; the pair is otherwise complete.
+  - WITHOUT the flag (default): the same interior 404 raises the existing hard error (regular download unchanged).
+- [ ] **Step 2: Run — expect FAIL.**
+- [ ] **Step 3: Implement** — add `--allow-interior-gaps` to `command.py`'s `download` (default False); thread `allow_interior_gaps: bool = False` through `download_pipeline` → the fetch (`_fetch_one_date` / `_fetch_all_concurrent`); when set, an interior 404 within `[from, to]` yields a synthetic NaN row (reuse the rename synth-NaN helper) + a per-gap `logger.warning`. RECON: confirm where the fetch raises on a 404 + the rename synth-NaN helper to reuse.
+- [ ] **Step 4: Run — expect PASS + ruff** (the existing pipeline tests stay green — flag-off behavior unchanged).
+- [ ] **Step 5: Commit** — `feat(data): --allow-interior-gaps download flag (interior 404 → NaN suspension)`.
+
+---
+
+## Task 4: Closeout — acquire the real delisted majors + docs
+
+**Files:** real `./data` (acquire); Modify `docs/open-topics/T0005-point-in-time-universe.md` + `docs/open-topics/README.md`; `README.md` (if not fully covered in Tasks 1/3); `docs/iterations-history.md`.
+
+- [ ] **Step 1: Finalize the curated list + acquire (with the flag).** The cut is the spec's RECON set, FTT included now: `FTTUSDT, WAVESUSDT, DASHUSDT, ZECUSDT, QTUMUSDT, OMGUSDT, XEMUSDT, BTGUSDT, NANOUSDT, ICXUSDT` (Terra `LUNC/USTC` deferred — symbol-reuse). They're already in `data/pairs.txt` (the augmented universe). Run `uv run zcrypto data download data/pairs.txt --allow-interior-gaps` against the real `./data` — `TRADING` targets get full history (FTT's 2022-11-16 halt → NaN), `BREAK` targets fetch archive-only over their real range. Record which acquired + each one's `[listing, delisting]` range + any NaN gap days.
 - [ ] **Step 2: Verify coverage.** `uv run zcrypto data verify` → confirm each acquired delisted major is reported with its real range (the "data ready" evidence); confirm no `problems`.
 - [ ] **Step 3: Flip `T0005` → `partial`** — front-matter `open → partial`; add `## Done so far` (the data substrate: the curated delisted majors acquired with real ranges; the RECON that Binance keeps delisted symbols as `BREAK`; the `delist`→`drop` rename; iter-16 / spec `00015`); trim `## Suggested next steps` to the experiment-side remainder (expand `recipe.universe` to PIT membership; delisting-loss = liquidate-at-last-close; re-measure PIT vs survivor → resolved). Move its bullet `## Open → ## Partially done` in `docs/open-topics/README.md`; note `T0007`'s LUNA/FTX pass is now data-enabled.
 - [ ] **Step 4: README + iterations-history.** README Usage: the dataset can include delisted (`BREAK`/archive-only) majors; the `delist`→`drop` rename (land here if Task 1 didn't fully cover it; mdformat owns the TOC). iter-16 iterations-history entry: the RECON (Binance keeps delisted as `BREAK`; the not-in-`exchangeInfo` enhancement was scoped out per YAGNI), the curated delisted majors acquired (with the real coverage ranges), the `verify` confirmation, the `delist`→`drop` rename, `T0005` → partial, `T0007` data-enabled.
@@ -74,6 +90,6 @@ docs/iterations-history.md# MODIFY (closeout): iter-16 entry.
 
 ## Self-review
 
-- **Spec coverage:** acquire curated delisted majors via existing `download` (Task 3 — data-population, no code) ✓; `verify` accepts/reports archive-only TO<today (Task 2) ✓; `delist`→`drop` rename, no `!` (Task 1) ✓; T0005→partial, T0007 note, README, iterations-history (Task 3) ✓; data-only (no recipe/universe/delisting-loss/re-measure) ✓; not-in-`exchangeInfo` enhancement dropped per RECON/YAGNI ✓.
-- **Type consistency:** `drop_pipeline` (ex-`delist_pipeline`) signature unchanged; `verify_dataset` unchanged or a minimal acceptance tweak; no acquisition-pipeline signature change.
-- **Risk flags:** Task 2 may be a no-op (verify already handles archive-only) — the plan handles both branches. The curated-list finalization (Task 3 Step 1) is a judgment cut over the RECON candidates; acquisition is purely operational (existing `download`), so the main code change is the Task-1 rename. Real-data acquisition (Task 3) hits the live archive — confirm each `BREAK` target's archives exist (the RECON did).
+- **Spec coverage:** `delist`→`drop` rename, no `!` (Task 1) ✓; `verify` accepts/reports archive-only TO<today (Task 2) ✓; `--allow-interior-gaps` flag, default off, interior 404 → NaN, regular download byte-identical (Task 3) ✓; acquire curated majors via `download … --allow-interior-gaps` + T0005→partial + T0007 note + README + iterations-history (Task 4) ✓; data-only (no recipe/universe/delisting-loss/re-measure) ✓; not-in-`exchangeInfo` enhancement dropped per RECON/YAGNI ✓.
+- **Type consistency:** `drop_pipeline` (ex-`delist_pipeline`) signature unchanged; `download_pipeline` gains `allow_interior_gaps: bool = False` (default preserves today's behavior); the fetch reuses the existing rename synth-NaN helper.
+- **Risk flags:** Task 2 was a no-op (verify already handles archive-only — done). The interior-gap flag (Task 3) is the iteration's real code change — its key invariant is **flag-off = byte-identical** (a test asserts the same interior 404 still hard-errors without the flag). Task 4 acquisition hits the live archive (the FTT halt-gap is the known case; others surfaced during the real run are NaN-filled by the flag).
