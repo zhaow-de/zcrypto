@@ -370,6 +370,60 @@ def test_verify_funding_structural_corruption_is_problem(tmp_path):
     assert any("funding" in p and "header" in p for p in report.problems)
 
 
+def test_verify_accepts_archive_only_delisted_pair(tmp_path):
+    """A delisted pair (TO < calendar.to / today) plus survivors covering to calendar.to → ok=True.
+
+    This is the archive-only case: WAVESUSDT-style pairs whose data ends years ago.
+    `verify_dataset` must treat them as structurally valid — their absence from recent
+    days is expected; the interior-gap completeness check is satisfied by survivor pairs.
+    """
+    # Calendar: 10 days (day 0..9).  Delisted pair spans days 0..5; survivor spans full 0..9.
+    cal = [dt.date(2020, 1, 1) + dt.timedelta(days=i) for i in range(10)]
+    delisted_rows = 6  # ends at cal[5] — well before cal[-1]
+    survivor_rows = 10  # full range
+
+    pairs = {
+        "WAVESUSDT": _mk_pair(tmp_path, cal, "WAVESUSDT", "WAVES", start=0, rows=delisted_rows),
+        "BTCUSDT": _mk_pair(tmp_path, cal, "BTCUSDT", "BTC", start=0, rows=survivor_rows),
+    }
+    _finalize(tmp_path, cal, pairs)
+
+    # Structural check (default) must pass: the delisted pair is self-consistent within the calendar.
+    report = verify_dataset(tmp_path)
+    assert report.ok, report.problems
+
+    # fail_on_gap must also pass: the survivor covers the full range, so no interior gap.
+    report_gap = verify_dataset(tmp_path, fail_on_gap=True)
+    assert report_gap.ok, report_gap.problems
+    assert any("no interior calendar gap" in c for c in report_gap.checks)
+
+    # The report must acknowledge both pairs — their date ranges appear in the instruments check.
+    joined_checks = " ".join(report_gap.checks)
+    assert "2 pair(s)" in joined_checks  # instruments check line names the pair count
+    assert not report_gap.problems
+
+
+def test_verify_corrupt_delisted_pair_still_fails(tmp_path):
+    """Structural corruption in a delisted pair's bin is still a hard failure."""
+    cal = [dt.date(2020, 1, 1) + dt.timedelta(days=i) for i in range(10)]
+    delisted_rows = 6  # ends at cal[5] — archive-only
+    survivor_rows = 10
+
+    pairs = {
+        "WAVESUSDT": _mk_pair(tmp_path, cal, "WAVESUSDT", "WAVES", start=0, rows=delisted_rows),
+        "BTCUSDT": _mk_pair(tmp_path, cal, "BTCUSDT", "BTC", start=0, rows=survivor_rows),
+    }
+    _finalize(tmp_path, cal, pairs)
+
+    # Tamper the delisted pair's close bin by appending extra bytes (size mismatch / sha mismatch).
+    waves_close = tmp_path / "features" / "wavesusdt" / "close.day.bin"
+    waves_close.write_bytes(waves_close.read_bytes() + b"\x00\x00\x00\x00")
+
+    report = verify_dataset(tmp_path)
+    assert not report.ok, "structural corruption in a delisted pair must be flagged"
+    assert any("WAVESUSDT" in p for p in report.problems)
+
+
 def test_verify_ignores_cache_and_staging_dirs(tmp_path):
     """cache/ (qlib disk cache) and .staging/ (pipeline work dir) must not trip the orphan scan.
 
