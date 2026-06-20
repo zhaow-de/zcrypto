@@ -73,6 +73,10 @@ from cli.rank.command import rank
 
 app.command(name="rank")(rank)
 
+from cli.stress.command import stress
+
+app.command(name="stress")(stress)
+
 from cli.data.command import data_app
 
 app.add_typer(data_app, name="data")
