@@ -27,7 +27,7 @@ _SELL_COLOR = "red"
 _STRESS_FILLCOLOR = "rgba(255, 165, 0, 0.15)"  # translucent orange
 
 
-def build_report(result, *, stress_windows=None, cv=None) -> go.Figure:
+def build_report(result, *, stress_windows=None, cv=None, marker=SURVIVORSHIP_MARKER) -> go.Figure:
     """Build and return a 3- or 4-panel Plotly Figure from a RunResult.
 
     Parameters
@@ -48,7 +48,7 @@ def build_report(result, *, stress_windows=None, cv=None) -> go.Figure:
 
     recipe = result.recipe
     ending = float(result.account_curve.iloc[-1])
-    title = f"{recipe.name}: {recipe.account:,.0f} → {ending:,.0f} USDT<br><sub>⚠ {SURVIVORSHIP_MARKER}</sub>"
+    title = f"{recipe.name}: {recipe.account:,.0f} → {ending:,.0f} USDT<br><sub>⚠ {marker}</sub>"
 
     n_rows = 4 if cv else 3
     titles = ["Equity (test window)", "Trade timeline", "Market context (rebased)"]
