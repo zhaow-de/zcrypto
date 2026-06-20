@@ -253,7 +253,7 @@ Run an end-to-end Qlib pipeline — Alpha158 features (158-factor library, defau
 > **Prerequisite:** Redis must be running before you invoke this command (`./scripts/redis.sh start`). The command performs a Redis pre-flight check and exits with a clear error if Redis is unreachable.
 
 ```bash
-zcrypto experiment [--recipe skeleton] [--data-dir ./data] [--out ./runs] [--svg] [--refresh-cache] [--quick] [--open/--no-open]
+zcrypto experiment [--recipe skeleton] [--data-dir ./data] [--out ./runs] [--svg] [--refresh-cache] [--quick] [--open/--no-open] [--pit-universe]
 ```
 
 By default `experiment` runs combinatorial purged cross-validation (CPCV) over `train+valid` — writing `cv_results.json` (per-path Sharpe distribution + rank-IC + holdout PSR) and a 4th report panel — then the single holdout backtest on `test`. `--quick` skips CPCV. Every run also writes `returns.csv` (holdout cost-adjusted daily returns) and prints a **holdout PSR** (Probabilistic Sharpe Ratio) line — P(true holdout Sharpe > 0), corrected for sample length and non-normality.
@@ -269,6 +269,7 @@ By default `experiment` runs combinatorial purged cross-validation (CPCV) over `
 | `--open/--no-open`                   | on when stdout is a TTY      | Open `report.html` in a browser when done. Auto-detected from whether stdout is a TTY.                                                                         |
 | `--seeds N`                          | `1`                          | Run the holdout N times with seeds 1…N and write `holdout_seeds.json` (per-seed metrics + distribution summary). No-op when `N=1` (default).                   |
 | `--deterministic/--no-deterministic` | off                          | Fully deterministic mode: fixes seed=1 + LightGBM `force_row_wise`. Makes repeated runs byte-identical. Combine with `--seeds` for a canonical multi-seed run. |
+| `--pit-universe/--no-pit-universe`   | off                          | Expand the recipe's universe to point-in-time membership (the ever-top-25 delisted/faded majors) for a survivorship-free run.                                  |
 
 ##### Built-in recipes
 

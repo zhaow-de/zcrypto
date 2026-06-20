@@ -12,8 +12,8 @@ import typer
 # level so tests can monkeypatch `cli.experiment.command.resolve_recipe`, and so the
 # unknown-recipe path never touches qlib/redis.
 from cli.config import ConfigError, load_config, resolve_data_dir
-from cli.experiment.caveats import EXPERIMENT_CAVEATS, SURVIVORSHIP_MARKER
-from cli.experiment.recipes.base import resolve_recipe
+from cli.experiment.caveats import EXPERIMENT_CAVEATS, PIT_MARKER, POINT_IN_TIME, SURVIVORSHIP_MARKER
+from cli.experiment.recipes.base import resolve_recipe, with_pit_universe
 
 
 def experiment(
@@ -63,6 +63,12 @@ def experiment(
         "--deterministic/--no-deterministic",
         help="Run in fully deterministic mode (seed=1, LightGBM force_row_wise). Reproduces the same result on repeated runs.",
     ),
+    pit_universe: bool = typer.Option(
+        False,
+        "--pit-universe/--no-pit-universe",
+        help="Expand the recipe's universe to point-in-time membership (adds the ever-top-25 "
+        "delisted/faded majors) for a survivorship-free run. Default off.",
+    ),
 ) -> None:
     """Run a recipe end-to-end and write a predict-ready run bundle."""
     # Deferred so `zcrypto --help`/`--version` stay fast (qlib import is ~1s) and
@@ -87,6 +93,10 @@ def experiment(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     logger.info("recipe-resolved", extra={"recipe": recipe.name})
+    if pit_universe:
+        recipe = with_pit_universe(recipe)
+    caveats = [POINT_IN_TIME] if pit_universe else EXPERIMENT_CAVEATS
+    marker = PIT_MARKER if pit_universe else SURVIVORSHIP_MARKER
 
     try:
         data_dir = resolve_data_dir(data_dir, load_config()).resolve()
@@ -132,7 +142,7 @@ def experiment(
             "holdout_sharpe": holdout_sharpe,
             "holdout_psr": holdout_psr,
         }
-    fig = build_report(result, cv=cv_arg)
+    fig = build_report(result, cv=cv_arg, marker=marker)
     write_report(fig, bundle, svg=svg)
 
     # --- metrics.json --------------------------------------------------------
@@ -214,7 +224,7 @@ def experiment(
         "reference_instruments": list(recipe.reference_instruments),
         "index_fingerprint": result.data_fingerprint,
         "ending_value": result.ending_value,
-        "caveats": EXPERIMENT_CAVEATS,
+        "caveats": caveats,
     }
     (bundle / "run_meta.json").write_text(json.dumps(run_meta, indent=2))
 
@@ -258,7 +268,7 @@ def experiment(
             f"Sharpe {d['sharpe_mean']:.2f} ± {d['sharpe_std']:.2f} (worst {d['sharpe_worst']:.2f}) · "
             f"rank-IC {cv_result.rank_ic['mean']:.3f}"
         )
-    typer.echo(f"⚠ {SURVIVORSHIP_MARKER}")
+    typer.echo(f"⚠ {marker}")
     typer.echo(f"  bundle            : {bundle}")
 
     if open_report:
