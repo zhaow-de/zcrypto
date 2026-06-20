@@ -69,6 +69,12 @@ def experiment(
         help="Expand the recipe's universe to point-in-time membership (adds the ever-top-25 "
         "delisted/faded majors) for a survivorship-free run. Default off.",
     ),
+    fees_only: bool = typer.Option(
+        False,
+        "--fees-only/--no-fees-only",
+        help="Use the fees-only cost model (raw fee_preset, no slippage/maker-fill) instead of the "
+        "default calibrated realistic costs. The A/B baseline for the execution-cost re-measure.",
+    ),
 ) -> None:
     """Run a recipe end-to-end and write a predict-ready run bundle."""
     # Deferred so `zcrypto --help`/`--version` stay fast (qlib import is ~1s) and
@@ -97,6 +103,9 @@ def experiment(
         recipe = with_pit_universe(recipe)
     caveats = [POINT_IN_TIME] if pit_universe else EXPERIMENT_CAVEATS
     marker = PIT_MARKER if pit_universe else SURVIVORSHIP_MARKER
+    if fees_only:
+        recipe = dataclasses.replace(recipe, fees_only=True)
+    cost_model = "fees-only (no slippage/maker-fill)" if fees_only else "realistic (calibrated slippage + maker-fill)"
 
     try:
         data_dir = resolve_data_dir(data_dir, load_config()).resolve()
@@ -219,6 +228,11 @@ def experiment(
         "account": recipe.account,
         "benchmark": recipe.benchmark,
         "fee_preset": recipe.fee_preset,
+        "cost_model": {
+            "fees_only": recipe.fees_only,
+            "impact_cost": recipe.impact_cost,
+            "maker_fill_haircut": recipe.maker_fill_haircut,
+        },
         "segments": recipe.segments,
         "universe": list(recipe.universe),
         "reference_instruments": list(recipe.reference_instruments),
@@ -268,6 +282,7 @@ def experiment(
             f"Sharpe {d['sharpe_mean']:.2f} ± {d['sharpe_std']:.2f} (worst {d['sharpe_worst']:.2f}) · "
             f"rank-IC {cv_result.rank_ic['mean']:.3f}"
         )
+    typer.echo(f"  cost model         : {cost_model}")
     typer.echo(f"⚠ {marker}")
     typer.echo(f"  bundle            : {bundle}")
 
