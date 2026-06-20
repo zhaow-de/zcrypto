@@ -246,3 +246,53 @@ def test_crossasset_steady_prepends_cross_asset_processor():
     assert any(p["class"] == "RobustZScoreNorm" for p in procs)
     st = resolve_recipe("steady")
     assert r.universe == st.universe and r.model_config == st.model_config
+
+
+# --- PIT universe additions (iter-18 Task 1) ---
+
+
+def test_pit_additions_are_the_ten_delisted_faded_majors():
+    from cli.experiment.recipes.base import PIT_ADDITIONS
+
+    assert PIT_ADDITIONS == (
+        "DASHUSDT",
+        "ZECUSDT",
+        "QTUMUSDT",
+        "ICXUSDT",
+        "FTTUSDT",
+        "WAVESUSDT",
+        "OMGUSDT",
+        "XEMUSDT",
+        "BTGUSDT",
+        "NANOUSDT",
+    )
+    # LUNCUSDT is appended at closeout, not in the coded constant
+    assert "LUNCUSDT" not in PIT_ADDITIONS
+
+
+def test_with_pit_universe_appends_additions_order_preserving():
+    from cli.experiment.recipes.base import PIT_ADDITIONS, resolve_recipe, with_pit_universe
+
+    base = resolve_recipe("steady")
+    pit = with_pit_universe(base)
+
+    # frozen original untouched
+    assert "NANOUSDT" not in base.universe
+    # survivors kept first, in order; additions appended
+    assert pit.universe[: len(base.universe)] == base.universe
+    assert pit.universe[len(base.universe) :] == PIT_ADDITIONS
+    # only the universe changed
+    import dataclasses
+
+    assert dataclasses.replace(pit, universe=base.universe) == base
+
+
+def test_with_pit_universe_dedups_overlap():
+    import dataclasses
+
+    from cli.experiment.recipes.base import resolve_recipe, with_pit_universe
+
+    base = dataclasses.replace(resolve_recipe("steady"), universe=resolve_recipe("steady").universe + ("NANOUSDT",))
+    pit = with_pit_universe(base)
+    assert pit.universe.count("NANOUSDT") == 1
+    assert len(pit.universe) == len(set(pit.universe))
