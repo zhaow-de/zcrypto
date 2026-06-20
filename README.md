@@ -230,7 +230,7 @@ Fetch a bounded daily aggTrades sample from `data.binance.vision` into the raw m
 
 **Integrity gate:** a zip with a published `.CHECKSUM` is verified by sha256; one without is verified structurally (`validate_aggtrades_zip` — extracts to exactly one non-empty CSV) before being saved. An invalid zip is never cached.
 
-**Manifest:** after the fetch completes, `aggtrades-manifest.json` is written to `<backup-dir>/raw/spot/daily/aggTrades/`, recording the pairs list, the `[from, to]` window, and per-pair fetched dates + total bytes.
+**Manifest:** after the fetch completes, `aggtrades-manifest.json` is written to `<backup-dir>/raw/spot/daily/aggTrades/`, recording the pairs list, the `[from, to]` window, and per-pair **present** dates + total bytes — the cumulative sample on disk, so re-running the same window yields an identical manifest (idempotent), documenting what's available to the calibration.
 
 | Argument / option                   | Default                        | Description                                                                                                   |
 | ----------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------- |
