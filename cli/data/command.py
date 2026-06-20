@@ -8,9 +8,10 @@ from typing import Optional
 import typer
 
 from cli.config import ConfigError, load_config, resolve_backup_dir, resolve_data_dir
+from cli.data.aggtrades import fetch_aggtrades_sample
 from cli.data.binance import BinanceSource
 from cli.data.layout import DatasetPaths
-from cli.data.pipeline import PipelineError, backfill_pipeline, download_pipeline, drop_pipeline, rename_pipeline
+from cli.data.pipeline import PipelineError, backfill_pipeline, download_pipeline, drop_pipeline, parse_pairs_file, rename_pipeline
 from cli.data.verify import verify_dataset
 
 _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -233,3 +234,57 @@ def rename_cmd(
         raise typer.Exit(1)
     if not dry_run:
         typer.echo(f"rename complete: {old_symbol} → {new_symbol} in {data_dir}")
+
+
+@data_app.command("aggtrades")
+def aggtrades_cmd(
+    pairs_file: Path = typer.Argument(..., help="Plain-text file: one Binance symbol per line.", exists=True, dir_okay=False),
+    backup_dir: Optional[Path] = typer.Option(  # noqa: UP007
+        None,
+        "--backup-dir",
+        help="Backup dir for the raw mirror (raw/); created if absent. Defaults to [zcrypto].backup_dir.",
+        file_okay=False,
+    ),
+    from_date: Optional[str] = typer.Option(  # noqa: UP007
+        None, "--from", callback=_from_callback, help="ISO date YYYY-MM-DD (sample window start)."
+    ),
+    to_date: Optional[str] = typer.Option(  # noqa: UP007
+        None, "--to", callback=_to_callback, help="ISO date YYYY-MM-DD (sample window end, default: yesterday UTC)."
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview the fetch plan (pairs × date count) without fetching."),
+) -> None:
+    """Fetch a bounded aggTrades sample into the raw mirror (execution-calibration, NOT the qlib dataset)."""
+    fd: dt.date = from_date if isinstance(from_date, dt.date) else (dt.date.today() - dt.timedelta(days=7))  # type: ignore[assignment]
+    td: dt.date = to_date if isinstance(to_date, dt.date) else (dt.date.today() - dt.timedelta(days=1))  # type: ignore[assignment]
+
+    try:
+        pairs = parse_pairs_file(pairs_file)
+    except PipelineError as e:
+        typer.echo(f"ERROR: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    if dry_run:
+        n_dates = max(0, (td - fd).days + 1)
+        typer.echo(f"DRY-RUN: aggtrades plan: {len(pairs)} pair(s) × {n_dates} day(s) = {len(pairs) * n_dates} zip(s)")
+        for p in pairs:
+            typer.echo(f"  {p}: {fd} → {td}")
+        return
+
+    try:
+        cfg = load_config()
+        bk_dir = resolve_backup_dir(backup_dir, cfg)
+    except ConfigError as e:
+        typer.echo(f"ERROR: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    paths = DatasetPaths(data_dir=bk_dir / "_unused", backup_dir=bk_dir)
+    source = BinanceSource(fetch=cfg.fetch)
+    try:
+        manifest = fetch_aggtrades_sample(paths, source, pairs, fd, td, fetch=cfg.fetch)
+    except PipelineError as e:
+        typer.echo(f"ERROR: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    total_fetched = sum(s["fetched"] for s in manifest["pairs_stats"].values())
+    total_skipped = sum(s["skipped"] for s in manifest["pairs_stats"].values())
+    typer.echo(f"OK — aggtrades sample complete: {total_fetched} fetched, {total_skipped} skipped (already present).")

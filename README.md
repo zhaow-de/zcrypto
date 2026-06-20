@@ -222,6 +222,30 @@ zcrypto data rename MATICUSDT POLUSDT --backup-dir ./bk --data-dir ./data   # ex
 zcrypto data rename MATICUSDT POLUSDT --dry-run                             # preview only
 ```
 
+##### `zcrypto data aggtrades PAIRS_FILE`
+
+Fetch a bounded daily aggTrades sample from `data.binance.vision` into the raw mirror. Purpose: execution-calibration research (tick-level fill/slippage analysis), **not** the Qlib kline dataset. Only touches the mirror under `--backup-dir`; no `index.json`, no compiled dataset, no qlib bins.
+
+**Mirror layout:** zips are stored under a year subdir, mirroring the kline convention — e.g. `<backup-dir>/raw/spot/daily/aggTrades/BTCUSDT/2025/BTCUSDT-aggTrades-2025-03-01.zip`. The fetch is idempotent: a zip already present in the mirror is skipped (counted as "skipped" in the manifest), so re-running the same window costs nothing.
+
+**Integrity gate:** a zip with a published `.CHECKSUM` is verified by sha256; one without is verified structurally (`validate_aggtrades_zip` — extracts to exactly one non-empty CSV) before being saved. An invalid zip is never cached.
+
+**Manifest:** after the fetch completes, `aggtrades-manifest.json` is written to `<backup-dir>/raw/spot/daily/aggTrades/`, recording the pairs list, the `[from, to]` window, and per-pair fetched dates + total bytes.
+
+| Argument / option                   | Default                        | Description                                                                                                   |
+| ----------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `PAIRS_FILE` (positional, required) | —                              | Plain text — one Binance symbol per line (blank lines allowed; symbols normalized to uppercase; ≥1 required). |
+| `--backup-dir`                      | `[zcrypto].backup_dir` in toml | Backup dir where the raw mirror (`raw/`) lives; created if absent.                                            |
+| `--from`                            | 7 days ago (UTC)               | Sample window start (ISO `YYYY-MM-DD`).                                                                       |
+| `--to`                              | yesterday (UTC)                | Sample window end (ISO `YYYY-MM-DD`).                                                                         |
+| `--dry-run`                         | off                            | Print the fetch plan (pairs × date count) and exit without fetching.                                          |
+
+```bash
+zcrypto data aggtrades pairs.txt --from 2025-03-01 --to 2025-03-07   # backup-dir from zcrypto.toml
+zcrypto data aggtrades pairs.txt --backup-dir ./bk --from 2025-03-01 --to 2025-03-07
+zcrypto data aggtrades pairs.txt --from 2025-03-01 --to 2025-03-07 --dry-run  # preview only
+```
+
 #### `zcrypto experiment`<a name="zcrypto-experiment"></a>
 
 Run an end-to-end Qlib pipeline — Alpha158 features (158-factor library, default 2-day-forward label) → LightGBM ranker → TopkDropout long/cash daily backtest → 3- or 4-panel Plotly report — and write a predict-ready run bundle. The **recipe is the single swappable moving part**: swap `cli/experiment/recipes/<name>.py` to change the universe, features, model, strategy class, or strategy parameters and iterate.

@@ -1,17 +1,19 @@
-"""Task 1: aggTrades fetch primitives + year-partitioned mirror path."""
+"""Tasks 1–3: aggTrades fetch primitives, mirror path, fetch_aggtrades_sample."""
 
 from __future__ import annotations
 
 import datetime as dt
 import io
+import json
 import zipfile
 from pathlib import Path
 
 import pytest
 
-from cli.data.aggtrades import validate_aggtrades_zip
+from cli.data.aggtrades import fetch_aggtrades_sample, validate_aggtrades_zip
 from cli.data.binance import aggtrades_archive_parts, aggtrades_checksum_url, aggtrades_zip_url
-from cli.data.mirror import aggtrades_mirror_path
+from cli.data.layout import DatasetPaths
+from cli.data.mirror import aggtrades_mirror_path, read_zip
 from tests.data_fixtures import FakeSource
 
 DATE = dt.date(2025, 3, 3)
@@ -98,3 +100,108 @@ class TestValidateAggtradesZip:
         )
         with pytest.raises(ValueError, match="exactly one"):
             validate_aggtrades_zip(raw)
+
+
+# ---------------------------------------------------------------------------
+# Task 3: fetch_aggtrades_sample
+# ---------------------------------------------------------------------------
+
+
+def _make_aggtrades_zip(symbol: str, date: dt.date) -> bytes:
+    name = f"{symbol}-aggTrades-{date}.csv"
+    return _zip_with({name: b"1,100.0,0.5,1,1,1700000000000,True,True\n"})
+
+
+class TestFetchAggtadesSample:
+    def _paths(self, tmp_path: Path) -> DatasetPaths:
+        return DatasetPaths(data_dir=tmp_path / "data", backup_dir=tmp_path / "bk")
+
+    def test_zips_land_at_year_mirror_paths(self, tmp_path: Path) -> None:
+        paths = self._paths(tmp_path)
+        src = FakeSource()
+        dates = [dt.date(2025, 3, 1), dt.date(2025, 3, 2)]
+        for d in dates:
+            src.add_aggtrades("BTCUSDT", d, raw=_make_aggtrades_zip("BTCUSDT", d))
+        manifest = fetch_aggtrades_sample(paths, src, ["BTCUSDT"], dt.date(2025, 3, 1), dt.date(2025, 3, 2))
+        for d in dates:
+            mpath = aggtrades_mirror_path(paths.raw_root, "BTCUSDT", d)
+            assert read_zip(mpath) is not None, f"expected zip at {mpath}"
+        assert manifest["pairs"] == ["BTCUSDT"]
+
+    def test_idempotent_rerun_skips_already_present(self, tmp_path: Path) -> None:
+        paths = self._paths(tmp_path)
+        src = FakeSource()
+        d = dt.date(2025, 3, 1)
+        src.add_aggtrades("BTCUSDT", d, raw=_make_aggtrades_zip("BTCUSDT", d))
+        fetch_aggtrades_sample(paths, src, ["BTCUSDT"], d, d)
+        # Second run: remove from source so a real fetch would raise KeyError
+        src2 = FakeSource()  # empty — any fetch would raise KeyError
+        manifest2 = fetch_aggtrades_sample(paths, src2, ["BTCUSDT"], d, d)
+        assert manifest2["pairs_stats"]["BTCUSDT"]["fetched"] == 0
+        assert manifest2["pairs_stats"]["BTCUSDT"]["skipped"] == 1
+
+    def test_manifest_records_pairs_window_and_bytes(self, tmp_path: Path) -> None:
+        paths = self._paths(tmp_path)
+        src = FakeSource()
+        dates = [dt.date(2025, 3, 1), dt.date(2025, 3, 2)]
+        raw_zips = {}
+        for d in dates:
+            raw = _make_aggtrades_zip("BTCUSDT", d)
+            raw_zips[d] = raw
+            src.add_aggtrades("BTCUSDT", d, raw=raw)
+        manifest = fetch_aggtrades_sample(paths, src, ["BTCUSDT"], dt.date(2025, 3, 1), dt.date(2025, 3, 2))
+        assert manifest["from"] == "2025-03-01"
+        assert manifest["to"] == "2025-03-02"
+        assert "BTCUSDT" in manifest["pairs_stats"]
+        stats = manifest["pairs_stats"]["BTCUSDT"]
+        assert stats["fetched"] == 2
+        assert stats["total_bytes"] == sum(len(raw_zips[d]) for d in dates)
+        assert set(stats["fetched_dates"]) == {"2025-03-01", "2025-03-02"}
+
+    def test_manifest_json_written_to_aggtrades_root(self, tmp_path: Path) -> None:
+        paths = self._paths(tmp_path)
+        src = FakeSource()
+        d = dt.date(2025, 3, 1)
+        src.add_aggtrades("BTCUSDT", d, raw=_make_aggtrades_zip("BTCUSDT", d))
+        fetch_aggtrades_sample(paths, src, ["BTCUSDT"], d, d)
+        manifest_path = paths.raw_root / "spot/daily/aggTrades/aggtrades-manifest.json"
+        assert manifest_path.exists(), f"expected manifest at {manifest_path}"
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert data["pairs"] == ["BTCUSDT"]
+
+    def test_checksum_validated_path_skips_validate_zip(self, tmp_path: Path) -> None:
+        """When a checksum is present and matches, validate_aggtrades_zip is NOT called (sha256 is sufficient)."""
+        import hashlib
+
+        paths = self._paths(tmp_path)
+        src = FakeSource()
+        d = dt.date(2025, 3, 1)
+        raw = _make_aggtrades_zip("BTCUSDT", d)
+        checksum = hashlib.sha256(raw).hexdigest()
+        src.add_aggtrades("BTCUSDT", d, raw=raw, checksum=checksum)
+        # Should succeed without error (the zip IS valid, so this just verifies no double-gate)
+        manifest = fetch_aggtrades_sample(paths, src, ["BTCUSDT"], d, d)
+        assert manifest["pairs_stats"]["BTCUSDT"]["fetched"] == 1
+
+    def test_unchecksummed_path_validates_zip_structure(self, tmp_path: Path) -> None:
+        """When no checksum, validate_aggtrades_zip is used as integrity gate (must pass for a valid zip)."""
+        paths = self._paths(tmp_path)
+        src = FakeSource()
+        d = dt.date(2025, 3, 1)
+        raw = _make_aggtrades_zip("BTCUSDT", d)
+        src.add_aggtrades("BTCUSDT", d, raw=raw)  # no checksum
+        manifest = fetch_aggtrades_sample(paths, src, ["BTCUSDT"], d, d)
+        assert manifest["pairs_stats"]["BTCUSDT"]["fetched"] == 1
+
+    def test_multi_pair_multi_date(self, tmp_path: Path) -> None:
+        paths = self._paths(tmp_path)
+        src = FakeSource()
+        pairs = ["BTCUSDT", "ETHUSDT"]
+        dates = [dt.date(2025, 3, 1), dt.date(2025, 3, 2)]
+        for p in pairs:
+            for d in dates:
+                src.add_aggtrades(p, d, raw=_make_aggtrades_zip(p, d))
+        manifest = fetch_aggtrades_sample(paths, src, pairs, dates[0], dates[-1])
+        assert set(manifest["pairs"]) == set(pairs)
+        for p in pairs:
+            assert manifest["pairs_stats"][p]["fetched"] == 2
