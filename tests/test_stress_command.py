@@ -42,7 +42,7 @@ def _patch(monkeypatch, tmp_path, seen):
     class _Idx:
         class calendar:
             from_date = "2020-01-01"
-            to_date = "2026-06-15"
+            to_date = "2026-06-19"  # the real calendar end; the command must leave a backtest tail buffer below it
 
     monkeypatch.setattr(cmd, "resolve_recipe", lambda name: _Recipe())
     monkeypatch.setattr(cmd, "load_config", lambda: {})
@@ -65,8 +65,10 @@ def test_stress_loops_all_windows_and_writes_summary(monkeypatch, tmp_path):
         ("2022-01-01", "2022-12-31"),
         ("2023-01-01", "2023-12-31"),
         ("2024-01-01", "2024-12-31"),
-        ("2025-01-01", "2026-06-15"),
+        ("2025-01-01", "2026-06-17"),  # last window capped 2 days before the calendar end (qlib backtest tail buffer)
     ]
+    # the last window's test_end must stay strictly below the calendar end (qlib peeks calendar[index+1])
+    assert seen[-1][1][1] < "2026-06-19"
     # summary json written with one entry per window
     sj = sorted(out.glob("stress/steady/*/stress_summary.json"))
     assert sj, "stress_summary.json not written"

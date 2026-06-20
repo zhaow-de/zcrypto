@@ -15,6 +15,10 @@ from cli.experiment.recipes.base import resolve_recipe
 from cli.stress.windows import build_oos_windows
 
 _TEST_STARTS = ["2022-01-01", "2023-01-01", "2024-01-01", "2025-01-01"]
+# qlib's SimulatorExecutor peeks calendar[index+1] at the last backtest step, so the last
+# window's test_end must NOT be the calendar's final day. Cap data_end this many days before
+# the calendar end to leave that tail (the recipes hardcode the same buffer in their test segment).
+_BACKTEST_TAIL_BUFFER_DAYS = 2
 
 
 def stress(
@@ -48,7 +52,10 @@ def stress(
         typer.echo(f"ERROR: no dataset index at {data_dir}", err=True)
         raise typer.Exit(code=1)
 
-    windows = build_oos_windows(_TEST_STARTS, data_start=idx.calendar.from_date, data_end=idx.calendar.to_date)
+    import datetime as _dt
+
+    data_end = (_dt.date.fromisoformat(idx.calendar.to_date) - _dt.timedelta(days=_BACKTEST_TAIL_BUFFER_DAYS)).isoformat()
+    windows = build_oos_windows(_TEST_STARTS, data_start=idx.calendar.from_date, data_end=data_end)
 
     results = []
     for w in windows:
