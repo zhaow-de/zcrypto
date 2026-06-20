@@ -251,7 +251,7 @@ def test_crossasset_steady_prepends_cross_asset_processor():
 # --- PIT universe additions (iter-18 Task 1) ---
 
 
-def test_pit_additions_are_the_ten_delisted_faded_majors():
+def test_pit_additions_are_the_eleven_delisted_faded_majors():
     from cli.experiment.recipes.base import PIT_ADDITIONS
 
     assert PIT_ADDITIONS == (
@@ -265,9 +265,10 @@ def test_pit_additions_are_the_ten_delisted_faded_majors():
         "XEMUSDT",
         "BTGUSDT",
         "NANOUSDT",
+        "LUNCUSDT",
     )
-    # LUNCUSDT is appended at closeout, not in the coded constant
-    assert "LUNCUSDT" not in PIT_ADDITIONS
+    # LUNCUSDT is the Terra blow-up (old LUNA capped before Luna 2.0, renamed to Luna Classic).
+    assert "LUNCUSDT" in PIT_ADDITIONS
 
 
 def test_with_pit_universe_appends_additions_order_preserving():

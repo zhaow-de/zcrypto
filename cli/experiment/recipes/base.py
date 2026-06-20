@@ -56,11 +56,11 @@ class Recipe:
 # Point-in-time universe additions (see docs/specs/00017). These ever-top-25 USDT majors
 # blew up (NANO/BTG/OMG/WAVES/XEM delisted) or faded out of today's survivor universe while
 # still listed (DASH/FTT/ICX/QTUM/ZEC); iter-16 acquired all 10 archive-only with real
-# listing/delisting ranges. Appending them to a recipe's universe (the --pit-universe flag)
-# makes a run survivorship-free — qlib trades each only within its real range. The Terra
-# blow-up LUNCUSDT is appended here at the iter-18 closeout, once the capped
-# LUNAUSDT->LUNCUSDT acquisition lands (kept out until then so a flagged run never
-# references an instrument absent from the dataset).
+# listing/delisting ranges. LUNCUSDT is the Terra blow-up: old LUNA's full arc (2020-08-21 →
+# the 2022-05-13 crash) acquired capped before the reused-symbol Luna 2.0, renamed to its
+# canonical Luna-Classic identity (see cli/data/scripts/acquire_old_luna.py). Appending these
+# to a recipe's universe (the --pit-universe flag) makes a run survivorship-free — qlib trades
+# each only within its real range.
 PIT_ADDITIONS: tuple[str, ...] = (
     "DASHUSDT",
     "ZECUSDT",
@@ -72,6 +72,7 @@ PIT_ADDITIONS: tuple[str, ...] = (
     "XEMUSDT",
     "BTGUSDT",
     "NANOUSDT",
+    "LUNCUSDT",
 )
 
 
