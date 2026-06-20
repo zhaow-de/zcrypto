@@ -297,3 +297,13 @@ def test_with_pit_universe_dedups_overlap():
     pit = with_pit_universe(base)
     assert pit.universe.count("NANOUSDT") == 1
     assert len(pit.universe) == len(set(pit.universe))
+
+
+def test_recipe_cost_fields_default_to_calibration():
+    from cli.experiment.costs import COST_CALIBRATION
+    from cli.experiment.recipes.base import resolve_recipe
+
+    r = resolve_recipe("steady")
+    assert r.impact_cost == COST_CALIBRATION["impact_cost"]
+    assert r.maker_fill_haircut == COST_CALIBRATION["maker_fill_haircut"]
+    assert r.fees_only is False

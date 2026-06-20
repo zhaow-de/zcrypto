@@ -6,6 +6,8 @@ import importlib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from cli.experiment.costs import COST_CALIBRATION
+
 # (open_cost, close_cost) round-trip fee fractions
 FEE_PRESETS: dict[str, tuple[float, float]] = {
     "vip2_bnb": (0.0006, 0.0006),
@@ -38,6 +40,11 @@ class Recipe:
     account: float = field(default=10_000.0)
     benchmark: str = field(default="BTCUSDT")
     fee_preset: str = field(default="vip2_bnb")
+    # Realistic execution-cost knobs (see docs/specs/00018). Defaults = calibrated values;
+    # fees_only=True reverts exchange_kwargs to the raw fee_preset (no slippage) for the A/B baseline.
+    impact_cost: float = field(default=COST_CALIBRATION["impact_cost"])
+    maker_fill_haircut: float = field(default=COST_CALIBRATION["maker_fill_haircut"])
+    fees_only: bool = field(default=False)
     # CPCV / purge-embargo knobs (see docs/specs/00008). Defaults match Alpha158's
     # default label horizon and longest feature window; behavior-preserving.
     label_horizon_days: int = field(default=2)
