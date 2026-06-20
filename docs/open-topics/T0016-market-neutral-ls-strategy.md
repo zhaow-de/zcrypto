@@ -36,6 +36,14 @@ metric, not a strategy.
   path as-is — it needs either a custom short-capable executor/exchange, or a strategy that computes
   the dollar-neutral book's P&L outside qlib's `Account` (extending the iter-21 spread approach to a
   full position/trade ledger). This is the load-bearing build cost.
+- **GATE FAILED — iter-22 OOS validation (spec/plan `00021`) refuted the edge.** The `zcrypto stress`
+  walk-forward found `steady`'s market-neutral `ls_sharpe` averages **−0.10 across OOS windows** (only
+  2/4 positive; negative in the 2022 crisis and 2024; positive only on the dev-seen 2025) — the iter-21
+  +33% was selection bias. So the precondition for this topic ("if the edge validates OOS") is **not
+  met**: do NOT build the strategy on this signal. (`funding_steady`'s L/S is marginally better OOS —
+  mean +0.02, positive in the 2022 crisis — but still not a consistent edge.) This topic stays open as
+  the home for a *future* L/S strategy, but only once a signal whose market-neutral edge actually
+  survives OOS exists.
 
 ## Suggested next steps
 

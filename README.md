@@ -18,6 +18,7 @@ Learning-for-Fun project to experience Microsoft Qlib.
     - [`zcrypto data`](#zcrypto-data)
     - [`zcrypto experiment`](#zcrypto-experiment)
     - [`zcrypto rank`](#zcrypto-rank)
+    - [`zcrypto stress`](#zcrypto-stress)
 
 <!-- mdformat-toc end -->
 
@@ -390,3 +391,20 @@ zcrypto rank                          # scan runs/ from cwd
 zcrypto rank --out ./runs             # explicit output dir
 zcrypto rank --n-splits 8             # fewer splits (faster, coarser PBO estimate)
 ```
+
+#### `zcrypto stress`<a name="zcrypto-stress"></a>
+
+Walk-forward out-of-sample validation: loops over annual OOS windows (2022, 2023, 2024, 2025), trains only on data strictly before each test period (expanding from data start), and runs the multi-seed holdout per window to report per-window long-only and market-neutral L/S Sharpe. The test windows are fixed (`2022-01-01`, `2023-01-01`, `2024-01-01`, `2025-01-01`); training data expands from `data_start` up to `test_start − 8 days` (purge gap). Writes `stress_summary.json` to the output bundle.
+
+```bash
+zcrypto stress [--recipe steady] [--seeds 8] [--data-dir ./data] [--out ./runs]
+```
+
+| Option       | Default    | Description                                                                           |
+| ------------ | ---------- | ------------------------------------------------------------------------------------- |
+| `--recipe`   | `steady`   | Recipe to validate out-of-sample (see `cli/experiment/recipes`).                      |
+| `--seeds`    | `8`        | Seeds per OOS window; reuses the multi-seed holdout (`run_holdout_seeds`) per window. |
+| `--data-dir` | _(config)_ | Qlib provider directory. Defaults to `[zcrypto].data_dir` in `zcrypto.toml`.          |
+| `--out`      | `./runs`   | Root for stress bundles; each run lands at `<out>/stress/<recipe>/<UTC timestamp>/`.  |
+
+The command writes `<out>/stress/<recipe>/<ts>/stress_summary.json` with keys `recipe`, `seeds`, `windows` (per-window `label`, `train`, `test`, `sharpe_mean`, `ls_sharpe_mean`, `ls_sharpe_min`), and `aggregate` (cross-window L/S Sharpe summary).

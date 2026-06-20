@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 priority: medium
 ---
 
@@ -31,14 +31,24 @@ Identified during iter-12 scoping (spec `00011`); deferred to this topic.
 4th report panel — it does not orchestrate multi-window retraining. References:
 research §13 Stage 3.
 
+## Done so far
+
+**OOS test-window walk-forward landed (iter-22, spec/plan `00021`).** The `zcrypto stress
+--recipe <r> [--seeds N]` subcommand rolls the train→test split across annual OOS windows
+(`cli/stress/windows.build_oos_windows` — expanding train from 2020, leak-safe 8-day purge ≥
+the label horizon, windows 2022/2023/2024/2025), reusing the iter-21 multi-seed holdout per
+window to report per-window long-only `sharpe` vs market-neutral `ls_sharpe` + `stress_summary.json`.
+Its first use refuted the iter-21 L/S edge OOS (`steady` mean `ls_sharpe` −0.10 across windows,
+negative in the 2022 crisis + 2024; positive only on the dev-seen 2025) — keeping `T0016` gated.
+This is the **test-window** axis (the one that addresses selection-bias); see the iter-22 entry in
+`docs/iterations-history.md`.
+
 ## Suggested next steps
 
-- Define the window grid: training starts (2017-01-01, 2020-01-01) × named
-  crisis passes (LUNA/FTX, COVID).
-- Build a harness (CLI flag or separate subcommand) that loops the grid, writes
-  per-window run bundles, and emits a summary table of Sharpe/drawdown/PSR across
-  windows.
-- Aggregate robustness: flag recipes whose metrics scatter widely across windows
-  vs those that are consistently robust.
-- Integrate with `zcrypto rank` or a new `zcrypto stress-rank` subcommand so
-  multi-window results flow into the deflated-Sharpe accounting.
+- **Training-window axis (parked, data-limited):** vary the training START (T0007's original "2017
+  vs 2020") — but the dataset starts **2020-01-01** (no pre-2020 data), so this is infeasible until
+  earlier history is acquired. Low value vs the test-window axis already shipped.
+- **Continuous single-curve walk-forward:** one concatenated OOS equity curve (vs the per-window
+  grid) for a single honest realized-OOS number — a possible refinement.
+- **Integrate with `zcrypto rank`** so multi-window OOS results flow into the deflated-Sharpe
+  accounting.
