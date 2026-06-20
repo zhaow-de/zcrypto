@@ -34,9 +34,9 @@ Topics worth follow-up are parked here, one file per topic. See `.claude/rules/o
 
 ### Resolved<a name="resolved"></a>
 
-- [T0002 — Validation rigor (purged CV, CPCV, deflated Sharpe)](T0002-validation-rigor.md) — purged k-fold + embargo + CPCV (iter-9), then per-recipe PSR + the `rank` command's deflated Sharpe + PBO (iter-11) — validation rigor resolved.
-- [T0003 — BTC-trend regime overlay (long/cash gating)](T0003-btc-regime-overlay.md) — `RegimeGatedTopkStrategy` with binary/graded/cross modes + vol-targeting knob shipped in iter-12 (spec `00011`); demo recipe `regime_steady`; exposure via `get_risk_degree`.
-- [T0011 — Nondeterministic experiment results / multi-seed validation](T0011-nondeterministic-results-multi-seed.md) — iter-14 shipped `--seeds N` / `--deterministic`; 16-seed re-run confirmed single-run verdicts were seed-noise; true order inverts iter-13's ranking; single-run holdout verdicts retired in favour of distributions.
+- [T0002 — Validation rigor (purged CV, CPCV, deflated Sharpe)](archive/T0002-validation-rigor.md) — purged k-fold + embargo + CPCV (iter-9), then per-recipe PSR + the `rank` command's deflated Sharpe + PBO (iter-11) — validation rigor resolved.
+- [T0003 — BTC-trend regime overlay (long/cash gating)](archive/T0003-btc-regime-overlay.md) — `RegimeGatedTopkStrategy` with binary/graded/cross modes + vol-targeting knob shipped in iter-12 (spec `00011`); demo recipe `regime_steady`; exposure via `get_risk_degree`.
+- [T0011 — Nondeterministic experiment results / multi-seed validation](archive/T0011-nondeterministic-results-multi-seed.md) — iter-14 shipped `--seeds N` / `--deterministic`; 16-seed re-run confirmed single-run verdicts were seed-noise; true order inverts iter-13's ranking; single-run holdout verdicts retired in favour of distributions.
 
 ## Live trading preparation<a name="live-trading-preparation"></a>
 
