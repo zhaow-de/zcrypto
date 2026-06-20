@@ -12,7 +12,7 @@ import contextlib
 import math
 import statistics
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from cli.logging import get_logger
@@ -84,6 +84,7 @@ class _HoldoutContext:
     train_dates: set
     predict_dates: set
     _cm: object  # ExitStack kept open across the seed loop; closed in run_holdout_seeds
+    fwd_ret: object = field(default=None)  # 1-day-forward $close-return Series (datetime, instrument); for the L/S spread
 
 
 def _holdout_context(recipe, data_dir, deterministic):
@@ -139,6 +140,15 @@ def _holdout_context(recipe, data_dir, deterministic):
 
         train_dates = {d for d in learn_feat.index.get_level_values(0).unique() if train_start <= str(d.date()) <= train_end}
         predict_dates = {d for d in infer_feat.index.get_level_values(0).unique() if predict_start <= str(d.date()) <= predict_end}
+
+        from qlib.data import D
+
+        predict_close = D.features(list(recipe.universe), ["$close"], start_time=predict_start, end_time=predict_end, freq="day")[
+            "$close"
+        ]
+        wide_close = predict_close.unstack(level="instrument")
+        fwd_ret = (wide_close.shift(-1) / wide_close - 1.0).stack(future_stack=True)
+        fwd_ret.index.names = ["datetime", "instrument"]
     except BaseException:
         stack.close()
         raise
@@ -150,6 +160,7 @@ def _holdout_context(recipe, data_dir, deterministic):
         train_dates=train_dates,
         predict_dates=predict_dates,
         _cm=stack,
+        fwd_ret=fwd_ret,
     )
 
 
@@ -158,8 +169,8 @@ def _light_holdout(recipe, *, seed, deterministic, ctx):
 
     The light single-fit holdout factored out of ``walkforward.run_walkforward_holdout``'s
     per-period block: train on ``ctx.train_dates`` → predict ``ctx.predict_dates`` →
-    qlib ``backtest()`` → return the daily ``report_df``. Reuses the materialized matrices
-    in *ctx*, so qlib.init / materialize happen once across the N seeds.
+    qlib ``backtest()`` → return the daily ``report_df`` and the prediction ``signal``.
+    Reuses the materialized matrices in *ctx*, so qlib.init / materialize happen once across the N seeds.
     """
     import lightgbm as lgb
     import pandas as pd
@@ -191,7 +202,7 @@ def _light_holdout(recipe, *, seed, deterministic, ctx):
         exchange_kwargs=exchange_kwargs(recipe),
     )
     pmd_key = "1day" if "1day" in pmd else next(iter(pmd))
-    return pmd[pmd_key][0]
+    return pmd[pmd_key][0], signal
 
 
 def _holdout_metrics_for_seed(recipe, seed, deterministic, ctx):
@@ -207,18 +218,26 @@ def _holdout_metrics_for_seed(recipe, seed, deterministic, ctx):
     """
     from qlib.contrib.evaluate import risk_analysis
 
+    from cli.experiment.longshort import long_short_spread
+    from cli.experiment.recipes.base import FEE_PRESETS
     from cli.experiment.stats import psr as _psr
 
-    report_df = _light_holdout(recipe, seed=seed, deterministic=deterministic, ctx=ctx)
+    report_df, signal = _light_holdout(recipe, seed=seed, deterministic=deterministic, ctx=ctx)
 
     cost_adj = report_df["return"] - report_df["cost"]
     abs_df = risk_analysis(cost_adj, freq="day")
     account_curve = recipe.account * (1 + report_df["return"]).cumprod()
+
+    cost_per_side = FEE_PRESETS[recipe.fee_preset][0] + (0.0 if recipe.fees_only else recipe.maker_fill_haircut)
+    ls = long_short_spread(signal, ctx.fwd_ret, k=5, cost_per_side=cost_per_side)
+
     return {
         "ending_value": float(account_curve.iloc[-1]),
         "sharpe": float(abs_df.loc["information_ratio"].iloc[0]),
         "psr": _psr(cost_adj.to_numpy()),
         "max_drawdown": float(abs_df.loc["max_drawdown"].iloc[0]),
+        "ls_sharpe": ls["sharpe"],
+        "ls_ending": ls["ending"],
     }
 
 

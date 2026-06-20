@@ -64,6 +64,38 @@ def test_separation_divide_by_zero_zero_gap():
     assert sep["mean_gap"] == 0.0
 
 
+def test_holdout_metrics_includes_long_short(monkeypatch):
+    import pandas as pd
+
+    import cli.experiment.multiseed as ms
+
+    # Synthetic holdout: 2 dates × 4 instruments; report_df is the long-only daily report.
+    dates = pd.to_datetime(["2025-01-01", "2025-01-02"])
+    insts = ["A", "B", "C", "D"]
+    idx = pd.MultiIndex.from_product([dates, insts], names=["datetime", "instrument"])
+    signal = pd.Series([4, 3, 2, 1, 4, 3, 2, 1], index=idx, dtype=float)  # A>B>C>D each day
+    fwd = pd.Series([0.05, 0.0, 0.0, -0.05] * 2, index=idx, dtype=float)  # A up, D down
+    report_df = pd.DataFrame({"return": [0.01, 0.01], "cost": [0.0, 0.0]}, index=dates)
+
+    monkeypatch.setattr(ms, "_light_holdout", lambda recipe, *, seed, deterministic, ctx: (report_df, signal))
+
+    class _Recipe:
+        account = 10_000.0
+        fee_preset = "vip2_bnb"
+        fees_only = False
+        maker_fill_haircut = 0.0
+
+    class _Ctx:
+        fwd_ret = fwd
+
+    out = ms._holdout_metrics_for_seed(_Recipe(), 1, False, _Ctx())
+    # long-only keys still present
+    assert {"ending_value", "sharpe", "psr", "max_drawdown"} <= set(out)
+    # new L/S keys present; k=1 leg → long A (0.05), short D (-0.05) → +0.10/day, positive
+    assert "ls_sharpe" in out and "ls_ending" in out
+    assert out["ls_ending"] > 1.0
+
+
 def test_run_holdout_seeds_aggregates(monkeypatch):
     from cli.experiment import multiseed as ms
 
