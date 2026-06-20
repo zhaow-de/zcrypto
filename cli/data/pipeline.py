@@ -447,6 +447,28 @@ def _synthetic_gap_row(date: dt.date) -> _pd.DataFrame:
     return _pd.DataFrame([{"date": date, **{f: _synthetic_value(f) for f in FIELDS}}])
 
 
+def fetch_checksummed_zip(
+    fetch_zip_fn: Callable[[], bytes],
+    fetch_checksum_fn: Callable[[], str | None],
+) -> tuple[bytes, bool]:
+    """Fetch a remote zip and verify it against its published `.CHECKSUM`.
+
+    `fetch_zip_fn()` returns the raw zip bytes; `fetch_checksum_fn()` returns the published
+    sha256 hex (already parsed by the `Source`, e.g. via `parse_checksum_file`) or `None` when
+    no `.CHECKSUM` exists. A present checksum is compared by sha256 (mismatch → `PipelineError`)
+    and returns `(bytes, True)`; an absent one returns `(bytes, False)` so the caller runs its
+    own integrity gate (e.g. parse). Shared by the kline download path and the aggTrades fetcher.
+    """
+    zip_bytes = fetch_zip_fn()
+    checksum = fetch_checksum_fn()
+    if checksum is None:
+        return zip_bytes, False
+    actual = _hashlib.sha256(zip_bytes).hexdigest()
+    if actual.lower() != checksum.lower():
+        raise PipelineError("checksum mismatch")
+    return zip_bytes, True
+
+
 def _fetch_one_date(
     source: Source, sym: str, interval: str, date: dt.date, mirror_root: Path, *, allow_interior_gaps: bool = False
 ) -> tuple[str, dt.date, _pd.DataFrame]:
@@ -472,16 +494,18 @@ def _fetch_one_date(
         logger.warning("%s %s: interior archive gap (404); filling with a NaN suspension row", sym, date)
         return sym, date, _synthetic_gap_row(date)
 
-    zip_bytes = source.fetch_kline_zip(sym, interval, date)
-    checksum = source.fetch_kline_checksum(sym, interval, date)
-    if checksum is None:
+    try:
+        zip_bytes, validated = fetch_checksummed_zip(
+            lambda: source.fetch_kline_zip(sym, interval, date),
+            lambda: source.fetch_kline_checksum(sym, interval, date),
+        )
+    except PipelineError:
+        raise PipelineError(f"{sym} {date}: checksum mismatch") from None
+    if not validated:
         df = parse_kline_zip(zip_bytes, sym, interval, date)
         logger.warning("%s %s: no .CHECKSUM published; verified by structure+parse only", sym, date)
         mirror.save_zip(mpath, zip_bytes)
     else:
-        actual = _hashlib.sha256(zip_bytes).hexdigest()
-        if actual.lower() != checksum.lower():
-            raise PipelineError(f"{sym} {date}: checksum mismatch")
         mirror.save_zip(mpath, zip_bytes)
         df = parse_kline_zip(zip_bytes, sym, interval, date)
     return sym, date, df

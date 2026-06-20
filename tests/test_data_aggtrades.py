@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import io
+import zipfile
 from pathlib import Path
 
 import pytest
 
+from cli.data.aggtrades import validate_aggtrades_zip
 from cli.data.binance import aggtrades_archive_parts, aggtrades_checksum_url, aggtrades_zip_url
 from cli.data.mirror import aggtrades_mirror_path
 from tests.data_fixtures import FakeSource
@@ -62,3 +65,36 @@ class TestFakeSourceAggtrades:
         src = FakeSource()
         with pytest.raises(KeyError):
             src.fetch_aggtrades_archive(SYMBOL, DATE)
+
+
+def _zip_with(members: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+class TestValidateAggtradesZip:
+    def test_valid_single_csv_passes(self) -> None:
+        raw = _zip_with({"BTCUSDT-aggTrades-2025-03-03.csv": b"1,100.0,0.5,1,1,1700000000000,True,True\n"})
+        validate_aggtrades_zip(raw)  # no raise
+
+    def test_corrupt_bytes_raises(self) -> None:
+        with pytest.raises(zipfile.BadZipFile):
+            validate_aggtrades_zip(b"not-a-zip-at-all")
+
+    def test_empty_member_raises(self) -> None:
+        raw = _zip_with({"BTCUSDT-aggTrades-2025-03-03.csv": b""})
+        with pytest.raises(ValueError, match="empty"):
+            validate_aggtrades_zip(raw)
+
+    def test_multiple_csv_raises(self) -> None:
+        raw = _zip_with(
+            {
+                "BTCUSDT-aggTrades-2025-03-03.csv": b"1,100.0,0.5,1,1,1700000000000,True,True\n",
+                "extra.csv": b"1,100.0,0.5,1,1,1700000000000,True,True\n",
+            }
+        )
+        with pytest.raises(ValueError, match="exactly one"):
+            validate_aggtrades_zip(raw)
