@@ -25,6 +25,7 @@ Topics worth follow-up are parked here, one file per topic. See `.claude/rules/o
 - [T0009 — Walk-forward position carry-over](T0009-walkforward-position-carryover.md) — **[Low]** iter-12 walk-forward starts each retrain period all-cash, incurring artificial re-entry costs at boundaries; carry positions across period boundaries to remove the seam.
 - [T0012 — Prediction-ensemble (seed-averaged signal)](T0012-prediction-ensemble.md) — **[Medium]** averaging N seed-trained models into one signal *reduces* run-to-run variance (and may lift the signal), vs iter-14's multi-seed distribution which only *measures* it; a small additive step on the multi-seed machinery, a candidate production-stability lever once a recipe is selected.
 - [T0014 — Force-liquidate-to-cash on mid-backtest delisting](T0014-force-liquidate-on-delisting.md) — **[Low]** qlib freezes a held position at its last close when a coin delists (loss captured, capital not redeployed); model a liquidate-to-cash so freed capital rotates into live names — matters for T0007's crisis-window survivorship stress.
+- [T0015 — Holdout `ending_value` is gross (pre-cost)](T0015-holdout-ending-value-gross.md) — **[Medium]** the `--seeds` holdout reports `ending_value` from the gross return while its Sharpe/PSR are cost-adjusted, so the headline account value overstates net P&L and is cost-insensitive (surfaced by the iter-19 cost A/B); make it cost-adjusted + audit the single-run path.
 
 ### Partially done<a name="partially-done"></a>
 
