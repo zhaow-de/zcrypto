@@ -141,11 +141,19 @@ def fetch_aggtrades_sample(
     pairs_stats: dict[str, dict[str, Any]] = {}
     for pair in pairs:
         fetched_entries = sorted(per_pair_fetched[pair], key=lambda x: x[0])
+        # Build cumulative present-sample fields by scanning disk — idempotent across re-runs.
+        present: list[tuple[dt.date, int]] = []
+        cur = from_date
+        while cur <= to_date:
+            mpath = mirror.aggtrades_mirror_path(raw_root, pair, cur)
+            if mpath.is_file():
+                present.append((cur, mpath.stat().st_size))
+            cur += dt.timedelta(days=1)
         pairs_stats[pair] = {
             "fetched": len(fetched_entries),
             "skipped": per_pair_skipped[pair],
-            "fetched_dates": [d.isoformat() for d, _ in fetched_entries],
-            "total_bytes": sum(b for _, b in fetched_entries),
+            "present_dates": [d.isoformat() for d, _ in present],
+            "total_bytes": sum(b for _, b in present),
         }
 
     manifest: dict[str, Any] = {

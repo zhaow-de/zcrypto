@@ -156,7 +156,30 @@ class TestFetchAggtadesSample:
         stats = manifest["pairs_stats"]["BTCUSDT"]
         assert stats["fetched"] == 2
         assert stats["total_bytes"] == sum(len(raw_zips[d]) for d in dates)
-        assert set(stats["fetched_dates"]) == {"2025-03-01", "2025-03-02"}
+        assert set(stats["present_dates"]) == {"2025-03-01", "2025-03-02"}
+
+    def test_manifest_idempotent_rerun_records_full_sample(self, tmp_path: Path) -> None:
+        """Re-running fetch_aggtrades_sample yields identical present_dates + total_bytes."""
+        paths = self._paths(tmp_path)
+        src = FakeSource()
+        dates = [dt.date(2025, 3, 1), dt.date(2025, 3, 2)]
+        raw_zips: dict[dt.date, bytes] = {}
+        for d in dates:
+            raw = _make_aggtrades_zip("BTCUSDT", d)
+            raw_zips[d] = raw
+            src.add_aggtrades("BTCUSDT", d, raw=raw)
+        fetch_aggtrades_sample(paths, src, ["BTCUSDT"], dt.date(2025, 3, 1), dt.date(2025, 3, 2))
+        # Second run with empty source — all dates already mirrored, nothing fetched
+        src2 = FakeSource()
+        manifest2 = fetch_aggtrades_sample(paths, src2, ["BTCUSDT"], dt.date(2025, 3, 1), dt.date(2025, 3, 2))
+        stats2 = manifest2["pairs_stats"]["BTCUSDT"]
+        assert stats2["fetched"] == 0, "re-run should skip all (no new fetches)"
+        assert stats2["skipped"] == 2, "re-run should count both dates as skipped"
+        assert set(stats2["present_dates"]) == {"2025-03-01", "2025-03-02"}, "all mirrored dates must appear"
+        expected_bytes = sum(len(raw_zips[d]) for d in dates)
+        assert stats2["total_bytes"] == expected_bytes, (
+            f"total_bytes must reflect present zips (expected {expected_bytes}, got {stats2['total_bytes']})"
+        )
 
     def test_manifest_json_written_to_aggtrades_root(self, tmp_path: Path) -> None:
         paths = self._paths(tmp_path)
