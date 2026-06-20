@@ -123,10 +123,13 @@ def calibrate(sample_frames: dict[str, list[pd.DataFrame]], *, taker_premium: fl
 
 
 def _load_sample_frames(backup_dir: Path) -> dict[str, list[pd.DataFrame]]:
-    """Read the aggTrades mirror zips into per-pair lists of trades DataFrames."""
-    import zipfile
+    """Read the aggTrades mirror zips into per-pair lists of trades DataFrames.
 
-    from cli.data.mirror import aggtrades_mirror_path  # reuse the mirror path builder
+    The mirror lays zips out at ``<backup-dir>/raw/spot/daily/aggTrades/<SYMBOL>/<YYYY>/…``
+    (see ``cli/data/binance.aggtrades_archive_parts``); we discover them by recursive glob
+    rather than building per-(symbol, date) paths, so the daily filenames need not be enumerated.
+    """
+    import zipfile
 
     cols = ["agg_id", "price", "quantity", "first_id", "last_id", "ts", "is_buyer_maker", "is_best_match"]
     root = backup_dir / "raw"
