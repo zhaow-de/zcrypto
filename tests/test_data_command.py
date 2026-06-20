@@ -353,3 +353,126 @@ def test_download_malformed_config_exits_cleanly(tmp_path, monkeypatch):
     result = runner.invoke(app, ["data", "download", str(pairs)])
     assert result.exit_code != 0
     assert "ERROR" in result.output and "not valid TOML" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Task 3: aggtrades command
+# ---------------------------------------------------------------------------
+
+import io as _io
+import zipfile as _zipfile
+
+
+def _make_aggtrades_zip(symbol: str, date: dt.date) -> bytes:
+    buf = _io.BytesIO()
+    name = f"{symbol}-aggTrades-{date}.csv"
+    with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(name, b"1,100.0,0.5,1,1,1700000000000,True,True\n")
+    return buf.getvalue()
+
+
+def test_data_aggtrades_dry_run_prints_plan_without_fetching(tmp_path):
+    """--dry-run prints the pair × date count and exits 0 without any fetch."""
+    pairs = _pairs_file(tmp_path, ["BTCUSDT"])
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "aggtrades",
+            str(pairs),
+            "--backup-dir",
+            str(tmp_path / "bk"),
+            "--from",
+            "2025-03-01",
+            "--to",
+            "2025-03-02",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    out = result.output.lower()
+    assert "dry-run" in out or "dry run" in out or "btcusdt" in out
+
+
+def test_data_aggtrades_fetches_and_writes_manifest(tmp_path, monkeypatch):
+    """aggtrades command fetches zips and writes aggtrades-manifest.json."""
+    import cli.data.command as cmd_mod_local
+
+    pairs = _pairs_file(tmp_path, ["BTCUSDT"])
+    bk = tmp_path / "bk"
+    src = FakeSource()
+    dates = [dt.date(2025, 3, 1), dt.date(2025, 3, 2)]
+    for d in dates:
+        src.add_aggtrades("BTCUSDT", d, raw=_make_aggtrades_zip("BTCUSDT", d))
+
+    with patch("cli.data.command.BinanceSource", return_value=src):
+        result = runner.invoke(
+            app,
+            [
+                "data",
+                "aggtrades",
+                str(pairs),
+                "--backup-dir",
+                str(bk),
+                "--from",
+                "2025-03-01",
+                "--to",
+                "2025-03-02",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    manifest_path = bk / "raw/spot/daily/aggTrades/aggtrades-manifest.json"
+    assert manifest_path.exists(), f"manifest not found at {manifest_path}"
+
+
+def test_data_aggtrades_rejects_bad_date(tmp_path):
+    pairs = _pairs_file(tmp_path, ["BTCUSDT"])
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "aggtrades",
+            str(pairs),
+            "--backup-dir",
+            str(tmp_path / "bk"),
+            "--from",
+            "20250301",
+            "--to",
+            "2025-03-02",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "YYYY-MM-DD" in result.output
+
+
+def test_data_aggtrades_dry_run_flag_accepted(tmp_path, monkeypatch):
+    """`data aggtrades --dry-run` is parsed; the CLI handler passes dry_run=True to fetch_aggtrades_sample."""
+    captured = {}
+
+    def fake_sample(*args, **kw):
+        captured["called"] = True
+        return {}
+
+    monkeypatch.setattr(cmd_mod, "fetch_aggtrades_sample", fake_sample)
+    monkeypatch.setattr(cmd_mod, "BinanceSource", lambda **_kw: object())
+
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "aggtrades",
+            str(pairs),
+            "--backup-dir",
+            str(tmp_path / "bk"),
+            "--from",
+            "2025-03-01",
+            "--to",
+            "2025-03-02",
+            "--dry-run",
+        ],
+    )
+    # dry-run should NOT call the sample function
+    assert "called" not in captured

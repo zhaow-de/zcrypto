@@ -80,6 +80,10 @@ class FakeSource:
         self._no_checksum: set[tuple[str, str, dt.date]] = set()
         # (perp, year, month) -> zip_bytes
         self._funding: dict[tuple[str, int, int], bytes] = {}
+        # (symbol, date) -> zip_bytes
+        self._aggtrades: dict[tuple[str, dt.date], bytes] = {}
+        # (symbol, date) -> sha256_hex, only for entries registered with a checksum
+        self._aggtrades_checksum: dict[tuple[str, dt.date], str] = {}
 
     def add_pair(self, symbol: str, base: str, quote: str, status: str = "TRADING") -> None:
         self.exchange_info.append({"symbol": symbol, "baseAsset": base, "quoteAsset": quote, "status": status})
@@ -106,6 +110,16 @@ class FakeSource:
         """Simulate a published zip with no sibling `.CHECKSUM` (fetch returns None)."""
         self._no_checksum.add((symbol, interval, date))
 
+    def add_aggtrades(self, symbol: str, date: dt.date, *, raw: bytes, checksum: str | None = None) -> None:
+        """Register raw zip bytes for (symbol, date) aggTrades.
+
+        Pass `checksum` (sha256 hex) to also register a published `.CHECKSUM`, so
+        `fetch_aggtrades_checksum` returns it (the sha256-validated path). Omit it
+        (default) to leave the entry unchecksummed (`fetch_aggtrades_checksum` → None)."""
+        self._aggtrades[(symbol, date)] = raw
+        if checksum is not None:
+            self._aggtrades_checksum[(symbol, date)] = checksum
+
     def add_funding(self, perp: str, year: int, month: int, *, raw: bytes | None = None) -> None:
         """Register a synthetic monthly funding archive for `perp` / `year-month`.
 
@@ -131,6 +145,12 @@ class FakeSource:
 
     def fetch_funding_archive(self, perp: str, year: int, month: int) -> bytes | None:
         return self._funding.get((perp, year, month))
+
+    def fetch_aggtrades_archive(self, symbol: str, date: dt.date) -> bytes:
+        return self._aggtrades[(symbol, date)]
+
+    def fetch_aggtrades_checksum(self, symbol: str, date: dt.date) -> str | None:
+        return self._aggtrades_checksum.get((symbol, date))
 
 
 import threading

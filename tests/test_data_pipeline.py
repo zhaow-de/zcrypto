@@ -266,6 +266,37 @@ def test_download_leaves_live_dir_pristine_on_error(tmp_path):
     assert verify_dataset(data_dir).ok
 
 
+# ---------------------------------------------------------------------------
+# fetch_checksummed_zip (shared fetch + checksum-validate atomic)
+# ---------------------------------------------------------------------------
+
+
+from cli.data.pipeline import fetch_checksummed_zip  # noqa: E402
+
+
+def test_fetch_checksummed_zip_matching_checksum_returns_validated():
+    import hashlib
+
+    raw = b"some-zip-bytes"
+    digest = hashlib.sha256(raw).hexdigest()
+    out, validated = fetch_checksummed_zip(lambda: raw, lambda: digest)
+    assert out == raw
+    assert validated is True
+
+
+def test_fetch_checksummed_zip_mismatch_raises():
+    raw = b"some-zip-bytes"
+    with pytest.raises(PipelineError, match="checksum"):
+        fetch_checksummed_zip(lambda: raw, lambda: "0" * 64)
+
+
+def test_fetch_checksummed_zip_absent_checksum_returns_unvalidated():
+    raw = b"some-zip-bytes"
+    out, validated = fetch_checksummed_zip(lambda: raw, lambda: None)
+    assert out == raw
+    assert validated is False
+
+
 def test_download_extend_contiguous_no_adjust(tmp_path):
     """`--from == index.to + 1` is the no-overlap-no-gap case; no warning needed, just continue."""
     pairs = tmp_path / "pairs.txt"
