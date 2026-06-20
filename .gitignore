@@ -1,5 +1,6 @@
 # Project-specific
 memo.local.md
+.tmp
 
 # Claude Code
 **/.claude/settings.local.json
