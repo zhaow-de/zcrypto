@@ -1,5 +1,5 @@
 ---
-status: partial
+status: resolved
 priority: medium
 ---
 
@@ -50,14 +50,33 @@ footgun), and an opt-in **`--allow-interior-gaps`** download flag NaN-fills inte
 download. qlib returns each pair's rows only within its real range → point-in-time
 membership is free the moment a recipe's `universe` includes them.
 
-## Suggested next steps
+**De-bias lever + Terra acquisition + re-measure landed (iter-18, spec/plan `00017`).** A
+`--pit-universe` flag on `zcrypto experiment` expands any recipe's universe to point-in-time
+membership (`PIT_ADDITIONS` = the 10 iter-16 majors + Terra `LUNCUSDT`) via a single
+`dataclasses.replace` swap, flipping the run's caveat/report marker to "survivorship-free".
+The **delisting-loss** needs no code: a recon confirmed qlib **freezes** a held position at
+its last close (the mark-to-market loss is captured); redeploying the trapped capital is
+parked as [[T0014-force-liquidate-on-delisting]]. The **Terra blow-up** was acquired despite
+Binance's `LUNAUSDT` symbol reuse: a one-off `cli/data/scripts/acquire_old_luna.py` fetches
+old LUNA bounded at the 2022-05-13 crash (excluding the reused-symbol Luna 2.0), renamed to
+its canonical `LUNCUSDT` identity (old-LUNA arc + 118-day NaN gap + Luna-Classic tail to
+today; cap verified — 2022-06-15 is NaN, not Luna 2.0's $2.53).
 
-- **Expand each `recipe.universe` to include the delisted majors** (PIT membership — qlib
-  already honors the per-symbol ranges; the universe tuples just gain the symbols).
-- **Add a delisting-loss assumption** — liquidate a held position at its last available
-  close when a pair delists (the klines capture the crash; FTT's suspension is NaN).
-- **Re-measure** the baseline on the PIT universe vs the survivor universe to quantify the
-  survivorship inflation → flips `T0005` → resolved. (The systematic multi-window/crisis
-  sweep is `T0007`, now data-enabled by this substrate.)
-- (Stretch) acquire the Terra collapse (`LUNC`/`USTC`) — deferred here for the
-  LUNA→LUNC/Luna-2.0 symbol-reuse complication.
+## Resolution (iter-18)
+
+All 5 recipes were re-measured **survivor vs `--pit-universe`** on the 16-seed deterministic
+holdout (test = 2025-01-01 .. 2026-06-15). The point-in-time universe is **equal-or-better**
+than the survivor universe (median ending-value ratio PIT/survivor 1.04×–1.43×, within the
+seed-noise band for 4 of 5) — **no survivorship inflation**. The reason is concrete: every
+acquired blow-up crashed *before* the test window (LUNA/FTT/NANO/BTG 2022; OMG/WAVES/XEM
+faded by mid-2024), so the 2025+ holdout never holds a coin **through** its crash; the PIT
+universe only enriches *training* data and adds a few quiet faded low-caps as 2025 candidates.
+(Caveat: the `--seeds` multi-seed holdout runs the base strategy, so `regime_steady` ≡ `steady`
+— walk-forward/regime gating isn't exercised on that path.)
+
+**Verdict:** our current eval window is *not* survivorship-inflated **because it postdates the
+collapses**. The de-bias capability (survivorship-free universe + `--pit-universe`) is delivered
+and works; quantifying the *classic* survivorship penalty (holding a coin **as** it craters)
+requires a **test window spanning the 2022 crashes**, which is [[T0007-multi-window-training-stress-harness]]
+— now data-enabled by this iteration. T0005's question is answered; the crisis-window
+measurement lives in T0007.
