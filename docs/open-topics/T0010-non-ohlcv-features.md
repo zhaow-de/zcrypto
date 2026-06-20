@@ -55,17 +55,21 @@ the **8h/4h-cadence-agnostic** daily aggregation, fetched from the Binance Visio
 (`cli/data/scripts/backfill_funding.py`) populates `$funding` onto the pre-funding dataset.
 Real-data coverage confirmed across all 19 (2020→2026 for the majors; PEPE via
 `1000PEPEUSDT`; POL spanning the MATIC→POL rename; `BTCEUR`/`ETHBTC` reference pairs
-surfaced as no-/partial-coverage; idempotent re-run wrote nothing). **Data only — the
-funding *feature* / recipe / edge-test is not built yet.**
+surfaced as no-/partial-coverage; idempotent re-run wrote nothing).
+
+**Funding *feature* + edge-test — landed (iter-20, spec/plan `00019`).** A `FundingRateProcessor`
+(`cli/experiment/features/funding.py`, mirroring the iter-13 `CrossAssetProcessor`) appends a
+leak-safe 5-column carry set (level, 30d z-score, same-day cross-sectional rank, 7d mean, 7d
+change) to the Alpha158 frame; two recipes (`funding_steady` isolation, `funding_crossasset_steady`
+stacking). **Multi-seed verdict (paired cost-adjusted Sharpe per `T0015`):** funding carries a
+**modest, real edge beyond OHLCV** — `funding_steady` vs `steady` mean ΔSharpe +0.20 (z ≈ 2.0), the
+first signal to clear the seed-noise band over `steady`; but it does **not stack** with cross-asset
+(`funding_crossasset_steady` vs `crossasset_steady` z ≈ −1.1, redundant) and all variants still lose
+on the 2025+ holdout. The funding stream's "different information" test is **done**; on-chain and
+order-book remain → `T0010` stays `partial`.
 
 ## Suggested next steps
 
-- **Build the funding feature (the immediate next iteration):** a `FundingRateProcessor`
-  (following the iter-13 `CrossAssetProcessor` pattern) joining the `$funding` panel to the
-  OHLCV feature frame; a `funding_steady` recipe via `feature_config`; then the iter-14
-  **multi-seed** holdout A/B against `steady` to judge whether funding carries edge beyond
-  the seed-noise band. This is the genuinely-new-signal test the data foundation was built
-  for.
 - **On-chain proxies** — pursue only if a free source actually covers our 19 (CoinMetrics
   Community is the candidate; coverage for newer alts like PEPE/APT/ARB needs a check).
   Daily active-address / exchange-flow metrics as a `feature_config` handler.

@@ -307,3 +307,35 @@ def test_recipe_cost_fields_default_to_calibration():
     assert r.impact_cost == COST_CALIBRATION["impact_cost"]
     assert r.maker_fill_haircut == COST_CALIBRATION["maker_fill_haircut"]
     assert r.fees_only is False
+
+
+def _infer_classes(recipe):
+    return [p["class"] for p in recipe.handler_kwargs["infer_processors"]]
+
+
+def test_funding_steady_wires_processor_and_matches_steady_book():
+    import dataclasses
+
+    from cli.experiment.recipes.base import resolve_recipe
+
+    fs = resolve_recipe("funding_steady")
+    steady = resolve_recipe("steady")
+    # FundingRateProcessor is prepended first, before RobustZScoreNorm.
+    assert _infer_classes(fs)[0] == "FundingRateProcessor"
+    assert _infer_classes(fs)[1] == "RobustZScoreNorm"
+    # Book matches steady except name + infer_processors (clean A/B isolation).
+    assert dataclasses.replace(fs, name="steady", handler_kwargs=steady.handler_kwargs) == steady
+
+
+def test_funding_crossasset_steady_stacks_both_processors():
+    import dataclasses
+
+    from cli.experiment.recipes.base import resolve_recipe
+
+    fx = resolve_recipe("funding_crossasset_steady")
+    base = resolve_recipe("crossasset_steady")
+    classes = _infer_classes(fx)
+    # Both feature processors precede the normalizer.
+    assert classes[:2] == ["CrossAssetProcessor", "FundingRateProcessor"]
+    assert classes[2] == "RobustZScoreNorm"
+    assert dataclasses.replace(fx, name="crossasset_steady", handler_kwargs=base.handler_kwargs) == base
