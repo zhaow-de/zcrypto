@@ -47,8 +47,8 @@ __all__ = [
     "DownloadPlan",
     "backfill_pipeline",
     "BackfillPlan",
-    "delist_pipeline",
-    "DelistPlan",
+    "drop_pipeline",
+    "DropPlan",
     "rename_pipeline",
     "RenamePlan",
 ]
@@ -358,7 +358,7 @@ def _resolve_ranges(
     requested = set(pair_to_assets.keys())
     absent_from_file = sorted(indexed_pairs - requested)
     if absent_from_file:
-        raise PipelineError(f"indexed pairs absent from pairs file (use delist/rename): {absent_from_file}")
+        raise PipelineError(f"indexed pairs absent from pairs file (use drop/rename): {absent_from_file}")
 
     total_pairs = len(pair_to_assets)
     for i, (sym, (base, quote, status)) in enumerate(pair_to_assets.items(), start=1):
@@ -385,7 +385,7 @@ def _resolve_ranges(
                     raise PipelineError(
                         f"{sym}: no new archive data since {existing_to} ({days_since} days > "
                         f"{fetch.backfill_right_edge_grace_days}-day publishing-lag grace); "
-                        "likely delisted or renamed. Reconcile with `zcrypto data delist` or "
+                        "likely delisted or renamed. Reconcile with `zcrypto data drop` or "
                         "`zcrypto data rename`."
                     )
                 logger.info(
@@ -954,7 +954,7 @@ def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source
                     f"{sym}: no new archive data since {current_to} ({days_since} days > "
                     f"{fetch.backfill_right_edge_grace_days}-day publishing-lag grace); "
                     "likely delisted or renamed. Reconcile with "
-                    "'zcrypto data delist' or 'zcrypto data rename'."
+                    "'zcrypto data drop' or 'zcrypto data rename'."
                 )
             logger.info(
                 "%s: no new archive data since %s (%d-day publishing-lag grace not yet exceeded); skipping.",
@@ -1040,12 +1040,12 @@ def backfill_pipeline(
 
 
 # ---------------------------------------------------------------------------
-# Delist pipeline
+# Drop pipeline
 # ---------------------------------------------------------------------------
 
 
 @_dc.dataclass
-class DelistPlan:
+class DropPlan:
     symbol: str
     new_calendar: list[dt.date]
     front_trim: int
@@ -1055,7 +1055,7 @@ class DelistPlan:
     is_noop: bool
 
     def dry_run_summary(self) -> str:
-        lines = [f"DRY-RUN: delist plan: {self.symbol}"]
+        lines = [f"DRY-RUN: drop plan: {self.symbol}"]
         lines.append(f"  features/{self.symbol.lower()}/ → deleted")
         lines.append(f"  instruments/all.txt → 1 line removed")
         lines.append(f"  index.json → 1 pair entry removed")
@@ -1068,10 +1068,10 @@ class DelistPlan:
         return "\n".join(lines)
 
 
-def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
+def _drop_plan(out_dir: Path, symbol: str) -> DropPlan:
     """Read-only: validate symbol is in the index, compute calendar shrink plan."""
     idx = load_index(out_dir)
-    assert idx is not None, "_delist_plan called on empty/missing index"
+    assert idx is not None, "_drop_plan called on empty/missing index"
     sym = symbol.upper()
 
     if sym not in idx.pairs:
@@ -1079,7 +1079,7 @@ def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
 
     remaining = {s: p for s, p in idx.pairs.items() if s != sym}
     if not remaining:
-        raise PipelineError(f"delisting {sym} would leave the dataset empty; remove {out_dir} manually if that's intended")
+        raise PipelineError(f"dropping {sym} would leave the dataset empty; remove {out_dir} manually if that's intended")
 
     interval = "1d"
     new_from = min(dt.date.fromisoformat(p.intervals[interval].from_date) for p in remaining.values())
@@ -1094,8 +1094,8 @@ def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
         )
         if not covers:
             raise PipelineError(
-                f"delisting {sym} would create a non-contiguous calendar "
-                f"(no remaining pair covers {cur}); reconcile manually before delisting"
+                f"dropping {sym} would create a non-contiguous calendar "
+                f"(no remaining pair covers {cur}); reconcile manually before dropping"
             )
         cur += dt.timedelta(days=1)
 
@@ -1105,7 +1105,7 @@ def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
     back_trim = (old_to - new_to).days
     new_cal = [new_from + dt.timedelta(days=i) for i in range((new_to - new_from).days + 1)]
 
-    return DelistPlan(
+    return DropPlan(
         symbol=sym,
         new_calendar=new_cal,
         front_trim=front_trim,
@@ -1127,7 +1127,7 @@ def _rewrite_bin_start_index(bin_path: Path, delta: int) -> None:
     bin_path.write_bytes(bytes(data))
 
 
-def _delist_apply(paths: DatasetPaths, staging: Path, plan: DelistPlan) -> None:
+def _drop_apply(paths: DatasetPaths, staging: Path, plan: DropPlan) -> None:
     """Copy remaining pairs' bins, conditionally rewrite headers, write calendar/instruments/index."""
     interval = "1d"
     idx = load_index(paths.data_dir)
@@ -1213,16 +1213,16 @@ def _delist_apply(paths: DatasetPaths, staging: Path, plan: DelistPlan) -> None:
     save_index(staging, new_index)
 
 
-def delist_pipeline(
+def drop_pipeline(
     paths: DatasetPaths,
     symbol: str,
     *,
     dry_run: bool = False,
 ) -> None:
     """Remove SYMBOL from the dataset under the snapshot+commit discipline."""
-    plan_fn = lambda d: _delist_plan(d, symbol)
-    apply_fn = lambda paths, s, p: _delist_apply(paths, s, p)
-    _execute_mutation(paths, "delist", plan_fn, apply_fn, dry_run=dry_run)
+    plan_fn = lambda d: _drop_plan(d, symbol)
+    apply_fn = lambda paths, s, p: _drop_apply(paths, s, p)
+    _execute_mutation(paths, "drop", plan_fn, apply_fn, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------

@@ -175,9 +175,9 @@ zcrypto data backfill --backup-dir ./bk --data-dir ./data --to 2024-06-30  # exp
 zcrypto data backfill --dry-run                          # preview only
 ```
 
-##### `zcrypto data delist SYMBOL`
+##### `zcrypto data drop SYMBOL`
 
-Remove a pair from the dataset. The calendar is conditionally shrunk: if the delisted pair was the earliest or latest in the dataset the calendar is front- or back-trimmed to cover the remaining pairs; a mid-calendar delist that would leave a gap is rejected with an error.
+Remove a pair from the dataset (e.g. a mistaken or unwanted entry). The calendar is conditionally shrunk: if the dropped pair was the earliest or latest in the dataset the calendar is front- or back-trimmed to cover the remaining pairs; a removal that would leave a mid-calendar gap is rejected with an error.
 
 Refuses with an actionable error when: the symbol is not in the index, it is the last pair in the dataset, or removing it would create a non-contiguous calendar gap.
 
@@ -186,12 +186,12 @@ Refuses with an actionable error when: the symbol is not in the index, it is the
 | `SYMBOL` (positional, required) | —                              | Binance symbol to remove (case-insensitive).       |
 | `--data-dir`                    | `[zcrypto].data_dir` in toml   | Compiled qlib dataset directory.                   |
 | `--backup-dir`                  | `[zcrypto].backup_dir` in toml | Backup dir (raw/ + snapshots/); created if absent. |
-| `--dry-run`                     | off                            | Print the delist plan and exit without writing.    |
+| `--dry-run`                     | off                            | Print the drop plan and exit without writing.      |
 
 ```bash
-zcrypto data delist MATICUSDT                              # dirs from zcrypto.toml
-zcrypto data delist MATICUSDT --backup-dir ./bk --data-dir ./data  # explicit overrides
-zcrypto data delist MATICUSDT --dry-run                    # preview only
+zcrypto data drop MATICUSDT                              # dirs from zcrypto.toml
+zcrypto data drop MATICUSDT --backup-dir ./bk --data-dir ./data  # explicit overrides
+zcrypto data drop MATICUSDT --dry-run                    # preview only
 ```
 
 ##### `zcrypto data rename OLD_SYMBOL NEW_SYMBOL`

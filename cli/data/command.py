@@ -10,7 +10,7 @@ import typer
 from cli.config import ConfigError, load_config, resolve_backup_dir, resolve_data_dir
 from cli.data.binance import BinanceSource
 from cli.data.layout import DatasetPaths
-from cli.data.pipeline import PipelineError, backfill_pipeline, delist_pipeline, download_pipeline, rename_pipeline
+from cli.data.pipeline import PipelineError, backfill_pipeline, download_pipeline, drop_pipeline, rename_pipeline
 from cli.data.verify import verify_dataset
 
 _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -165,8 +165,8 @@ def backfill_cmd(
         typer.echo(f"backfill complete: {data_dir}")
 
 
-@data_app.command("delist")
-def delist_cmd(
+@data_app.command("drop")
+def drop_cmd(
     symbol: str = typer.Argument(..., help="Symbol to remove (e.g. BTCUSDT)."),
     data_dir: Optional[Path] = typer.Option(  # noqa: UP007
         None, "--data-dir", help="Compiled dataset dir. Defaults to [zcrypto].data_dir in zcrypto.toml.", file_okay=False
@@ -179,17 +179,17 @@ def delist_cmd(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
 ) -> None:
-    """Remove SYMBOL from the dataset."""
+    """Remove SYMBOL from the dataset (e.g. a mistaken or unwanted pair)."""
     symbol = symbol.upper()
     _cfg, data_dir, backup_dir = _load_and_resolve(data_dir, backup_dir, need_backup=True)
     paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     try:
-        delist_pipeline(paths, symbol, dry_run=dry_run)
+        drop_pipeline(paths, symbol, dry_run=dry_run)
     except PipelineError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1)
     if not dry_run:
-        typer.echo(f"delist complete: {symbol} removed from {data_dir}")
+        typer.echo(f"drop complete: {symbol} removed from {data_dir}")
 
 
 @data_app.command("rename")
