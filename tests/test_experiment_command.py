@@ -126,6 +126,7 @@ def _patch_experiment_heavy_fns(monkeypatch, tmp_path, captured, fake_result):
     def fake_run_experiment(recipe, *, data_dir, out_dir, refresh_cache=False, seed=None, deterministic=False):
         captured["run_experiment_kwargs"] = {"seed": seed, "deterministic": deterministic, "refresh_cache": refresh_cache}
         captured["run_experiment_recipe_universe"] = tuple(recipe.universe)
+        captured["run_experiment_fees_only"] = recipe.fees_only
         return fake_result
 
     def fake_run_holdout_seeds(recipe, *, data_dir, seeds, deterministic=False):
@@ -198,6 +199,36 @@ def test_experiment_default_universe_is_survivor(monkeypatch, tmp_path):
     for sym in PIT_ADDITIONS:
         assert sym not in uni
     assert SURVIVORSHIP_MARKER in result.stdout
+
+
+def test_experiment_fees_only_flag_sets_recipe_and_marker(monkeypatch, tmp_path):
+    captured = {}
+    short_recipe = _short_recipe()
+    monkeypatch.setattr("cli.experiment.command.resolve_recipe", lambda name: short_recipe)
+    monkeypatch.setattr("cli.experiment.command.load_config", lambda: {})
+    monkeypatch.setattr("cli.experiment.command.resolve_data_dir", lambda d, cfg: tmp_path)
+    _patch_experiment_heavy_fns(monkeypatch, tmp_path, captured, _fake_result(tmp_path))
+
+    result = runner.invoke(app, ["experiment", "--recipe", "steady", "--quick", "--fees-only", "--out", str(tmp_path / "runs")])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["run_experiment_fees_only"] is True
+    assert "fees-only" in result.stdout.lower()
+
+
+def test_experiment_default_is_realistic_costs(monkeypatch, tmp_path):
+    captured = {}
+    short_recipe = _short_recipe()
+    monkeypatch.setattr("cli.experiment.command.resolve_recipe", lambda name: short_recipe)
+    monkeypatch.setattr("cli.experiment.command.load_config", lambda: {})
+    monkeypatch.setattr("cli.experiment.command.resolve_data_dir", lambda d, cfg: tmp_path)
+    _patch_experiment_heavy_fns(monkeypatch, tmp_path, captured, _fake_result(tmp_path))
+
+    result = runner.invoke(app, ["experiment", "--recipe", "steady", "--quick", "--out", str(tmp_path / "runs")])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["run_experiment_fees_only"] is False
+    assert "realistic" in result.stdout.lower()
 
 
 def test_experiment_passes_seeds_and_deterministic(monkeypatch, tmp_path):

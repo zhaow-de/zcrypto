@@ -128,19 +128,33 @@ def _dataset_config(recipe: Recipe) -> dict:
 
 
 def exchange_kwargs(recipe: Recipe) -> dict:
-    """Shared exchange config for both the holdout backtest and CPCV path backtests.
+    """Shared exchange config for the holdout + CPCV path backtests.
 
-    `trade_unit=None` enables fractional crypto fills. qlib.init(region=REG_US) sets
-    C.trade_unit=1 and Exchange.__init__ does kwargs.pop("trade_unit", C.trade_unit),
-    so omitting this key would floor order amounts to whole coins and zero out
-    BTC/ETH on a $10k account.
+    `trade_unit=None` enables fractional crypto fills (qlib.init(region=REG_US) sets
+    C.trade_unit=1, which would floor order amounts to whole coins and zero out BTC/ETH on a
+    $10k account).
+
+    Cost model (see docs/specs/00018): by default realistic — qlib `impact_cost` (size-scaled
+    slippage, per-instrument `(order$/bar$-vol)**2`) plus a maker-fill haircut folded into the
+    fee fractions. `recipe.fees_only=True` reverts to the raw fee_preset with no slippage (the
+    A/B baseline, byte-identical to the pre-iter-19 output).
     """
     fee_open, fee_close = FEE_PRESETS[recipe.fee_preset]
+    if recipe.fees_only:
+        return {
+            "freq": "day",
+            "deal_price": "close",
+            "open_cost": fee_open,
+            "close_cost": fee_close,
+            "min_cost": 0,
+            "trade_unit": None,
+        }
     return {
         "freq": "day",
         "deal_price": "close",
-        "open_cost": fee_open,
-        "close_cost": fee_close,
+        "open_cost": fee_open + recipe.maker_fill_haircut,
+        "close_cost": fee_close + recipe.maker_fill_haircut,
+        "impact_cost": recipe.impact_cost,
         "min_cost": 0,
         "trade_unit": None,
     }

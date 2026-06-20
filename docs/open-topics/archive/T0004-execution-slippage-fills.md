@@ -1,5 +1,5 @@
 ---
-status: partial
+status: resolved
 priority: medium
 ---
 
@@ -58,3 +58,22 @@ slippage/maker-fill *calibration* and the backtest wiring are not built yet.
 - **The separable parametric term** (iter-12 / §13 Stage 2: "12 bps + size×volume", no
   aggTrades needed) can land independently — a formula on the daily-kline volume already
   in the dataset.
+
+## Resolution (iter-19, spec/plan `00018`)
+
+Calibrated realistic execution costs are now the **default** experiment cost model, with a
+`--fees-only` opt-out baseline. From the iter-17 aggTrades sample (`calibrate_execution.py`,
+540 pair-days): qlib `impact_cost` **85.1** (tiers diverge deep 39.3 / mid 86.0 / thin 130.1 —
+liquidity-dependent), maker-fill rate **~0.51**, `maker_fill_haircut` **~2.2 bps/side** (folded
+into the fee fractions; no custom executor — qlib has no fill hook). Single representative scalars
+wired (qlib's exchange knobs are scalars); per-tier `(c,f,s)` recorded as analysis.
+
+**Verdict (5 recipes, realistic vs `--fees-only`, 16-seed holdout):** realistic costs add a small,
+consistent drag — paired cost-adjusted Sharpe −0.012 (skeleton −0.037), realistic uniformly worse.
+**At the $10k account slippage is negligible** (orders ≪ daily $-volume → `(order/bar_vol)²` ≈ 0);
+the **maker-fill haircut dominates**, scaling with turnover (skeleton ≈+2 pp annualized; crossasset
+≈+0.8 pp). The iter-12 parametric "12 bps + size×volume" term is subsumed by the calibrated
+`impact_cost`. Parked: a custom Exchange/executor for per-tier slippage + explicit per-order fill
+probability (see [[T0014-force-liquidate-on-delisting]] for the related fills-realism direction);
+aggTrades-derived microstructure features. A measurement quirk was surfaced — the `--seeds` holdout
+`ending_value` is gross (pre-cost) while Sharpe/PSR are net — a candidate follow-up.

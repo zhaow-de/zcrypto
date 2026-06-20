@@ -270,6 +270,9 @@ By default `experiment` runs combinatorial purged cross-validation (CPCV) over `
 | `--seeds N`                          | `1`                          | Run the holdout N times with seeds 1…N and write `holdout_seeds.json` (per-seed metrics + distribution summary). No-op when `N=1` (default).                   |
 | `--deterministic/--no-deterministic` | off                          | Fully deterministic mode: fixes seed=1 + LightGBM `force_row_wise`. Makes repeated runs byte-identical. Combine with `--seeds` for a canonical multi-seed run. |
 | `--pit-universe/--no-pit-universe`   | off                          | Expand the recipe's universe to point-in-time membership (the ever-top-25 delisted/faded majors) for a survivorship-free run.                                  |
+| `--fees-only/--no-fees-only`         | off                          | Use the fees-only cost model (no slippage/maker-fill) instead of the default calibrated realistic costs — the A/B baseline.                                    |
+
+The **default cost model is calibrated realistic costs**: size-scaled slippage + maker-fill haircut derived from backtest calibration (see `cli/experiment/costs.py`). Pass `--fees-only` to revert to the raw `fee_preset` only (no slippage, no maker-fill haircut) for an A/B comparison.
 
 ##### Built-in recipes
 

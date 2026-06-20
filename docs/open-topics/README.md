@@ -30,7 +30,6 @@ Topics worth follow-up are parked here, one file per topic. See `.claude/rules/o
 
 - [T0008 — Pluggable feature handler](T0008-pluggable-feature-handler.md) — **[Medium]** `feature_config` seam + Alpha360 + custom cross-asset handler shipped in iter-13; non-OHLCV features (funding/on-chain) remain open in T0010.
 - [T0010 — Non-OHLCV features (funding-rate / on-chain / order-book)](T0010-non-ohlcv-features.md) — **[Medium]** the **funding** stream landed in iter-15 (`$funding` qlib field woven into all `zcrypto data` subcommands + an idempotent retrofit); the funding *feature*/recipe/edge-test, plus on-chain and order-book streams, remain.
-- [T0004 — Realistic execution (slippage + maker-fill)](T0004-execution-slippage-fills.md) — **[Medium]** iter-17 landed the aggTrades **data + ingestion path** (a reusable `zcrypto data aggtrades` fetcher reusing download's shared `fetch_checksummed_zip`; a ~6 GB liquidity-spanning sample BTC→PEPE × 3 months in the raw mirror, idempotent manifest); the slippage/maker-fill **calibration** + backtest wiring (and the separable parametric term) remain.
 
 ### Resolved<a name="resolved"></a>
 
@@ -38,6 +37,7 @@ Topics worth follow-up are parked here, one file per topic. See `.claude/rules/o
 - [T0003 — BTC-trend regime overlay (long/cash gating)](archive/T0003-btc-regime-overlay.md) — `RegimeGatedTopkStrategy` with binary/graded/cross modes + vol-targeting knob shipped in iter-12 (spec `00011`); demo recipe `regime_steady`; exposure via `get_risk_degree`.
 - [T0011 — Nondeterministic experiment results / multi-seed validation](archive/T0011-nondeterministic-results-multi-seed.md) — iter-14 shipped `--seeds N` / `--deterministic`; 16-seed re-run confirmed single-run verdicts were seed-noise; true order inverts iter-13's ranking; single-run holdout verdicts retired in favour of distributions.
 - [T0005 — Point-in-time universe / survivorship](archive/T0005-point-in-time-universe.md) — iter-16 acquired the survivorship-free data substrate; iter-18 added the `--pit-universe` lever + the Terra LUNCUSDT blow-up (capped before Luna 2.0) and re-measured all recipes survivor-vs-PIT: **no inflation** (PIT equal-or-better) because the 2025+ holdout postdates the 2022/2024 collapses — the classic crash-window penalty is handed to T0007.
+- [T0004 — Realistic execution (slippage + maker-fill)](archive/T0004-execution-slippage-fills.md) — iter-17 landed the aggTrades data; iter-19 made calibrated realistic costs the default (qlib `impact_cost` + a maker-fill haircut, calibrated from the sample) with a `--fees-only` baseline. Verdict: a small consistent drag (paired Sharpe −0.012) — slippage negligible at $10k, the ~2.2 bps maker-fill haircut dominates, scaling with turnover.
 
 ## Live trading preparation<a name="live-trading-preparation"></a>
 
