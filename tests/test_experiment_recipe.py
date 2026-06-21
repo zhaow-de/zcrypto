@@ -379,3 +379,44 @@ def test_regime_cross_is_50_200_cross_gate_on_steady_book():
     assert rc.model_config["kwargs"] == st.model_config["kwargs"]
     assert rc.feature_config == st.feature_config
     assert rc.fee_preset == st.fee_preset and rc.label_horizon_days == st.label_horizon_days
+
+
+# --- regime_graded recipe: steady book + graded 200-day regime gate (iter-24 refinement) ---
+
+
+def test_regime_graded_is_graded_200d_band_on_steady_book():
+    rg, st = resolve_recipe("regime_graded"), resolve_recipe("steady")
+    sc = rg.strategy_config
+    assert sc["class"] == "RegimeGatedTopkStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["regime_mode"] == "graded"
+    assert sc["kwargs"]["regime_ma_window"] == 200
+    assert sc["kwargs"]["regime_band"] == 0.05
+    assert sc["kwargs"]["chop_exposure"] == 0.5
+    assert sc["kwargs"]["regime_benchmark"] == "BTCUSDT"
+    assert sc["kwargs"]["vol_target"] is None
+    assert sc["kwargs"]["topk"] == 10 and sc["kwargs"]["n_drop"] == 1 and sc["kwargs"]["hold_thresh"] == 5
+    # steady's book preserved
+    assert rg.universe == st.universe and rg.segments == st.segments
+    assert rg.handler_kwargs["label"] == st.handler_kwargs["label"]
+    assert rg.model_config["kwargs"] == st.model_config["kwargs"]
+    assert rg.feature_config == st.feature_config
+    assert rg.fee_preset == st.fee_preset and rg.label_horizon_days == st.label_horizon_days
+
+
+def test_regime_voltarget_is_binary_200d_voltarget_on_steady_book():
+    rv, st = resolve_recipe("regime_voltarget"), resolve_recipe("steady")
+    sc = rv.strategy_config
+    assert sc["class"] == "RegimeGatedTopkStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["regime_mode"] == "binary"
+    assert sc["kwargs"]["regime_ma_window"] == 200
+    assert sc["kwargs"]["vol_target"] == 0.50
+    assert sc["kwargs"]["regime_benchmark"] == "BTCUSDT"
+    assert sc["kwargs"]["topk"] == 10 and sc["kwargs"]["n_drop"] == 1 and sc["kwargs"]["hold_thresh"] == 5
+    # steady's book preserved
+    assert rv.universe == st.universe and rv.segments == st.segments
+    assert rv.handler_kwargs["label"] == st.handler_kwargs["label"]
+    assert rv.model_config["kwargs"] == st.model_config["kwargs"]
+    assert rv.feature_config == st.feature_config
+    assert rv.fee_preset == st.fee_preset and rv.label_horizon_days == st.label_horizon_days
