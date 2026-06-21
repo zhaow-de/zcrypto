@@ -81,6 +81,102 @@ def deflated_sharpe(returns_best, sr_trials) -> float:
     return psr(returns_best, sr_benchmark=expected_max_sharpe(s))
 
 
+def _stationary_bootstrap_indices(n: int, block_len: int, n_resamples: int, rng: np.random.Generator) -> np.ndarray:
+    """Politis–Romano stationary bootstrap index matrix, shape (n_resamples, n).
+
+    Geometric block lengths with restart probability p = 1/block_len: each resample
+    starts at a uniformly random index; at each subsequent position, with probability p
+    jump to a new random start, else advance by 1 (wrap-around mod n).
+    """
+    p = 1.0 / block_len
+    # Pre-draw uniform random values to decide restart vs advance
+    u = rng.uniform(size=(n_resamples, n))
+    # Pre-draw random starts for each potential restart
+    restarts = rng.integers(0, n, size=(n_resamples, n))
+
+    indices = np.empty((n_resamples, n), dtype=np.intp)
+    # First index of each resample is a random start
+    indices[:, 0] = restarts[:, 0]
+    for t in range(1, n):
+        # Where u < p, use a new random start; otherwise advance by 1
+        advance = (indices[:, t - 1] + 1) % n
+        indices[:, t] = np.where(u[:, t] < p, restarts[:, t], advance)
+    return indices
+
+
+def stationary_bootstrap_ci(
+    returns,
+    *,
+    block_len: int,
+    n_resamples: int = 1000,
+    statistic=sharpe,
+    alpha: float = 0.05,
+    seed=None,
+) -> dict:
+    """Stationary-bootstrap confidence interval for a statistic of a return series.
+
+    Returns ``{"point", "lo", "hi", "se", "resamples"}``.
+    NaN-guard: for series of size < 2, returns the same-keyed dict with NaN scalars
+    and empty resamples list.
+    """
+    r = np.asarray(returns, dtype="float64")
+    _nan = {"point": float("nan"), "lo": float("nan"), "hi": float("nan"), "se": float("nan"), "resamples": []}
+    if r.size < 2:
+        return _nan
+
+    point = statistic(r)
+    rng = np.random.default_rng(seed)
+    idx = _stationary_bootstrap_indices(r.size, block_len, n_resamples, rng)
+    resamples = [statistic(r[idx[b]]) for b in range(n_resamples)]
+    arr = np.asarray(resamples)
+    return {
+        "point": point,
+        "lo": float(np.percentile(arr, 100 * alpha / 2)),
+        "hi": float(np.percentile(arr, 100 * (1 - alpha / 2))),
+        "se": float(arr.std(ddof=1)),
+        "resamples": resamples,
+    }
+
+
+def paired_bootstrap_delta_ci(
+    returns_cand,
+    returns_null,
+    *,
+    block_len: int,
+    n_resamples: int = 1000,
+    statistic=sharpe,
+    alpha: float = 0.05,
+    seed=None,
+) -> dict:
+    """Paired stationary-bootstrap CI for ``statistic(cand) - statistic(null)``.
+
+    A single index matrix is drawn once and applied to BOTH series per resample,
+    preserving the cross-series dependence structure and yielding tighter intervals
+    than independent resampling.  The two inputs must be already aligned and same length.
+
+    Returns ``{"point", "lo", "hi", "se", "resamples"}``.
+    NaN-guard: for size < 2, returns the same-keyed dict with NaN scalars and empty list.
+    """
+    rc = np.asarray(returns_cand, dtype="float64")
+    rn = np.asarray(returns_null, dtype="float64")
+    _nan = {"point": float("nan"), "lo": float("nan"), "hi": float("nan"), "se": float("nan"), "resamples": []}
+    if rc.size < 2 or rn.size < 2:
+        return _nan
+
+    point = statistic(rc) - statistic(rn)
+    rng = np.random.default_rng(seed)
+    idx = _stationary_bootstrap_indices(rc.size, block_len, n_resamples, rng)
+    resamples = [statistic(rc[idx[b]]) - statistic(rn[idx[b]]) for b in range(n_resamples)]
+    arr = np.asarray(resamples)
+    return {
+        "point": point,
+        "lo": float(np.percentile(arr, 100 * alpha / 2)),
+        "hi": float(np.percentile(arr, 100 * (1 - alpha / 2))),
+        "se": float(arr.std(ddof=1)),
+        "resamples": resamples,
+    }
+
+
 def pbo_cscv(returns_matrix, n_splits: int = 16) -> dict:
     """Probability of Backtest Overfitting via Combinatorially-Symmetric CV.
 

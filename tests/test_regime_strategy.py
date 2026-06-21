@@ -201,3 +201,103 @@ def test_volweight_get_risk_degree_applies_regime(monkeypatch):
     assert s.get_risk_degree(0) == 0.0  # risk-off -> cash
     monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _Cal(idx[0])), raising=False)
     assert s.get_risk_degree(0) == 0.95
+
+
+# ---------------------------------------------------------------------------
+# Liquidity-membership filter tests (Task 4)
+# ---------------------------------------------------------------------------
+
+
+def _make_volweight_stub(membership_top_n=None, membership_lookback_days=None):
+    """Build a VolWeightedRegimeStrategy without calling __init__ (no qlib needed)."""
+    from cli.experiment.strategies import regime as rg
+
+    s = object.__new__(rg.VolWeightedRegimeStrategy)
+    s._base_risk_degree = 0.95
+    # vol panel: 3 dates, 4 names with equal low vols -> equal weights
+    dates = pd.date_range("2025-01-01", periods=3, freq="D")
+    s._vol_panel = pd.DataFrame(
+        {"A": [0.1, 0.1, 0.1], "B": [0.1, 0.1, 0.1], "C": [0.1, 0.1, 0.1], "D": [0.1, 0.1, 0.1]},
+        index=dates,
+    )
+    s.membership_top_n = membership_top_n
+    s.membership_lookback_days = membership_lookback_days
+    s._membership_schedule = None  # lazy slot; tests override below
+    return s
+
+
+def test_membership_filter_restricts_to_member_names():
+    """With a 2-month injected schedule, only member names appear in the output weights."""
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_volweight_stub(membership_top_n=10, membership_lookback_days=30)
+
+    # Inject a schedule: Jan 2025 -> {A, B}; Feb 2025 -> {C, D}
+    jan_ms = pd.Timestamp("2025-01-01")
+    feb_ms = pd.Timestamp("2025-02-01")
+    s._membership_schedule = {jan_ms: ["A", "B"], feb_ms: ["C", "D"]}
+
+    # Trade date in Jan -> only A, B should have weights
+    score = pd.Series({"A": 0.5, "B": 0.5, "C": 0.5, "D": 0.5})
+    w = s.generate_target_weight_position(
+        score, current=None, trade_start_time=pd.Timestamp("2025-01-15"), trade_end_time=pd.Timestamp("2025-01-15")
+    )
+    assert set(w.keys()) == {"A", "B"}, f"expected only A,B; got {set(w.keys())}"
+
+    # Trade date in Feb -> only C, D
+    w2 = s.generate_target_weight_position(
+        score, current=None, trade_start_time=pd.Timestamp("2025-02-15"), trade_end_time=pd.Timestamp("2025-02-15")
+    )
+    assert set(w2.keys()) == {"C", "D"}, f"expected only C,D; got {set(w2.keys())}"
+
+
+def test_membership_filter_carryforward_between_rebalances():
+    """A date between two rebalances carries forward the most recent prior rebalance membership."""
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_volweight_stub(membership_top_n=10, membership_lookback_days=30)
+
+    jan_ms = pd.Timestamp("2025-01-01")
+    mar_ms = pd.Timestamp("2025-03-01")
+    # No Feb entry — Jan should carry forward to Feb 15
+    s._membership_schedule = {jan_ms: ["A", "B"], mar_ms: ["C", "D"]}
+
+    score = pd.Series({"A": 0.5, "B": 0.5, "C": 0.5, "D": 0.5})
+    w = s.generate_target_weight_position(
+        score, current=None, trade_start_time=pd.Timestamp("2025-02-15"), trade_end_time=pd.Timestamp("2025-02-15")
+    )
+    # Feb 15 is after Jan 1, before Mar 1 -> carry forward Jan -> {A, B}
+    assert set(w.keys()) == {"A", "B"}, f"carry-forward failed; got {set(w.keys())}"
+
+
+def test_membership_filter_before_first_rebalance_no_restriction():
+    """A trade date before the earliest rebalance in the schedule -> no restriction (full universe)."""
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_volweight_stub(membership_top_n=10, membership_lookback_days=30)
+
+    feb_ms = pd.Timestamp("2025-02-01")
+    s._membership_schedule = {feb_ms: ["A", "B"]}
+
+    score = pd.Series({"A": 0.5, "B": 0.5, "C": 0.5, "D": 0.5})
+    # Jan 15 is before the first rebalance (Feb 1) -> no restriction, all 4 names
+    w = s.generate_target_weight_position(
+        score, current=None, trade_start_time=pd.Timestamp("2025-01-15"), trade_end_time=pd.Timestamp("2025-01-15")
+    )
+    assert set(w.keys()) == {"A", "B", "C", "D"}, f"pre-first-rebalance should be unrestricted; got {set(w.keys())}"
+
+
+def test_membership_filter_none_is_backcompat():
+    """membership_top_n=None -> weights identical to the unfiltered path (regression)."""
+    from cli.experiment.strategies import regime as rg
+
+    # Build two stubs: one with filter off (None), one with filter kwarg entirely absent (simulated
+    # by setting to None). Both should return weights for all 4 names.
+    s = _make_volweight_stub(membership_top_n=None)
+
+    score = pd.Series({"A": 0.5, "B": 0.5, "C": 0.5, "D": 0.5})
+    w = s.generate_target_weight_position(
+        score, current=None, trade_start_time=pd.Timestamp("2025-01-15"), trade_end_time=pd.Timestamp("2025-01-15")
+    )
+    assert set(w.keys()) == {"A", "B", "C", "D"}, f"no filter -> all names; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9

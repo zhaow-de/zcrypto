@@ -72,3 +72,73 @@ def test_rank_single_trial_na(tmp_path):
     rj = json.loads((tmp_path / "rank.json").read_text())
     assert rj["n_trials"] == 1
     assert math.isnan(rj["dsr_best"]) and math.isnan(rj["pbo"])  # need >= 2 trials
+
+
+def _write_trials_jsonl(path, entries):
+    """Write a trials.jsonl with the given list of (config_hash, sharpe) tuples."""
+    import uuid
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fh:
+        for i, (config_hash, sr) in enumerate(entries):
+            record = {
+                "id": uuid.uuid4().hex,
+                "recipe": f"recipe_{i}",
+                "config_hash": config_hash,
+                "sharpe": sr,
+                "created": "2025-01-01T00:00:00Z",
+            }
+            fh.write(json.dumps(record) + "\n")
+
+
+def test_rank_cumulative_register_lowers_dsr(tmp_path):
+    """DSR with a register of extra trials must be <= DSR from in-run trials only."""
+    from cli.experiment.stats import deflated_sharpe, sharpe
+
+    dates = pd.date_range("2025-01-01", periods=320, freq="D")
+    rng = np.random.default_rng(42)
+    rets_a = rng.normal(0.002, 0.01, 320)
+    rets_b = rng.normal(0.0, 0.01, 320)
+    _bundle(tmp_path, "skeleton", "20250101T000000Z", dates, rets_a)
+    _bundle(tmp_path, "variantb", "20250102T000000Z", dates, rets_b)
+
+    # Seed a register with 5 extra trials with distinct config_hashes and varied Sharpes
+    register_path = tmp_path / "trials.jsonl"
+    extra_trials = [
+        ("hash_extra_1", 0.08),
+        ("hash_extra_2", 0.12),
+        ("hash_extra_3", 0.05),
+        ("hash_extra_4", -0.02),
+        ("hash_extra_5", 0.15),
+    ]
+    _write_trials_jsonl(register_path, extra_trials)
+
+    # Run rank without register (default: register absent → in-run only)
+    res_no_reg = runner.invoke(app, ["rank", "--out", str(tmp_path), "--trials-register", str(tmp_path / "nonexistent.jsonl")])
+    assert res_no_reg.exit_code == 0, res_no_reg.output
+    rj_no_reg = json.loads((tmp_path / "rank.json").read_text())
+    dsr_no_reg = rj_no_reg["dsr_best"]
+
+    # Run rank with register
+    res_with_reg = runner.invoke(app, ["rank", "--out", str(tmp_path), "--trials-register", str(register_path)])
+    assert res_with_reg.exit_code == 0, res_with_reg.output
+    rj_with_reg = json.loads((tmp_path / "rank.json").read_text())
+    dsr_with_reg = rj_with_reg["dsr_best"]
+
+    # More trials → higher expected-max Sharpe → lower or equal DSR
+    assert dsr_with_reg <= dsr_no_reg, f"Expected DSR with register ({dsr_with_reg:.4f}) <= DSR without ({dsr_no_reg:.4f})"
+    # The two values must differ (register entries actually affected the computation)
+    assert dsr_with_reg != dsr_no_reg, "Register had no effect on DSR — check union/dedup logic"
+
+
+def test_rank_absent_register_falls_back(tmp_path):
+    """When --trials-register points to a non-existent file, rank completes normally."""
+    dates = pd.date_range("2025-01-01", periods=320, freq="D")
+    rng = np.random.default_rng(7)
+    _bundle(tmp_path, "skeleton", "20250101T000000Z", dates, rng.normal(0.002, 0.01, 320))
+    _bundle(tmp_path, "variantb", "20250102T000000Z", dates, rng.normal(0.0, 0.01, 320))
+    res = runner.invoke(app, ["rank", "--out", str(tmp_path), "--trials-register", str(tmp_path / "no_such_file.jsonl")])
+    assert res.exit_code == 0, res.output
+    rj = json.loads((tmp_path / "rank.json").read_text())
+    assert rj["n_trials"] == 2
+    assert not math.isnan(rj["dsr_best"])

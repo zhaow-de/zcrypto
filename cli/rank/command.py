@@ -28,11 +28,17 @@ def _load_trials(out_dir: Path) -> list[dict]:
 def rank(
     out: Path = typer.Option(Path("runs"), "--out", help="Run-bundle root to scan for trials.", file_okay=False),
     n_splits: int = typer.Option(16, "--n-splits", help="CSCV splits for PBO (must be even)."),
+    trials_register: Path = typer.Option(
+        None,
+        "--trials-register",
+        help="Path to the pre-registered trial Sharpes (trials.jsonl). Defaults to <out>/trials.jsonl. Absent file is silently ignored.",
+    ),
 ) -> None:
     """Rank all persisted runs as trials; report the deflated Sharpe ratio + PBO."""
     import numpy as np
 
     from cli.experiment.stats import deflated_sharpe, pbo_cscv, psr, sharpe
+    from cli.experiment.trials import cumulative_sr_trials
     from cli.logging import get_logger
 
     logger = get_logger("rank.command")
@@ -68,7 +74,17 @@ def rank(
     ]
     n = len(trials)
     best = max(range(n), key=lambda j: per_trial[j]["sharpe_daily"])
-    sr_trials = [pt["sharpe_daily"] for pt in per_trial]
+    in_run_sharpes = [pt["sharpe_daily"] for pt in per_trial]
+    register_path = trials_register if trials_register is not None else out / "trials.jsonl"
+    cumulative_sharpes = cumulative_sr_trials(register_path)
+    # Union: start from in-run Sharpes, then append any cumulative values not already
+    # represented by an exact float match. In-run entries take precedence since they are
+    # computed directly from the returns matrix; register entries extend the population.
+    sr_trials = list(in_run_sharpes)
+    in_run_set = set(in_run_sharpes)
+    for s in cumulative_sharpes:
+        if s not in in_run_set:
+            sr_trials.append(s)
     dsr = deflated_sharpe(matrix[:, best], sr_trials) if n >= 2 else float("nan")
     try:
         pbo = pbo_cscv(matrix, n_splits)["pbo"] if n >= 2 else float("nan")

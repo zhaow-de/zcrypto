@@ -1,4 +1,22 @@
+from __future__ import annotations
+
+import dataclasses
+import shutil
+from importlib.resources import as_file, files
+
+import pytest
+
 from cli.experiment.multiseed import separation, summarize_seed_metrics
+
+
+def _redis_up() -> bool:
+    try:
+        import redis
+
+        redis.Redis(host="localhost", port=6379, socket_connect_timeout=2).ping()
+        return True
+    except Exception:
+        return False
 
 
 def _fake_recipe():
@@ -167,3 +185,45 @@ def test_fit_predict_generic_sklearn_branch_returns_predictions():
     pred = _fit_predict(recipe, x_tr, y_tr, x_pe, seed=1, deterministic=True)
     assert len(pred) == 9
     assert np.isfinite(pred).all()
+
+
+@pytest.mark.skipif(not _redis_up(), reason="needs redis (scripts/redis.sh start)")
+def test_run_holdout_seeds_daily_series(tmp_path):
+    """run_holdout_seeds surfaces per-seed daily return Series and summary stays scalar-only."""
+    import pandas as pd
+
+    from cli.experiment.multiseed import run_holdout_seeds
+    from cli.experiment.recipes import skeleton
+
+    fixture_ref = files("cli.experiment").joinpath("data", "provider")
+    data_dir = tmp_path / "provider"
+    with as_file(fixture_ref) as src:
+        shutil.copytree(src, data_dir)
+
+    recipe = dataclasses.replace(
+        skeleton.RECIPE,
+        segments={
+            "train": ("2023-03-01", "2023-12-31"),
+            "valid": ("2024-01-01", "2024-02-29"),
+            "test": ("2024-03-01", "2024-06-27"),
+        },
+    )
+
+    res = run_holdout_seeds(recipe, data_dir=data_dir, seeds=2, deterministic=True)
+
+    # per_seed entries carry both daily Series
+    for entry in res["per_seed"]:
+        assert isinstance(entry["daily_long"], pd.Series), "daily_long must be a pandas Series"
+        assert len(entry["daily_long"]) > 0, "daily_long must be non-empty"
+        assert isinstance(entry["daily_ls"], pd.Series), "daily_ls must be a pandas Series"
+        assert len(entry["daily_ls"]) > 0, "daily_ls must be non-empty"
+
+    # summary contains the existing scalar metric keys
+    scalar_keys = {"sharpe", "ls_sharpe", "psr", "max_drawdown", "ending_value", "ls_ending"}
+    assert scalar_keys <= set(res["summary"]), f"missing scalar keys in summary: {scalar_keys - set(res['summary'])}"
+    for key in scalar_keys:
+        assert set(res["summary"][key].keys()) == {"mean", "std", "min", "max", "n"}
+
+    # summary does NOT contain the daily Series keys
+    assert "daily_long" not in res["summary"], "summary must not contain daily_long"
+    assert "daily_ls" not in res["summary"], "summary must not contain daily_ls"
