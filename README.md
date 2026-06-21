@@ -390,15 +390,16 @@ Scan all run bundles under `--out` as trials and report the **deflated Sharpe ra
 DSR applies an N-trials correction to the best-trial Sharpe — it reports P(the best trial's true Sharpe exceeds what N random trials would achieve by luck). PBO (CSCV) estimates the probability that an in-sample-best strategy underperforms the median out-of-sample. Together they give an honest read on whether the best run is genuinely better or merely lucky selection bias.
 
 ```bash
-zcrypto rank [--out ./runs] [--n-splits 16]
+zcrypto rank [--out ./runs] [--n-splits 16] [--trials-register ./runs/trials.jsonl]
 ```
 
-| Option       | Default  | Description                                                                           |
-| ------------ | -------- | ------------------------------------------------------------------------------------- |
-| `--out`      | `./runs` | Run-bundle root to scan for trials (searches `<out>/<recipe>/<run>/returns.csv`).     |
-| `--n-splits` | `16`     | Number of CSCV splits for PBO (must be even; more splits → finer logit distribution). |
+| Option              | Default              | Description                                                                                                                                                           |
+| ------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--out`             | `./runs`             | Run-bundle root to scan for trials (searches `<out>/<recipe>/<run>/returns.csv`).                                                                                     |
+| `--n-splits`        | `16`                 | Number of CSCV splits for PBO (must be even; more splits → finer logit distribution).                                                                                 |
+| `--trials-register` | `<out>/trials.jsonl` | Pre-registered cumulative trial register (written by `stress`); its per-period Sharpes are unioned into the deflated-Sharpe trial count. Absent → in-run trials only. |
 
-The command writes `<out>/rank.json` with keys `n_trials`, `window` (common date range), `n_splits`, `trials` (per-trial `recipe`, `run`, `sharpe_daily`, `psr`), `dsr_best`, and `pbo`. The `sharpe_daily` column (also labelled `Sharpe(d)` in the ranked table) is the **per-period (daily) Sharpe** of each trial's holdout returns — distinct from `experiment`'s annualized holdout Sharpe in `cv_results.json`; DSR/PBO/PSR are all computed on these per-period values. DSR and PBO are `NaN` when fewer than 2 trials exist.
+The command writes `<out>/rank.json` with keys `n_trials`, `window` (common date range), `n_splits`, `trials` (per-trial `recipe`, `run`, `sharpe_daily`, `psr`), `dsr_best`, and `pbo`. The `sharpe_daily` column (also labelled `Sharpe(d)` in the ranked table) is the **per-period (daily) Sharpe** of each trial's holdout returns — distinct from `experiment`'s annualized holdout Sharpe in `cv_results.json`; DSR/PBO/PSR are all computed on these per-period values. The deflated Sharpe additionally counts the cumulative pre-registered trials from `--trials-register` (the true trial count across runs), not just the trials in one scan. DSR and PBO are `NaN` when fewer than 2 trials exist.
 
 ```bash
 zcrypto rank                          # scan runs/ from cwd
@@ -408,17 +409,18 @@ zcrypto rank --n-splits 8             # fewer splits (faster, coarser PBO estima
 
 #### `zcrypto stress`<a name="zcrypto-stress"></a>
 
-Walk-forward out-of-sample validation: loops over annual OOS windows (2022, 2023, 2024, 2025), trains only on data strictly before each test period (expanding from data start), and runs the multi-seed holdout per window to report per-window long-only and market-neutral L/S Sharpe. The test windows are fixed (`2022-01-01`, `2023-01-01`, `2024-01-01`, `2025-01-01`); training data expands from `data_start` up to `test_start − 8 days` (purge gap). Writes `stress_summary.json` to the output bundle.
+Walk-forward out-of-sample validation: loops over annual OOS windows (2022, 2023, 2024, 2025), trains only on data strictly before each test period (expanding from data start), and runs the multi-seed holdout per window to report per-window long-only and market-neutral L/S Sharpe. The test windows are fixed (`2022-01-01`, `2023-01-01`, `2024-01-01`, `2025-01-01`); training data expands from `data_start` up to `test_start − 8 days` (purge gap). Writes `stress_summary.json` to the output bundle. By default it also benchmarks the candidate against the pre-registered passive-beta **null** (`beta_null`), reporting a paired **delta-vs-null** with a stationary-bootstrap CI per window and a cumulative-register deflated Sharpe — so "edge beyond beta-timing" is measured every run, not assumed.
 
 ```bash
-zcrypto stress [--recipe steady] [--seeds 8] [--data-dir ./data] [--out ./runs]
+zcrypto stress [--recipe steady] [--null beta_null] [--seeds 8] [--data-dir ./data] [--out ./runs]
 ```
 
-| Option       | Default    | Description                                                                           |
-| ------------ | ---------- | ------------------------------------------------------------------------------------- |
-| `--recipe`   | `steady`   | Recipe to validate out-of-sample (see `cli/experiment/recipes`).                      |
-| `--seeds`    | `8`        | Seeds per OOS window; reuses the multi-seed holdout (`run_holdout_seeds`) per window. |
-| `--data-dir` | _(config)_ | Qlib provider directory. Defaults to `[zcrypto].data_dir` in `zcrypto.toml`.          |
-| `--out`      | `./runs`   | Root for stress bundles; each run lands at `<out>/stress/<recipe>/<UTC timestamp>/`.  |
+| Option       | Default     | Description                                                                                                                                                                                                |
+| ------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--recipe`   | `steady`    | Recipe to validate out-of-sample (see `cli/experiment/recipes`).                                                                                                                                           |
+| `--null`     | `beta_null` | Pre-registered passive-beta null to benchmark against; each run also runs the null on the same windows/seeds and reports a paired delta-vs-null + bootstrap CI. `""` skips the null and the delta columns. |
+| `--seeds`    | `8`         | Seeds per OOS window; reuses the multi-seed holdout (`run_holdout_seeds`) per window.                                                                                                                      |
+| `--data-dir` | _(config)_  | Qlib provider directory. Defaults to `[zcrypto].data_dir` in `zcrypto.toml`.                                                                                                                               |
+| `--out`      | `./runs`    | Root for stress bundles; each run lands at `<out>/stress/<recipe>/<UTC timestamp>/`.                                                                                                                       |
 
-The command writes `<out>/stress/<recipe>/<ts>/stress_summary.json` with keys `recipe`, `seeds`, `windows` (per-window `label`, `train`, `test`, `sharpe_mean`, `ls_sharpe_mean`, `ls_sharpe_min`), and `aggregate` (cross-window L/S Sharpe summary).
+The command writes `<out>/stress/<recipe>/<ts>/stress_summary.json` with keys `recipe`, `seeds`, `windows` (per-window `label`, `train`, `test`, `sharpe_mean`, `ls_sharpe_mean`, `ls_sharpe_min`, and — when `--null` is active — `null_sharpe_mean`, `delta_sharpe`, `delta_ci`), and `aggregate` (cross-window L/S Sharpe summary, plus `delta_mean_across_windows` and a `deflated_sharpe` against the cumulative trial register at `<out>/trials.jsonl`).
