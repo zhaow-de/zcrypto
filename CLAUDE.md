@@ -79,9 +79,9 @@ uv add --dev <pkg>      # add new dev deps
 
 Tests live in `tests/` (pytest + Typer's `CliRunner`).
 
-The full `uv run pytest` suite is slow; prefer targeted `uv run pytest path::test` while iterating, and run the full suite in the background.
+The full `uv run pytest` suite is slow; prefer targeted `uv run pytest path::test` while iterating, and run the full suite in the background. With Redis up it takes ~20 min (the qlib-backtest experiment tests run instead of skipping) and `pytest -q` buffers all output to the end — if it looks hung, check a worker's CPU (`ps aux | grep '[p]ython3'`; ~100% = progressing, not stuck). For a fast (~3 min, ~430-test) gate, `--ignore` the backtest-heavy experiment tests: `test_experiment_cpcv.py`, `test_experiment_command.py`, `test_experiment_scaffold.py`, `test_multiseed.py`, `test_stress_command.py`, `test_example_workflow.py`.
 
-`zcrypto experiment` (and its redis-gated tests) need a local Redis — qlib's disk caches use it for read/write locks; start one with `scripts/redis.sh start`.
+`zcrypto experiment` (and its redis-gated tests) need a local Redis — qlib's disk caches use it for read/write locks; start one with `scripts/redis.sh start` (Docker container `zcrypto-redis`). After killing an interrupted qlib test run, clear stale locks with `docker exec zcrypto-redis redis-cli flushall`.
 
 ## Conventions
 
