@@ -11,6 +11,7 @@ Across iters 9–27 the project has established that the cross-sectional alpha l
 
 - **Feature axis ruled out** (iter-20/25/26): funding and cross-asset features add nothing that survives OOS once regime-gated (funding harmful, cross-asset flat); richer features don't help.
 - **Model axis ruled out** (iter-27): a heavily-regularized linear model (Ridge) inverts on 2025 just like LGBM — so it is not an overfitting artifact a simpler model fixes.
+- **Target axis ruled out** (iter-28): every label horizon (1/5/10/20-day) inverts on 2025 — the failure is horizon-invariant. All three OHLCV-derived axes (inputs, fitter, target) are now closed.
 - **The one robust edge is defensive:** the BTC-trend regime gate (`regime_voltarget`, iter-24) lifts the OOS mean Sharpe to ~0.31 by sitting out bear regimes — capital preservation, not new alpha.
 
 ## Why this matters

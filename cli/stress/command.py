@@ -12,7 +12,7 @@ from cli.config import ConfigError, load_config, resolve_data_dir
 from cli.data.index import load_index
 from cli.experiment.multiseed import run_holdout_seeds
 from cli.experiment.recipes.base import resolve_recipe
-from cli.stress.windows import build_oos_windows
+from cli.stress.windows import PURGE_DAYS, build_oos_windows
 
 _TEST_STARTS = ["2022-01-01", "2023-01-01", "2024-01-01", "2025-01-01"]
 # qlib's SimulatorExecutor peeks calendar[index+1] at the last backtest step, so the last
@@ -55,7 +55,8 @@ def stress(
     import datetime as _dt
 
     data_end = (_dt.date.fromisoformat(idx.calendar.to_date) - _dt.timedelta(days=_BACKTEST_TAIL_BUFFER_DAYS)).isoformat()
-    windows = build_oos_windows(_TEST_STARTS, data_start=idx.calendar.from_date, data_end=data_end)
+    purge_days = max(PURGE_DAYS, recipe.label_horizon_days + 2)
+    windows = build_oos_windows(_TEST_STARTS, data_start=idx.calendar.from_date, data_end=data_end, purge_days=purge_days)
 
     results = []
     for w in windows:
