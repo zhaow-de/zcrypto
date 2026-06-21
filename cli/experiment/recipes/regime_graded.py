@@ -4,6 +4,9 @@ iter-24 refinement of the iter-23 binary-200d winner (regime_steady). The binary
 all-or-nothing and gave up bull-window upside; the graded gate holds full exposure above the
 200-day SMA by +5%, half exposure within a +/-5% chop band, and cash below it by -5% — recovering
 some of the surrendered upside near the SMA. Everything else is steady's book verbatim.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
+2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

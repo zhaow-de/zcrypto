@@ -6,6 +6,9 @@ it redundant (as funding was in iter-25)? This is crossasset_steady's book verba
 (RegimeGatedTopkStrategy, binary 200-day MA + vol-targeting at 0.50). A/B vs crossasset_steady
 (ungated) and regime_voltarget (gated plain book) isolates whether cross-asset features carry
 anything orthogonal to the gate's beta-timing.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
+2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

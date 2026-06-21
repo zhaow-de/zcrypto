@@ -34,6 +34,9 @@ fees): middling — Sharpe −0.57 ± 0.17, ending value ~3,827 USDT, PSR 0.20.*
 gave no edge over Alpha158. All four still lose. Light-``lgb.train`` holdout path — internally
 consistent across recipes but NOT directly comparable to iter-13's MLflow single-fit numbers.
 ``T0011`` resolved.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
+2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

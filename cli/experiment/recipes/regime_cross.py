@@ -4,6 +4,9 @@ iter-23 responsiveness sweep. The classic trend-following signal: long the book 
 50-day SMA of BTC is above its 200-day SMA (golden cross), flat otherwise (death cross). More
 responsive than regime_steady's level-vs-200d gate, less whippy than a fast level gate.
 Everything else is steady's book verbatim, so the A/B isolates the gate.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
+2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

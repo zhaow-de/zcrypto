@@ -4,6 +4,9 @@ iter-23 responsiveness sweep. iter-12's regime_steady used a 200-day MA gate tha
 engaged" (BTC was mostly above its slow 200-day MA), so it behaved like steady. regime_fast
 halves the MA window to 100 days so the gate engages sooner in downturns. Everything else is
 steady's book verbatim, so the A/B (vs steady and vs regime_steady) isolates gate responsiveness.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
+2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

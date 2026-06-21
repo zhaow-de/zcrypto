@@ -9,6 +9,9 @@ feature sets are appended before ``RobustZScoreNorm`` normalizes all columns (Al
 + funding) on the same scale. ``feature_config`` stays ``Alpha158``; the handler class is unchanged.
 
 This is the stacking A/B: funding features added on top of cross-asset features.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
+2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

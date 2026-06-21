@@ -2,6 +2,9 @@
 
 iter-28 label-horizon sweep: does a different forecast horizon generalize OOS where the 5-day
 label inverts on 2025+? Everything except the label + label_horizon_days is steady's book verbatim.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
+2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

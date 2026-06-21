@@ -5,6 +5,9 @@ This is funding_steady's book verbatim (FundingRateProcessor prepended) with the
 to the iter-24 best gate (RegimeGatedTopkStrategy, binary 200-day MA + vol-targeting at 0.50).
 A/B vs funding_steady (the ungated funding book) and regime_voltarget (the gated plain book)
 isolates whether funding carries anything orthogonal to the gate's beta-timing.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
+2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

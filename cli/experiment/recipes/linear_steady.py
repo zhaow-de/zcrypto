@@ -6,6 +6,9 @@ overfitting the training regime. Ridge (alpha=10.0) on the same features is the 
 regularized alternative. Everything except model_config is steady's book verbatim, so the A/B
 isolates the model. Runs via the iter-27 _fit_predict model-dispatch seam (sklearn fit/predict
 on the raw matrices); Ridge is deterministic, so the multi-seed distribution is a point.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
+2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe
