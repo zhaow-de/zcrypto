@@ -1,3 +1,36 @@
+## v0.5.0 (2026-06-21)
+
+The heart of the Phase-1 research arc (iters 23–32): a regime-overlay strategy family that turns the daily-OHLCV pipeline from a no-edge backtest into a defensible, out-of-sample-robust *defensive* strategy — plus the research write-up that documents the journey and its hard limits.
+
+### 🚀 Features
+
+#### Regime-gated strategy family — from "no edge" to a deployable defensive basket
+
+A sweep of regime-overlay strategies established the project's first out-of-sample-robust result: a regime-gated, inverse-vol-weighted basket of large-cap majors.
+
+- **The gate, fixed and tuned** — the BTC-trend long/cash gate (with volatility targeting) is the first thing in the project that improves risk-adjusted return out-of-sample; faster gates whipsaw, and graded / funding / cross-asset variants add nothing.
+  *[#65](https://github.com/zhaow-de/zcrypto/pull/65), [#66](https://github.com/zhaow-de/zcrypto/pull/66), [#67](https://github.com/zhaow-de/zcrypto/pull/67), [#68](https://github.com/zhaow-de/zcrypto/pull/68) by @zhaow-de*
+- **The out-of-sample wall** — model-class and label-horizon sweeps confirmed the daily-OHLCV cross-sectional alpha does not survive out-of-sample; the failure is the signal itself, not the features or model.
+  *[#69](https://github.com/zhaow-de/zcrypto/pull/69), [#70](https://github.com/zhaow-de/zcrypto/pull/70) by @zhaow-de*
+- **Equal-weight beats ML selection** — a gated equal-weight book out-performs the ML-selected one out-of-sample (the cross-sectional selection is net-harmful); curating to large-cap majors with inverse-vol weighting gives the best, most defensible downside protection.
+  *[#71](https://github.com/zhaow-de/zcrypto/pull/71), [#72](https://github.com/zhaow-de/zcrypto/pull/72), [#73](https://github.com/zhaow-de/zcrypto/pull/73), [#74](https://github.com/zhaow-de/zcrypto/pull/74) by @zhaow-de*
+
+### 📚 Documentation
+
+#### Phase-1 research summary, recipe docs, and open-topics audit
+
+A comprehensive Phase-1 research narrative (iters 1–33) with academic figures and the per-iteration decision log; all 21 recipe docstrings leveled to one consistent structure carrying their measured verdicts; and an open-topics audit that resolves the topics made moot by the "OHLCV/regime vein is exhausted" conclusion. Also bundles a logging deprecation fix and a generalized autonomous research-loop skill.
+
+*[#75](https://github.com/zhaow-de/zcrypto/pull/75), [#78](https://github.com/zhaow-de/zcrypto/pull/78) by @zhaow-de*
+
+### 🔧 CI/Build
+
+#### Dependency updates
+
+Routine dependency bumps: pydantic-settings, msgpack, jupyterlab, ruff-pre-commit, and actions/checkout (v6 → v7).
+
+*[#62](https://github.com/zhaow-de/zcrypto/pull/62), [#63](https://github.com/zhaow-de/zcrypto/pull/63), [#64](https://github.com/zhaow-de/zcrypto/pull/64), [#76](https://github.com/zhaow-de/zcrypto/pull/76), [#77](https://github.com/zhaow-de/zcrypto/pull/77) by @dependabot*
+
 ## v0.4.0 (2026-06-21)
 
 The research arc from a single skeleton recipe to a cost-realistic, survivorship-free, multi-signal experiment platform — plus the honest out-of-sample verdict on its first profitable result, and a new unattended autonomous-research mode.
