@@ -16,11 +16,12 @@ The slow gate is a genuine defensive edge (capital preservation in bears) and th
 ## Findings so far
 
 - iter-23: slow binary-200d gate Pareto-beats `steady` (mean 0.289 vs 0.154; worst −0.220 vs −0.753). Faster/cross gates whipsaw and underperform. See the iter-23 entry in `docs/iterations-history.md`.
+- iter-24: of the two refinement levers — **vol-targeting is a mild positive, graded is negative.** `regime_voltarget` (binary 200d + `vol_target=0.50`) is the new (slim) best: mean 0.311 vs the binary gate's 0.289, worst −0.223 (≈ binary), recovering a little bull-window exposure while keeping the 2022 full-cash protection. `regime_graded` is worse (mean 0.259, worst −0.658): its ±5% chop band keeps partial exposure in the 2022 crash (−0.658 vs full-cash 0.000), defeating the gate. **The binary all-or-nothing full-cash-in-bear is the load-bearing virtue.** Caveat: the vol-target gain (+0.023) is small / possibly within seed noise.
 - The inert-gate root cause + the strategy workaround are in `cli/experiment/strategies/regime.py`; the qlib bug is drafted at `.tmp/qlib-bug-topkdropout-ignores-get-risk-degree.md` (gitignored).
 
 ## Suggested next steps
 
 - **Anti-whipsaw gate:** the faster gates churned on bear bounces. Try a confirmation filter (require N consecutive days below the SMA before going to cash / above before re-entering), or a hysteresis band, to get responsiveness without whipsaw.
-- **Graded + vol-target modes:** `RegimeGatedTopkStrategy` already supports `graded` (scaled exposure in a chop band) and `vol_target` — A/B these vs the slow binary gate (deferred from iter-23 to keep it small).
-- **Apply the slow gate more broadly:** gate other recipes (`funding_steady`, `crossasset_steady`) and — most promising — combine the regime gate with a market-neutral / L/S book, which carries alpha the long-only book lacks.
+- ~~Graded + vol-target modes~~ — **done (iter-24): graded negative, vol-target a small positive (`regime_voltarget` new best).** Finer `vol_target` / `band` tuning could be revisited but is low-priority given the small effect.
+- **Apply the gate more broadly:** gate other recipes (`funding_steady`, `crossasset_steady`) and — most promising — combine the regime gate with a market-neutral / L/S book, which carries alpha the long-only book lacks.
 - **Submit the qlib bug upstream:** file `.tmp/qlib-bug-topkdropout-ignores-get-risk-degree.md` to microsoft/qlib (TopkDropoutStrategy should size buys via `get_risk_degree()`), so the workaround can eventually be retired.
