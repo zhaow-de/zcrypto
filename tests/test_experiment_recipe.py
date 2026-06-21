@@ -498,3 +498,27 @@ def test_horizon_recipe_is_steady_book_with_changed_label(name, fwd, horizon):
     assert r.handler_kwargs["learn_processors"] == st.handler_kwargs["learn_processors"]
     assert r.universe == st.universe and r.segments == st.segments
     assert r.fee_preset == st.fee_preset
+
+
+# --- regime_equalweight recipe: steady book + binary-200 regime gate + no-selection (DummyRegressor, topk=universe) ---
+
+
+def test_regime_equalweight_is_no_selection_gated_universe():
+    ew, st = resolve_recipe("regime_equalweight"), resolve_recipe("steady")
+    mc = ew.model_config
+    assert ew.model_config == {"class": "DummyRegressor", "module_path": "sklearn.dummy", "kwargs": {"strategy": "mean"}}
+    assert mc["class"] == "DummyRegressor"
+    sc = ew.strategy_config
+    assert sc["class"] == "RegimeGatedTopkStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["topk"] == 19  # = universe size -> hold all -> equal-weight
+    assert sc["kwargs"]["regime_mode"] == "binary"
+    assert sc["kwargs"]["regime_ma_window"] == 200
+    assert sc["kwargs"]["vol_target"] == 0.50
+    assert sc["kwargs"]["regime_benchmark"] == "BTCUSDT"
+    assert len(ew.universe) == 19  # topk == universe size
+    # steady's data book preserved (only model + strategy differ)
+    assert ew.handler_kwargs == st.handler_kwargs
+    assert ew.feature_config == st.feature_config
+    assert ew.universe == st.universe and ew.segments == st.segments
+    assert ew.fee_preset == st.fee_preset and ew.label_horizon_days == st.label_horizon_days
