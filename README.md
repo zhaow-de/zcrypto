@@ -277,20 +277,21 @@ The **default cost model is calibrated realistic costs**: size-scaled slippage +
 
 ##### Built-in recipes
 
-| Recipe                      | Description                                                                                                                                                                                             |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `skeleton`                  | Naive baseline: `TopkDropoutStrategy` (topk=5), Alpha158 2-day label, no regime filter. Benchmark only — not a profitable strategy.                                                                     |
-| `steady`                    | Low-turnover book: `TopkDropoutStrategy` (topk=10, hold_thresh=5), 5-day label, stronger regularization. Validated but beats neither steady market.                                                     |
-| `regime_steady`             | `steady`'s model + book with a BTC-trend regime overlay (`RegimeGatedTopkStrategy`, binary 200-day SMA, vol-targeting off) and walk-forward holdout.                                                    |
-| `regime_fast`               | `steady`'s book + a faster binary 100-day-MA BTC-trend regime gate (iter-23 responsiveness sweep).                                                                                                      |
-| `regime_cross`              | `steady`'s book + a 50/200-day SMA golden-cross BTC-trend regime gate (iter-23 responsiveness sweep).                                                                                                   |
-| `regime_graded`             | `steady`'s book + a graded 200-day-MA BTC-trend regime gate (partial exposure in a ±5% chop band; iter-24 refinement).                                                                                  |
-| `regime_voltarget`          | `steady`'s book + a binary 200-day-MA gate with vol-targeting (exposure trimmed when BTC vol > 0.50; iter-24 refinement).                                                                               |
-| `alpha360_steady`           | `steady`'s book + qlib's built-in `Alpha360` feature handler (~360 raw OHLCV factors) instead of Alpha158. A/B against `steady`.                                                                        |
-| `crossasset_steady`         | `steady`'s book + Alpha158 features + `CrossAssetProcessor`: BTC-anchored cross-asset features (relative strength, rolling beta, lead-lag, cointegration-deviation, cross-sectional momentum/vol rank). |
-| `funding_steady`            | `steady`'s book + perp-funding carry features (`FundingRateProcessor`): level, z-score, cross-sectional rank, moving average, rate-of-change. Isolation A/B vs `steady`.                                |
-| `regime_funding_voltarget`  | `funding_steady`'s book + a binary 200-day-MA regime gate with vol-targeting (iter-25 regime×funding stack test).                                                                                       |
-| `funding_crossasset_steady` | `crossasset_steady`'s book + funding features stacked (`CrossAssetProcessor` then `FundingRateProcessor`). Stacking A/B vs `crossasset_steady`.                                                         |
+| Recipe                        | Description                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skeleton`                    | Naive baseline: `TopkDropoutStrategy` (topk=5), Alpha158 2-day label, no regime filter. Benchmark only — not a profitable strategy.                                                                     |
+| `steady`                      | Low-turnover book: `TopkDropoutStrategy` (topk=10, hold_thresh=5), 5-day label, stronger regularization. Validated but beats neither steady market.                                                     |
+| `regime_steady`               | `steady`'s model + book with a BTC-trend regime overlay (`RegimeGatedTopkStrategy`, binary 200-day SMA, vol-targeting off) and walk-forward holdout.                                                    |
+| `regime_fast`                 | `steady`'s book + a faster binary 100-day-MA BTC-trend regime gate (iter-23 responsiveness sweep).                                                                                                      |
+| `regime_cross`                | `steady`'s book + a 50/200-day SMA golden-cross BTC-trend regime gate (iter-23 responsiveness sweep).                                                                                                   |
+| `regime_graded`               | `steady`'s book + a graded 200-day-MA BTC-trend regime gate (partial exposure in a ±5% chop band; iter-24 refinement).                                                                                  |
+| `regime_voltarget`            | `steady`'s book + a binary 200-day-MA gate with vol-targeting (exposure trimmed when BTC vol > 0.50; iter-24 refinement).                                                                               |
+| `alpha360_steady`             | `steady`'s book + qlib's built-in `Alpha360` feature handler (~360 raw OHLCV factors) instead of Alpha158. A/B against `steady`.                                                                        |
+| `crossasset_steady`           | `steady`'s book + Alpha158 features + `CrossAssetProcessor`: BTC-anchored cross-asset features (relative strength, rolling beta, lead-lag, cointegration-deviation, cross-sectional momentum/vol rank). |
+| `funding_steady`              | `steady`'s book + perp-funding carry features (`FundingRateProcessor`): level, z-score, cross-sectional rank, moving average, rate-of-change. Isolation A/B vs `steady`.                                |
+| `regime_funding_voltarget`    | `funding_steady`'s book + a binary 200-day-MA regime gate with vol-targeting (iter-25 regime×funding stack test).                                                                                       |
+| `regime_crossasset_voltarget` | `crossasset_steady`'s book + a binary 200-day-MA regime gate with vol-targeting (iter-26 regime×cross-asset stack test).                                                                                |
+| `funding_crossasset_steady`   | `crossasset_steady`'s book + funding features stacked (`CrossAssetProcessor` then `FundingRateProcessor`). Stacking A/B vs `crossasset_steady`.                                                         |
 
 ##### Recipe fields: `feature_config`, `strategy_config`, and walk-forward knobs
 
