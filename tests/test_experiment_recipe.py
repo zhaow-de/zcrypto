@@ -606,6 +606,8 @@ def test_beta_null_resolves_and_frozen_params():
     assert sc["kwargs"]["vol_target"] == 0.50
     assert sc["kwargs"]["regime_ma_window"] == 200
     assert sc["kwargs"]["regime_mode"] == "binary"
+    assert sc["kwargs"]["regime_benchmark"] == "BTCUSDT"
+    assert sc["kwargs"]["weight_vol_lookback"] == 30
     # membership filter
     assert sc["kwargs"]["membership_top_n"] == 10
     assert sc["kwargs"]["membership_lookback_days"] == 30

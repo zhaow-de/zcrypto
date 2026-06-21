@@ -24,7 +24,9 @@ def summarize_seed_metrics(per_seed: list[dict]) -> dict:
     """Aggregate per-seed metric dicts into per-metric distribution stats.
 
     Args:
-        per_seed: list of dicts with keys ``ending_value``, ``sharpe``, ``psr``, ``max_drawdown``.
+        per_seed: list of per-seed metric dicts. Only scalar metric values (``ending_value``,
+            ``sharpe``, ``psr``, ``max_drawdown``, ``ls_sharpe``, ``ls_ending``) are summarized;
+            non-scalar fields (e.g. the ``daily_long`` / ``daily_ls`` Series) are skipped.
 
     Returns:
         ``{metric: {"mean": float, "std": float, "min": float, "max": float, "n": int}}``
