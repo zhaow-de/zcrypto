@@ -1,10 +1,19 @@
 """regime_funding_voltarget recipe — funding_steady's book + the iter-24 winning regime gate.
 
-iter-25 stack test: does regime-timing stack with the funding signal, or are they redundant?
-This is funding_steady's book verbatim (FundingRateProcessor prepended) with the strategy swapped
-to the iter-24 best gate (RegimeGatedTopkStrategy, binary 200-day MA + vol-targeting at 0.50).
-A/B vs funding_steady (the ungated funding book) and regime_voltarget (the gated plain book)
-isolates whether funding carries anything orthogonal to the gate's beta-timing.
+iter-25 — tests whether regime-timing stacks additively with the funding signal, or whether the two are
+redundant. This is `funding_steady`'s book verbatim (FundingRateProcessor prepended) with the strategy swapped
+to the iter-24 best gate (RegimeGatedTopkStrategy, binary 200-day MA + vol-targeting at 0.50). A/B against
+`regime_voltarget` (the gated plain book) and `funding_steady` (the ungated funding book); everything else is
+`regime_voltarget`'s book verbatim, so the comparison isolates the one variable — whether funding carries
+anything orthogonal to the gate's beta-timing.
+
+Verdict (OOS-stress, 8-seed, per-window 2022-2025): mean 0.241 (slow-gate family) — REDUNDANT/HARMFUL, worse
+than `regime_voltarget` 0.311 by −0.070 (worse on 2023/2024/2025); funding adds nothing orthogonal to the
+gate's beta-timing and drags the gated book (iter-25/33). Confirms iter-21: funding's edge was a defensive
+beta tilt, redundant with explicit regime-timing.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the 2025-bear
+holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

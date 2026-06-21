@@ -1,6 +1,5 @@
 ---
 status: open
-priority: high
 ---
 
 # OOS signal-generalization wall (daily-OHLCV alpha doesn't survive 2025+)

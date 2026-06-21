@@ -1,11 +1,19 @@
 """regime_crossasset_voltarget recipe — crossasset_steady's book + the iter-24 winning regime gate.
 
-iter-26 stack test: does the cross-asset relative-strength signal stack with regime-timing, or is
-it redundant (as funding was in iter-25)? This is crossasset_steady's book verbatim
-(CrossAssetProcessor prepended) with the strategy swapped to the iter-24 best gate
-(RegimeGatedTopkStrategy, binary 200-day MA + vol-targeting at 0.50). A/B vs crossasset_steady
-(ungated) and regime_voltarget (gated plain book) isolates whether cross-asset features carry
-anything orthogonal to the gate's beta-timing.
+iter-26 — tests whether the cross-asset relative-strength signal (a different signal type than funding) stacks
+with regime-timing where funding did not in iter-25. This is `crossasset_steady`'s book verbatim
+(CrossAssetProcessor prepended) with the strategy swapped to the iter-24 best gate (RegimeGatedTopkStrategy,
+binary 200-day MA + vol-targeting at 0.50). A/B against `regime_voltarget` (the gated plain book) and
+`crossasset_steady` (untested OOS); everything else is `regime_voltarget`'s book verbatim, so the comparison
+isolates the one variable — whether cross-asset features carry anything orthogonal to the gate's beta-timing.
+
+Verdict (OOS-stress, 8-seed, per-window 2022-2025): mean 0.304 (slow-gate family) ≈ `regime_voltarget` 0.311
+(−0.007, flat) — REDUNDANT; cross-asset adds nothing on the gated book (iter-26/33). With iter-25 this is
+CONCLUSIVE: no feature add improves the gated book; gate-on-plain-Alpha158 (~0.31) is the feature-stacking
+ceiling, and the feature-stacking thread is closed.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the 2025-bear
+holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

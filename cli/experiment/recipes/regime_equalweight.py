@@ -1,10 +1,17 @@
-"""regime_equalweight recipe — a NO-SELECTION book (hold the whole universe equal-weight) + the gate.
+"""regime_equalweight recipe — a NO-SELECTION book (hold the whole 19-coin universe equal-weight) under the gate.
 
-iter-29 selection-value test: how much of regime_voltarget's OOS edge is the Alpha158 cross-sectional
-selection vs the BTC-trend market-timing? This recipe removes the selection entirely — a DummyRegressor
-emits a constant signal (no ranking; runs via the iter-27 _fit_predict generic branch) and
-RegimeGatedTopkStrategy with topk=19 (the universe size) holds all names equal-weight. The gate is
-identical to regime_voltarget (binary 200d + vol_target 0.50), so the A/B isolates selection vs none.
+iter-29 — tests how much of the gated edge is Alpha158 cross-sectional SELECTION vs pure BTC-trend
+market-timing (selection vs none). ML selection is removed: a DummyRegressor(strategy=mean) emits a constant
+signal (no ranking; runs via the iter-27 _fit_predict generic branch) and RegimeGatedTopkStrategy with topk=19
+holds all names equal-weight. A/B against `regime_voltarget` (Alpha158 top-10 + same gate); everything else is
+`regime_voltarget`'s book verbatim — same gate (binary 200d + vol_target 0.50) — so the comparison isolates
+the one variable — selection vs none.
+
+Verdict (OOS-stress, 8-seed, per-window 2022-2025): per-window 2022 0.000 / 2023 1.058 / 2024 1.100 / 2025
+−0.632 → mean 0.382, worst −0.632 — gated EQUAL-WEIGHT BEATS gated Alpha158 selection (0.311), so the ML
+cross-sectional selection has NEGATIVE mean OOS value (≈ −0.07): the pipeline is net-harmful vs holding the
+gated basket, giving up the broad 2024 rally (0.54 vs 1.10), though selection does help the 2025 tail (−0.22
+vs −0.63) (iter-29). Reframes the project — the deployable edge is market-timing, not stock-picking.
 """
 
 from cli.experiment.recipes.base import Recipe

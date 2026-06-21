@@ -1,9 +1,10 @@
 ---
-status: open
-priority: medium
+status: resolved
 ---
 
 # First-class market-neutral long/short strategy / recipe
+
+> **Resolved (irrelevant now):** this topic was hard-gated on the market-neutral L/S edge surviving OOS, and that gate failed — iter-22 found steady's ls_sharpe averages −0.10 across OOS windows (the iter-21 +33% was selection bias) and funding's L/S is also fragile (iter-22). With the OHLCV cross-sectional alpha axis exhausted (T0018), no signal exists whose market-neutral edge survives OOS, so there is nothing to promote. Reopen only if a genuinely new-information signal (T0010) produces an OOS-surviving L/S edge.
 
 ## Context — what
 

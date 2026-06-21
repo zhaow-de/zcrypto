@@ -1,6 +1,5 @@
 ---
 status: open
-priority: low
 ---
 
 # Force-liquidate-to-cash on mid-backtest delisting

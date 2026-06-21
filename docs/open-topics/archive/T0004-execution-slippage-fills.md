@@ -1,6 +1,5 @@
 ---
 status: resolved
-priority: medium
 ---
 
 # Realistic execution: size-scaled slippage + maker-fill probability

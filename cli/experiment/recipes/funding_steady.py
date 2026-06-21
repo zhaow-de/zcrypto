@@ -1,15 +1,19 @@
-"""funding_steady recipe — steady's book + perp-funding carry features prepended (A/B isolation vs ``steady``).
+"""funding_steady recipe — vs ``steady``, ``FundingRateProcessor`` is prepended (funding level, z-score,
+cross-sectional rank, MA, rate-of-change); ``feature_config`` stays Alpha158.
 
-The A/B hypothesis: does injecting perpetual-funding carry information (level, z-score,
-cross-sectional rank, moving average, and rate-of-change) add edge beyond what steady's
-Alpha158 OHLCV features already capture, holding the book, model, label, universe, and
-fees constant?
+iter-20 (funding A/B), iter-25 (stress sub-finding), iter-33 (sweep) — tests whether perp-funding carry
+(cost-of-leverage / crowding) is genuinely new info beyond OHLCV and adds edge. A/B against ``steady``;
+everything else is ``steady``'s book verbatim (book, model, label, universe, fees), so the comparison isolates
+the funding features. ``FundingRateProcessor`` is the first ``infer_processor`` so its appended columns are
+normalized by ``RobustZScoreNorm`` on the same scale as Alpha158's native factors.
 
-``FundingRateProcessor`` is prepended as the first ``infer_processor`` so the subsequent
-``RobustZScoreNorm`` normalizes both Alpha158's native factors and the appended funding
-columns on the same scale. ``feature_config`` stays ``Alpha158``; the handler class is unchanged.
-
-This is the isolation A/B: funding features only, no cross-asset features.
+Verdict (two lenses): (a) 16-seed multi-seed holdout, paired (iter-20): funding_steady −0.424 vs ``steady``
+−0.585, mean ΔSharpe +0.20, z 2.01 — the project's FIRST signal to clear the seed-noise band over baseline;
+but it still loses, and the edge proved to be a defensive low-beta tilt (iter-21/25) that did not survive
+market-neutral (paired Δ −0.085, z ≈ −0.8). (b) OOS-stress, 8-seed, across-window mean (iter-25/33): mean
+0.149 ≈ ``steady`` 0.154, and WORSE on 2025 (−0.603 vs −0.576) — the iter-20 edge was fragile to the training
+window (iter-20 trained through 2023; it does not replicate with 2024 in training). In the iter-33 sweep:
+0.149 (ungated group).
 """
 
 from cli.experiment.recipes.base import Recipe

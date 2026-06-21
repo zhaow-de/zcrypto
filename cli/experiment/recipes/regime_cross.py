@@ -1,9 +1,16 @@
-"""regime_cross recipe — steady's book + a 50/200-day SMA golden-cross BTC-trend regime gate.
+"""regime_cross recipe — regime_steady's gate switched to a 50/200-day golden-cross mode (vs binary level).
 
-iter-23 responsiveness sweep. The classic trend-following signal: long the book only while the
-50-day SMA of BTC is above its 200-day SMA (golden cross), flat otherwise (death cross). More
-responsive than regime_steady's level-vs-200d gate, less whippy than a fast level gate.
-Everything else is steady's book verbatim, so the A/B isolates the gate.
+iter-23 responsiveness sweep — is a 50/200-day golden-cross gate (long while 50d SMA > 200d SMA) more
+responsive than the slow level gate yet less whippy than a fast level gate? A/B against `regime_steady` (and
+`steady`); everything else is `steady`'s book verbatim, only the gate mode changes binary-level -> cross, so
+the comparison isolates the gate.
+
+Verdict (OOS-stress, 8-seed, across-window mean 2022-2025): mean -0.113 (fast-gate whipsaw group) — the WORST
+recipe in the entire 18-recipe sweep (min of the distribution); it whipsaws below ungated `steady`'s 0.154.
+Confirms the slow binary 200-day gate beats all faster gates (iter-23/33).
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the 2025-bear
+holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

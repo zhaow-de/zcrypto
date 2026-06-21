@@ -1,11 +1,16 @@
-"""linear_steady recipe — steady's book + a regularized LINEAR model (Ridge) instead of LGBM.
+"""linear_steady recipe — vs ``steady``, the model swaps LGBM → Ridge(alpha=10.0) (sklearn, deterministic; runs
+via the iter-27 ``_fit_predict`` seam).
 
-iter-27 model-axis test: does a heavily-regularized linear model generalize OOS better than
-LGBM? steady's Alpha158 CPCV(+1.0) inverts to a negative holdout, which looks like LGBM
-overfitting the training regime. Ridge (alpha=10.0) on the same features is the simplest
-regularized alternative. Everything except model_config is steady's book verbatim, so the A/B
-isolates the model. Runs via the iter-27 _fit_predict model-dispatch seam (sklearn fit/predict
-on the raw matrices); Ridge is deterministic, so the multi-seed distribution is a point.
+iter-27 — tests whether the OOS inversion is LGBM overfitting the training regime, i.e. whether a
+heavily-regularized linear model generalizes OOS better. A/B against ``steady``; everything except
+``model_config`` is ``steady``'s book verbatim (features, label, book, universe, fees), so the comparison
+isolates the model class. Ridge is deterministic, so its multi-seed distribution is a point.
+
+Verdict (OOS-stress, across-window mean, iter-27/33): mean 0.168 (ungated group) ≈ ``steady`` 0.154 — REFUTED:
+the linear model inverts too; the failure is in the signal, not the model class. The model axis is ruled out.
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the 2025-bear
+holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe
