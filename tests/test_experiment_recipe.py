@@ -420,3 +420,23 @@ def test_regime_voltarget_is_binary_200d_voltarget_on_steady_book():
     assert rv.model_config["kwargs"] == st.model_config["kwargs"]
     assert rv.feature_config == st.feature_config
     assert rv.fee_preset == st.fee_preset and rv.label_horizon_days == st.label_horizon_days
+
+
+def test_regime_funding_voltarget_is_funding_book_plus_voltarget_gate():
+    rf, fs = resolve_recipe("regime_funding_voltarget"), resolve_recipe("funding_steady")
+    sc = rf.strategy_config
+    assert sc["class"] == "RegimeGatedTopkStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["regime_mode"] == "binary"
+    assert sc["kwargs"]["regime_ma_window"] == 200
+    assert sc["kwargs"]["vol_target"] == 0.50
+    assert sc["kwargs"]["regime_benchmark"] == "BTCUSDT"
+    assert sc["kwargs"]["topk"] == 10 and sc["kwargs"]["n_drop"] == 1 and sc["kwargs"]["hold_thresh"] == 5
+    # funding_steady's book preserved (the FundingRateProcessor must stay FIRST in infer_processors)
+    assert rf.handler_kwargs["infer_processors"] == fs.handler_kwargs["infer_processors"]
+    assert rf.handler_kwargs["infer_processors"][0]["class"] == "FundingRateProcessor"
+    assert rf.universe == fs.universe and rf.segments == fs.segments
+    assert rf.handler_kwargs["label"] == fs.handler_kwargs["label"]
+    assert rf.model_config["kwargs"] == fs.model_config["kwargs"]
+    assert rf.feature_config == fs.feature_config
+    assert rf.fee_preset == fs.fee_preset and rf.label_horizon_days == fs.label_horizon_days

@@ -23,5 +23,7 @@ The slow gate is a genuine defensive edge (capital preservation in bears) and th
 
 - **Anti-whipsaw gate:** the faster gates churned on bear bounces. Try a confirmation filter (require N consecutive days below the SMA before going to cash / above before re-entering), or a hysteresis band, to get responsiveness without whipsaw.
 - ~~Graded + vol-target modes~~ — **done (iter-24): graded negative, vol-target a small positive (`regime_voltarget` new best).** Finer `vol_target` / `band` tuning could be revisited but is low-priority given the small effect.
-- **Apply the gate more broadly:** gate other recipes (`funding_steady`, `crossasset_steady`) and — most promising — combine the regime gate with a market-neutral / L/S book, which carries alpha the long-only book lacks.
+- ~~Combine the gate with the funding book~~ — **done (iter-25): redundant/harmful.** `regime_funding_voltarget` (mean 0.241) is *worse* than `regime_voltarget` (0.311) — funding adds nothing orthogonal to the gate's beta-timing and drags the gated book (confirms iter-21: funding's edge is a defensive beta tilt). Also found funding's iter-20 edge is fragile to the training window (doesn't replicate with 2024 in training).
+- **Apply the gate to `crossasset_steady`** (untested) — lower priority given the funding combo was redundant.
+- **Combine the gate with a market-neutral / L/S book** — low EV: the L/S edge already failed OOS (iter-22), so there's little alpha for the gate to protect.
 - **Submit the qlib bug upstream:** file `.tmp/qlib-bug-topkdropout-ignores-get-risk-degree.md` to microsoft/qlib (TopkDropoutStrategy should size buys via `get_risk_degree()`), so the workaround can eventually be retired.
