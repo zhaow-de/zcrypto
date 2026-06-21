@@ -1,3 +1,91 @@
+## v0.4.0 (2026-06-21)
+
+The research arc from a single skeleton recipe to a cost-realistic, survivorship-free, multi-signal experiment platform — plus the honest out-of-sample verdict on its first profitable result, and a new unattended autonomous-research mode.
+
+### 🚀 Features
+
+#### Walk-forward out-of-sample validation (`zcrypto stress`)
+New `zcrypto stress` subcommand rolls the train→test split across annual out-of-sample windows (each trained only on prior data) and reports per-window long-only vs market-neutral Sharpe — so an edge measured on the dev holdout can be checked on never-tuned periods. Its first use refuted the iter-21 long/short edge out-of-sample (positive only on the dev-seen 2025 window).
+
+*[#57](https://github.com/zhaow-de/zcrypto/pull/57) by @zhaow-de*
+
+#### Market-neutral long/short edge evaluation
+A dollar-neutral top-k/bottom-k spread evaluator over the cross-sectional alpha, surfacing per-seed `ls_sharpe`/`ls_ending` in the multi-seed holdout — the project's first profitable backtest result (since shown to be dev-holdout-specific by `zcrypto stress`).
+
+*[#55](https://github.com/zhaow-de/zcrypto/pull/55) by @zhaow-de*
+
+#### Funding-carry feature + recipes
+Turns Binance perpetual funding into a focused 5-column carry feature set (level, z-score, cross-sectional rank, moving average, change), with `funding_steady` / `funding_crossasset_steady` recipes and a multi-seed A/B edge test.
+
+*[#54](https://github.com/zhaow-de/zcrypto/pull/54) by @zhaow-de*
+
+#### Realistic execution costs by default
+Calibrated qlib `impact_cost` plus a maker-fill haircut (calibrated from an aggTrades sample) are now the default cost model, with a `--fees-only` baseline for comparison.
+
+*[#52](https://github.com/zhaow-de/zcrypto/pull/52) by @zhaow-de*
+
+#### Point-in-time universe + survivorship re-measure
+Adds a `--pit-universe` lever and the Terra/LUNA blow-up to the dataset, and re-measures every recipe survivor-vs-PIT.
+
+*[#51](https://github.com/zhaow-de/zcrypto/pull/51) by @zhaow-de*
+
+#### Execution-realism data (aggTrades sample)
+Acquires a Binance aggTrades sample as the basis for slippage / maker-fill cost calibration.
+
+*[#49](https://github.com/zhaow-de/zcrypto/pull/49) by @zhaow-de*
+
+#### Survivorship-free delisted-pair data
+Adds delisted USDT pairs so the traded universe no longer suffers survivorship bias.
+
+*[#48](https://github.com/zhaow-de/zcrypto/pull/48) by @zhaow-de*
+
+#### Perpetual funding-rate data foundation
+Makes Binance USDT-perp funding a first-class qlib field (`$funding`), woven into every `zcrypto data` subcommand with an idempotent retrofit.
+
+*[#47](https://github.com/zhaow-de/zcrypto/pull/47) by @zhaow-de*
+
+#### Deterministic experiments + multi-seed holdout
+Adds `--seeds N` / `--deterministic`, so holdout verdicts are reported as a distribution across seeds instead of a single noisy run.
+
+*[#46](https://github.com/zhaow-de/zcrypto/pull/46) by @zhaow-de*
+
+#### Pluggable feature handler + richer-signal experiment
+A `feature_config` seam (Alpha158/360 plus a custom cross-asset handler) for richer-signal experiments.
+
+*[#45](https://github.com/zhaow-de/zcrypto/pull/45) by @zhaow-de*
+
+#### Strategy scaffold seam, BTC-regime overlay, walk-forward
+Adds a strategy seam to the scaffold, a BTC-trend regime overlay (long/cash gating), and a walk-forward retraining mode.
+
+*[#43](https://github.com/zhaow-de/zcrypto/pull/43) by @zhaow-de*
+
+#### `steady` recipe
+A low-turnover, longer-horizon, regularized recipe.
+
+*[#41](https://github.com/zhaow-de/zcrypto/pull/41) by @zhaow-de*
+
+### 📚 Documentation
+
+#### `/research-loop` unattended autonomous-research skill
+A user-invocable skill that runs full brainstorm→spec→plan→execute→verdict→merge research iterations autonomously — recording each decision to `.tmp/decisions.md` and stopping only at a configurable time-gate.
+
+*[#59](https://github.com/zhaow-de/zcrypto/pull/59) by @zhaow-de*
+
+#### Open-topics tracking
+Registers T0016 (first-class market-neutral L/S strategy) and T0015 (gross holdout `ending_value`), and archives resolved topics with an updated index and convention rule.
+
+*[#56](https://github.com/zhaow-de/zcrypto/pull/56), [#53](https://github.com/zhaow-de/zcrypto/pull/53), [#50](https://github.com/zhaow-de/zcrypto/pull/50) by @zhaow-de*
+
+### 🔧 CI/Build
+
+- Ignore the `.tmp` scratch directory. *[#58](https://github.com/zhaow-de/zcrypto/pull/58) by @zhaow-de*
+- Bump ruff 0.15.17 → 0.15.18. *[#42](https://github.com/zhaow-de/zcrypto/pull/42) by @app/dependabot*
+
+### 📦 Other Changes
+
+- Rename the open-topics serial scheme (`00001` → `T0001`). *[#44](https://github.com/zhaow-de/zcrypto/pull/44) by @zhaow-de*
+- Back-merge v0.3.1 into develop. *[#40](https://github.com/zhaow-de/zcrypto/pull/40) by @zhaow-de*
+
 ## v0.3.1 (2026-06-19)
 
 ### 🐛 Bug Fixes
