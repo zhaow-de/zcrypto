@@ -39,7 +39,7 @@ Everything else that *feels* like a stopping point is NOT one — keep going:
 - `superpowers:brainstorming`'s HARD-GATE (design approval before implementing) → satisfied by the recorded decisions + your spec self-review. Proceed to writing-plans without waiting.
 - the spec user-review gate → satisfied; do your own self-review and move on.
 - the executing-plans / subagent-driven-development handoff → just start; don't ask which mode.
-- the PR merge → merge it yourself via `superpowers:merge-pr` when green (do NOT stop at the PR for human approval, unlike attended mode).
+- the PR merge → merge it yourself via `merge-pr` when green (do NOT stop at the PR for human approval, unlike attended mode).
 
 ## The loop (one iteration)
 
@@ -51,7 +51,7 @@ Everything else that *feels* like a stopping point is NOT one — keep going:
 6. **Handle issues mid-execution** — if something breaks (a failing test, a runtime error, a stale lock, a tooling gap), **diagnose and fix it, then continue**. Don't abandon the iteration; don't wait. Use `superpowers:systematic-debugging` for non-trivial failures.
 7. **Closeout** — produce the **A/B verdict** (the iteration's measured result vs its baseline) and **suggest the next step** based on the result. Write the iterations-history entry.
 8. **Capture follow-ups** — if multiple next steps surface, or you discover a better next step than the current backlog, or you spot a new tangent worth tracking, write them into `docs/open-topics/` (new `T<NNNN>` topic files + index, per `.claude/rules/open-topics.md`). In unattended mode the open-topics approval gate is pre-satisfied — create them, recording the rationale in `.tmp/decisions.md`.
-9. **Merge** — when everything is green (tests pass, reviews clean), merge the PR with `superpowers:merge-pr`.
+9. **Merge** — when everything is green (tests pass, reviews clean), merge the PR with `merge-pr`.
 10. **Time-gate** — check **Berlin time** (`TZ=Europe/Berlin date`). If it is **before 09:00**, start the **next** iteration (go to step 1). If it is **09:00 or later**, **stop and wait for the human** — post a concise summary of what landed and the proposed next step.
 
 ## `.tmp/decisions.md` format
@@ -59,18 +59,21 @@ Everything else that *feels* like a stopping point is NOT one — keep going:
 Append one paragraph per decision (the file is gitignored). Example:
 
 ```markdown
-[iter-023] Which funding-regime conditioning variable? Options: (a) aggregate-funding z-score
-gate, (b) per-coin funding-vol bucket, (c) BTC-funding sign. Picked (a) — it directly targets
-the iter-22 "funding helps in crisis" finding, is one column, and reuses the existing z-score
-helper. (b) risks overfitting on a 19-coin universe; (c) is too coarse.
+[iter-023] How should the regime overlay set exposure off the BTC trend? (Decision: 1)
+  1. **BTC vs 200d SMA, binary**
+     Risk-on (full top-k) when BTCUSDT close > its 200-day SMA, else flat to cash/USDC. Canonical crypto regime filter, ~1 parameter (the window) → least overfit, strongest drawdown cut. Recommended.
+  2. **BTC vs 200d SMA, graded**
+     Full above the SMA, half within a ±band (chop), cash when below by a margin. Smoother / fewer all-cash whipsaws, but adds the band + half-size parameters.
+  3. **Faster signal (100d / 50-200 cross)**
+     100-day SMA, or a 50/200-day SMA cross. More responsive to regime turns, but more whipsaw and fee churn, and more parameters to overfit.
 ```
 
-Prefix every entry with `[iter-<NNN>]`. Keep it to the question + options + the pick + one-line why.
+Prefix every entry with `[iter-<NNN>]`, and record each option with its explanation — laid out as fully as you would present them for a decision — plus the option you picked (the `(Decision: N)` marker) and a one-line why. You are not asking the human; you are leaving the same detail a question would carry, then deciding.
 
 ## Constraints & special cases
 
 - **Research domain only.** Do not start live-trading or paper-trading prep (e.g. `T0006`, `T0013`) — those are out of scope for this loop.
-- **qlib bug discovered?** Write an issue draft to `.tmp/qlib-bug-<subject>.md` using the template at `https://github.com/microsoft/qlib/blob/main/.github/ISSUE_TEMPLATE/bug-report.md`. A local qlib clone for reference/line-citations is at `/Users/zhaow/Projects/qlib`. Keep going — don't block on it.
+- **qlib bug discovered?** Write an issue draft to `.tmp/qlib-bug-<subject>.md` using the template at `https://github.com/microsoft/qlib/blob/main/.github/ISSUE_TEMPLATE/bug-report.md`. A local qlib clone for reference/line-citations is at `/Users/zhaow/Projects/qlib`. Keep going by creating a workaround — don't block on it.
 - **Out of feasible open topics?** Don't stop — manufacture the next work package: tweak a recipe's knobs (model hyperparameters, label horizon, universe, topk/holding, cost preset) or swap the model (e.g. a different GBDT config, linear, or another qlib model), forming a clean A/B vs the current best. Record the choice in `.tmp/decisions.md`.
 - **Slow tasks** (multi-window re-measures, large fetches, full backtests): run them in the background and **check status about every hour** (a long fallback wakeup) rather than blocking — avoid endless waiting. When harness-tracked background work finishes you're re-invoked automatically.
 - **Honesty holds.** Read verdicts on the cost-adjusted measures the project uses (e.g. paired cost-adjusted Sharpe, not gross ending_value — see `T0015`); a negative/null result is a valid, valuable outcome — record it and pick the next thread. Do not fabricate a positive result to keep the loop "successful."
@@ -103,5 +106,5 @@ If you catch yourself doing any of these, STOP that impulse and apply the Iron R
 
 ## Notes
 
-- This skill **orchestrates** the existing skills — it does not replace them. Use `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:subagent-driven-development`, `superpowers:systematic-debugging`, and `superpowers:merge-pr` as the loop's steps; this skill only adds the autonomy discipline + the iteration cadence + the closeout/next-step/time-gate rules.
+- This skill **orchestrates** the existing skills — it does not replace them. Use `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:subagent-driven-development`, `superpowers:systematic-debugging`, and `merge-pr` as the loop's steps; this skill only adds the autonomy discipline + the iteration cadence + the closeout/next-step/time-gate rules.
 - Follow all the repo's standing conventions (`.claude/rules/`): branch off `develop`, commit-message + co-author/reviewer trailers, the spec/plan locations, the iterations-history closeout entry, the open-topics convention. Unattended mode changes *who approves* (you, recorded), not *what gets produced*.
