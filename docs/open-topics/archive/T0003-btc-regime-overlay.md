@@ -1,6 +1,5 @@
 ---
 status: resolved
-priority: medium
 ---
 
 # BTC-trend regime overlay (long/cash gating + volatility targeting)

@@ -1,6 +1,5 @@
 ---
 status: open
-priority: medium
 ---
 
 # Holdout `ending_value` is gross (pre-cost)

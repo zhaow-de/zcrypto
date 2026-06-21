@@ -1,9 +1,10 @@
 ---
-status: partial
-priority: medium
+status: resolved
 ---
 
 # Multi-window training-stress harness
+
+> **Resolved (irrelevant now):** the OOS test-window harness shipped (iter-22) and served its purpose — it proved the OOS-generalization wall (T0018). The remaining training-window axis is infeasible (the dataset starts 2020-01-01, no earlier history), and the single-curve / rank-integration refinements are moot now that the OHLCV/regime research vein is exhausted.
 
 ## Context — what
 

@@ -1,6 +1,5 @@
 ---
 status: resolved
-priority: medium
 ---
 
 # Point-in-time universe / survivorship bias

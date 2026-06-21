@@ -1,6 +1,5 @@
 ---
 status: open
-priority: low
 ---
 
 # Walk-forward position carry-over

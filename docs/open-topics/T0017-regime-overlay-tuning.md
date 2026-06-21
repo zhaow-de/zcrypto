@@ -1,6 +1,5 @@
 ---
 status: open
-priority: medium
 ---
 
 # Regime-overlay tuning (the slow gate works — now refine it)
@@ -17,15 +16,12 @@ The slow gate is a genuine defensive edge (capital preservation in bears) and th
 
 - iter-23: slow binary-200d gate Pareto-beats `steady` (mean 0.289 vs 0.154; worst −0.220 vs −0.753). Faster/cross gates whipsaw and underperform. See the iter-23 entry in `docs/iterations-history.md`.
 - iter-24: of the two refinement levers — **vol-targeting is a mild positive, graded is negative.** `regime_voltarget` (binary 200d + `vol_target=0.50`) is the new (slim) best: mean 0.311 vs the binary gate's 0.289, worst −0.223 (≈ binary), recovering a little bull-window exposure while keeping the 2022 full-cash protection. `regime_graded` is worse (mean 0.259, worst −0.658): its ±5% chop band keeps partial exposure in the 2022 crash (−0.658 vs full-cash 0.000), defeating the gate. **The binary all-or-nothing full-cash-in-bear is the load-bearing virtue.** Caveat: the vol-target gain (+0.023) is small / possibly within seed noise.
-- The inert-gate root cause + the strategy workaround are in `cli/experiment/strategies/regime.py`; the qlib bug is drafted at `.tmp/qlib-bug-topkdropout-ignores-get-risk-degree.md` (gitignored).
+- iter-25/26: **the feature-stacking thread is conclusively closed.** Stacking funding (`regime_funding_voltarget`, mean 0.241) or cross-asset features (`regime_crossasset_voltarget`, 0.304) on the gate fails to beat `regime_voltarget` (0.311) — no feature add improves the gated book. `regime_voltarget` (gate on plain Alpha158) is the **~0.31 OOS defensive ceiling**, and the research levers of this overlay are exhausted.
+- The inert-gate root cause + the strategy workaround are in `cli/experiment/strategies/regime.py`; the qlib bug has been **submitted upstream** to microsoft/qlib (draft at `.tmp/qlib-bug-topkdropout-ignores-get-risk-degree.md`, gitignored).
 
 ## Suggested next steps
 
-- **Anti-whipsaw gate:** the faster gates churned on bear bounces. Try a confirmation filter (require N consecutive days below the SMA before going to cash / above before re-entering), or a hysteresis band, to get responsiveness without whipsaw.
-- ~~Graded + vol-target modes~~ — **done (iter-24): graded negative, vol-target a small positive (`regime_voltarget` new best).** Finer `vol_target` / `band` tuning could be revisited but is low-priority given the small effect.
-- ~~Combine the gate with the funding book~~ — **done (iter-25): redundant/harmful.** `regime_funding_voltarget` (mean 0.241) is *worse* than `regime_voltarget` (0.311) — funding adds nothing orthogonal to the gate's beta-timing and drags the gated book (confirms iter-21: funding's edge is a defensive beta tilt). Also found funding's iter-20 edge is fragile to the training window (doesn't replicate with 2024 in training).
-- ~~Apply the gate to `crossasset_steady`~~ — **done (iter-26): redundant.** `regime_crossasset_voltarget` (mean 0.304) ≈ `regime_voltarget` (0.311). With funding also redundant (iter-25), **the feature-stacking thread is conclusively closed: no feature add improves the gated book — `regime_voltarget` (gate on plain Alpha158) is the ceiling (~0.31 OOS, defensive).**
-- **Combine the gate with a market-neutral / L/S book** — low EV: the L/S edge already failed OOS (iter-22), so there's little alpha for the gate to protect.
-- **Anti-whipsaw confirmation filter** — the one remaining un-tested gate-refinement lever; modest EV (the slow gate already avoids whipsaw).
-- **Pivot OFF feature-stacking** (the strategic redirect from iter-26): on-chain data (`T0010`, genuinely different information), a different model class, or accept the defensive ceiling.
-- **Submit the qlib bug upstream:** file `.tmp/qlib-bug-topkdropout-ignores-get-risk-degree.md` to microsoft/qlib (TopkDropoutStrategy should size buys via `get_risk_degree()`), so the workaround can eventually be retired.
+The overlay's research levers are exhausted — graded, vol-target, funding-stack, and cross-asset-stack are all closed (see Findings so far); `regime_voltarget` is the ~0.31 OOS defensive ceiling. Combining the gate with a market-neutral / L/S book is dead-on-arrival (the L/S edge failed OOS, iter-22). The only forward research path is genuinely new information (on-chain, `T0010`). Two narrow remainders survive here:
+
+- **Anti-whipsaw confirmation filter** — the one un-tested gate-refinement lever; modest EV (the slow gate already avoids whipsaw). Try requiring N consecutive days below/above the SMA, or a hysteresis band, for responsiveness without the fast-gate whipsaw.
+- **qlib upstream bug — submitted, awaiting release:** filed to microsoft/qlib (`TopkDropoutStrategy` should size buys via `get_risk_degree()`); retire the strategy-level workaround in `cli/experiment/strategies/regime.py` once the fix ships in an official release.
