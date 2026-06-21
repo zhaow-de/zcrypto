@@ -568,3 +568,26 @@ def test_regime_equalweight_top5_is_5_megacap_basket():
     assert t5.feature_config == st.feature_config
     assert t5.segments == st.segments
     assert t5.fee_preset == st.fee_preset and t5.label_horizon_days == st.label_horizon_days
+
+
+# --- regime_volweight_majors recipe: inverse-vol gated basket of 10 majors (iter-32 A/B) ---
+
+
+def test_regime_volweight_majors_is_volweighted_gated_10major():
+    rv, st = resolve_recipe("regime_volweight_majors"), resolve_recipe("steady")
+    majors = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOGEUSDT", "TRXUSDT")
+    sc = rv.strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert tuple(sc["kwargs"]["weight_universe"]) == majors
+    assert sc["kwargs"]["regime_mode"] == "binary"
+    assert sc["kwargs"]["regime_ma_window"] == 200
+    assert sc["kwargs"]["vol_target"] == 0.50
+    assert sc["kwargs"]["regime_benchmark"] == "BTCUSDT"
+    assert rv.model_config["class"] == "DummyRegressor"
+    assert rv.universe == majors
+    # steady's data book preserved
+    assert rv.handler_kwargs == st.handler_kwargs
+    assert rv.feature_config == st.feature_config
+    assert rv.segments == st.segments
+    assert rv.fee_preset == st.fee_preset and rv.label_horizon_days == st.label_horizon_days
