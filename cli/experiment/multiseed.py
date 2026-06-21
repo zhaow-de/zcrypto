@@ -35,7 +35,10 @@ def summarize_seed_metrics(per_seed: list[dict]) -> dict:
     metrics = list(per_seed[0].keys())
     result = {}
     for m in metrics:
-        vals = [d[m] for d in per_seed]
+        # A degenerate window (e.g. a fully gated-to-cash regime arm) yields a constant return
+        # series -> Sharpe/PSR are 0/0 = nan/inf, which crashes statistics.stdev. Map any
+        # non-finite metric to 0.0 (an all-cash window has no risk-adjusted edge).
+        vals = [v if math.isfinite(v) else 0.0 for v in (d[m] for d in per_seed)]
         n = len(vals)
         mean = statistics.mean(vals)
         std = statistics.stdev(vals) if n > 1 else 0.0

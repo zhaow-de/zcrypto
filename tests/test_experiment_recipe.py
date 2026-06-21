@@ -339,3 +339,43 @@ def test_funding_crossasset_steady_stacks_both_processors():
     assert classes[:2] == ["CrossAssetProcessor", "FundingRateProcessor"]
     assert classes[2] == "RobustZScoreNorm"
     assert dataclasses.replace(fx, name="crossasset_steady", handler_kwargs=base.handler_kwargs) == base
+
+
+# --- regime_fast recipe: steady book + faster binary-100 regime overlay (iter-23 responsiveness sweep) ---
+
+
+def test_regime_fast_is_binary_100d_gate_on_steady_book():
+    rf, st = resolve_recipe("regime_fast"), resolve_recipe("steady")
+    sc = rf.strategy_config
+    assert sc["class"] == "RegimeGatedTopkStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["regime_mode"] == "binary"
+    assert sc["kwargs"]["regime_ma_window"] == 100  # faster than regime_steady's 200
+    assert sc["kwargs"]["regime_benchmark"] == "BTCUSDT"
+    assert sc["kwargs"]["vol_target"] is None
+    assert sc["kwargs"]["topk"] == 10 and sc["kwargs"]["n_drop"] == 1 and sc["kwargs"]["hold_thresh"] == 5
+    # steady's book preserved (clean A/B; the gate is the only change)
+    assert rf.universe == st.universe and rf.segments == st.segments
+    assert rf.handler_kwargs["label"] == st.handler_kwargs["label"]
+    assert rf.model_config["kwargs"] == st.model_config["kwargs"]
+    assert rf.feature_config == st.feature_config
+    assert rf.fee_preset == st.fee_preset and rf.label_horizon_days == st.label_horizon_days
+
+
+def test_regime_cross_is_50_200_cross_gate_on_steady_book():
+    rc, st = resolve_recipe("regime_cross"), resolve_recipe("steady")
+    sc = rc.strategy_config
+    assert sc["class"] == "RegimeGatedTopkStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["regime_mode"] == "cross"
+    assert sc["kwargs"]["regime_ma_fast"] == 50
+    assert sc["kwargs"]["regime_ma_window"] == 200
+    assert sc["kwargs"]["regime_benchmark"] == "BTCUSDT"
+    assert sc["kwargs"]["vol_target"] is None
+    assert sc["kwargs"]["topk"] == 10 and sc["kwargs"]["n_drop"] == 1 and sc["kwargs"]["hold_thresh"] == 5
+    # steady's book preserved
+    assert rc.universe == st.universe and rc.segments == st.segments
+    assert rc.handler_kwargs["label"] == st.handler_kwargs["label"]
+    assert rc.model_config["kwargs"] == st.model_config["kwargs"]
+    assert rc.feature_config == st.feature_config
+    assert rc.fee_preset == st.fee_preset and rc.label_horizon_days == st.label_horizon_days
