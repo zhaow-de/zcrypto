@@ -31,7 +31,7 @@ Live-trading / paper-trading preparation stays **out of this loop entirely** —
 
 These two rules look like they conflict; they do not, because they govern **different kinds of decision**:
 
-- The loop **owns every small, reversible research decision** — which feature, model, label, universe, or knob to try next. For these you **decide → record in `.tmp/decisions.md` → continue.** A wrong such decision is just a discardable experiment on a branch; throwing it away costs nothing. The Iron Rule (below) tells you to make these yourself, and you do.
+- The loop **owns every small, reversible research decision** — which feature, model, label, universe, or knob to try next. For these you **decide → log if it's a subject-matter live-iteration decision (per `.claude/rules/decisions-log.md`) → continue.** A wrong such decision is just a discardable experiment on a branch; throwing it away costs nothing. The Iron Rule (below) tells you to make these yourself, and you do.
 - Only a **hard-to-reverse action** or a **high-stakes judgment call** (the two interactive cases above) is reserved for the human. "Judgment work waits for interactive mode" means **that** judgment — irreversible/high-stakes — **not** the ordinary reversible decisions the Iron Rule tells the loop to make.
 
 So there is no contradiction: the loop decides freely on everything cheap-to-reverse, and parks only the rare irreversible/high-stakes step.
@@ -42,7 +42,7 @@ Sometimes an iteration's natural path would require a hard-to-reverse action or 
 
 1. **Do the reversible parts autonomously — including the heavy compute.** Run the backtests, the sweeps, build the reversible tooling. None of that is gated by the presence of an irreversible step elsewhere in the idea.
 2. **Prefer a reversible variant that avoids the irreversible step.** Reframe the hypothesis so the whole thing can run reversibly tonight (e.g. write to a new dataset path instead of overwriting; draft an upstream issue locally instead of filing it). A clean experiment you *can* run reversibly beats a perfect one that needs an irreversible action.
-3. **Park ONLY the irreversible / high-stakes step** for the next interactive session — record it in `.tmp/decisions.md` and/or capture it as an R&D open-topic (per `.claude/rules/open-topics.md`). Then immediately continue with the reversible variant or the next work package.
+3. **Park ONLY the irreversible / high-stakes step** for the next interactive session — log it (per `.claude/rules/decisions-log.md`, recorded as parked) and/or capture it as an R&D open-topic (per `.claude/rules/open-topics.md`). Then immediately continue with the reversible variant or the next work package.
 
 **Never stop, and never take the irreversible / destructive action unattended.** Parking is not a stop — you park the one step and keep moving. Heavy or infrastructural work is **not** what gets parked; only the irreversible/high-stakes step is.
 
@@ -54,20 +54,20 @@ When you hit ANY reversible question or decision (a design fork, an ambiguity, a
 
 1. **List the options** (2-3) and their tradeoffs.
 2. **Evaluate** them and **pick the most confident / most beneficial** one.
-3. **Record** it as a paragraph in `.tmp/decisions.md` (gitignored), the question prefixed with `[iter-<NNN>]` (see format below).
+3. **Log** it — if it's a subject-matter research decision in this live iteration, record it per `.claude/rules/decisions-log.md` (the gate and format live there). Routine tooling/process decisions you still decide, but they're outside the log's gate — don't record them.
 4. **Continue** immediately with your pick.
 
-This protocol **replaces** the repo's default "Rule 1: ask when unclear" *for the duration of the loop*. You still surface tradeoffs — but you surface them **into the decisions log**, then decide and proceed. The human reviews `.tmp/decisions.md` later and can correct course; that is the safety net, not a blocking question. (The narrow exception is a genuinely hard-to-reverse action or a high-stakes judgment call — park that one step, per the boundary above; everything reversible, you decide.)
+This protocol **replaces** the repo's default "Rule 1: ask when unclear" *for the duration of the loop*. You still surface tradeoffs — but for subject-matter decisions you surface them **into the decisions log**, then decide and proceed. The human reviews `.tmp/decisions.md` later and can correct course; that is the safety net, not a blocking question. (The narrow exception is a genuinely hard-to-reverse action or a high-stakes judgment call — park that one step, per the boundary above; everything reversible, you decide.)
 
 **There are exactly two ways the loop ends — nothing else is a stop:**
 1. **The 08:00 Berlin time-gate** (step 10) — the normal end of an overnight run.
-2. **A genuinely unrecoverable blocker** you cannot fix after real effort (e.g. the dataset is gone, the environment won't run). Even then: record what blocked you in `.tmp/decisions.md` before stopping.
+2. **A genuinely unrecoverable blocker** you cannot fix after real effort (e.g. the dataset is gone, the environment won't run). Even then: jot what blocked you at the end of `.tmp/decisions.md` before stopping (a free-form stop-note, not a gated decision entry).
 
 Everything else that *feels* like a stopping point is NOT one — keep going:
 - **An empty / exhausted open-topics backlog is NOT a stop** → manufacture the next work package (tweak knobs / try a different model — see Constraints & special cases).
 - **A failed or negative-result iteration is NOT a stop** → record the verdict, pick the next thread, continue.
 - **A mid-execution error is NOT a stop** → diagnose, fix, continue (step 6).
-- **A reversible decision/ambiguity is NOT a stop** → decide → record → continue (above).
+- **A reversible decision/ambiguity is NOT a stop** → decide → log if it's subject-matter (per the rule) → continue (above).
 - **An idea with a hard-to-reverse step is NOT a stop** → do the reversible parts (incl. heavy compute), park only that step, run a reversible variant or the next package (the park rule above).
 
 **The approval gates are pre-satisfied.** Invoking the loop IS the human's standing approval. So:
@@ -85,38 +85,22 @@ Everything else that *feels* like a stopping point is NOT one — keep going:
 5. **Execute** with **`superpowers:subagent-driven-development`** (fresh-subagent-per-task + per-task review + final whole-branch review).
 6. **Handle issues mid-execution** — if something breaks (a failing test, a runtime error, a stale lock, a tooling gap), **diagnose and fix it, then continue**. Don't abandon the iteration; don't wait. Use `superpowers:systematic-debugging` for non-trivial failures. Building the missing tooling is fair game when it's reversible; only a hard-to-reverse fix gets parked (work around it tonight; park that step).
 7. **Closeout** — produce the **A/B verdict** (the iteration's measured result vs its baseline) and **suggest the next step** based on the result. Write the iterations-history entry.
-8. **Capture follow-ups** — if multiple next steps surface, or you discover a better next step than the current backlog, or you spot a new tangent worth tracking (including any parked irreversible/judgment step), write them into `docs/open-topics/` (new `T<NNNN>` topic files + index, per `.claude/rules/open-topics.md`). In unattended mode the open-topics approval gate is pre-satisfied — create them, recording the rationale in `.tmp/decisions.md`.
+8. **Capture follow-ups** — if multiple next steps surface, or you discover a better next step than the current backlog, or you spot a new tangent worth tracking (including any parked irreversible/judgment step), write them into `docs/open-topics/` (new `T<NNNN>` topic files + index, per `.claude/rules/open-topics.md`). In unattended mode the open-topics approval gate is pre-satisfied — create them, logging the rationale per `.claude/rules/decisions-log.md`.
 9. **Merge** — when everything is green (tests pass, reviews clean), merge the PR with `merge-pr`.
 10. **Time-gate** — check **Berlin time** (`TZ=Europe/Berlin date`). If it is **before 08:00**, start the **next** iteration (go to step 1). If it is **08:00 or later**, **stop and wait for the human** — post a concise summary of what landed and the proposed next step.
-
-## `.tmp/decisions.md` format
-
-Append one paragraph per decision (the file is gitignored). Example:
-
-```markdown
-[iter-042] Which feature/model variant to A/B for the next-day return signal? (Decision: 2)
-  1. **New feature set, current model**
-     Add a small block of momentum + realized-volatility features on top of the existing factor set, same GBDT config. Cheap to run on tonight's data, isolates the feature contribution cleanly. Lowest variance read, but limited upside if the model is the binding constraint.
-  2. **Same features, different model class**
-     Keep the current feature set; swap the GBDT for a regularized linear model as a clean A/B. Tests whether a simpler model generalizes better on the same inputs; one knob (the model), so the comparison is interpretable. Recommended — highest information-per-iteration on what's already prepared.
-  3. **New label horizon**
-     Re-label from next-day to a 3-day forward return, current features + model. Probes whether the edge lives at a longer horizon, but changes the target so it's not a like-for-like A/B and muddies attribution.
-```
-
-Prefix every entry with `[iter-<NNN>]`, and record each option with its explanation — laid out as fully as you would present them for a decision — plus the option you picked (the `(Decision: N)` marker) and a one-line why. You are not asking the human; you are leaving the same detail a question would carry, then deciding. (Parked irreversible/judgment steps go here too — recorded as parked, not decided.)
 
 ## Constraints & special cases
 
 - **Research domain only.** Do not start live-trading or paper-trading prep (the live/paper-readiness open-topics) — those are hard-to-reverse / production-facing and out of scope for this loop.
 - **Reversibility is the line, not heaviness.** Heavy compute, big sweeps, and building reversible tooling/harnesses/pipelines all run autonomously. Park only a hard-to-reverse action (deleting/overwriting datasets, anything touching live/paper/production, anything published externally) or a high-stakes judgment call — and park only *that step*, per the park rule. Prefer a reversible variant that sidesteps it.
 - **qlib bug discovered?** Write an issue draft to `.tmp/qlib-bug-<subject>.md` using the template at `https://github.com/microsoft/qlib/blob/main/.github/ISSUE_TEMPLATE/bug-report.md` (a draft is reversible — actually *filing* it upstream is the irreversible step, so leave that for an interactive session). A local qlib clone for reference/line-citations is at `/Users/zhaow/Projects/qlib`. Keep going by creating a workaround — don't block on it.
-- **Out of feasible open topics?** Don't stop — manufacture the next work package: tweak a recipe's knobs (model hyperparameters, label horizon, universe, topk/holding, cost preset) or swap the model (e.g. a different GBDT config, linear, or another qlib model), forming a clean A/B vs the current best. Record the choice in `.tmp/decisions.md`.
+- **Out of feasible open topics?** Don't stop — manufacture the next work package: tweak a recipe's knobs (model hyperparameters, label horizon, universe, topk/holding, cost preset) or swap the model (e.g. a different GBDT config, linear, or another qlib model), forming a clean A/B vs the current best. Log the choice per `.claude/rules/decisions-log.md`.
 - **Slow tasks** (multi-window re-measures, large fetches, full backtests, big sweeps): run them in the background and **check status about every hour** (a long fallback wakeup) rather than blocking — avoid endless waiting. When harness-tracked background work finishes you're re-invoked automatically. Heavy is fine; just don't block on it.
 - **Honesty holds.** Read verdicts on the **cost-adjusted measures the project uses** (e.g. paired cost-adjusted Sharpe, not gross ending value — see the cost-measure open-topic); a negative/null result is a valid, valuable outcome — record it and pick the next thread. Do not fabricate a positive result to keep the loop "successful."
 
 ## Red flags — you are about to violate autonomy
 
-If you catch yourself doing any of these, STOP that impulse and apply the Iron Rule (decide → record → continue) — or, for an irreversible/judgment step, the park rule:
+If you catch yourself doing any of these, STOP that impulse and apply the Iron Rule (decide → log per the rule → continue) — or, for an irreversible/judgment step, the park rule:
 
 - Drafting a question / `AskUserQuestion` / "I'll ask the human" for a **reversible** decision
 - "This decision belongs to the human" — for a reversible research choice (it doesn't; only irreversible/high-stakes does)
@@ -134,8 +118,8 @@ If you catch yourself doing any of these, STOP that impulse and apply the Iron R
 
 | Rationalization | Reality |
 |---|---|
-| "This design choice belongs to the human." | In the loop you own every **reversible research** decision. Record it in `.tmp/decisions.md`; the human reviews and corrects later. That log IS their involvement. Only a hard-to-reverse action or a high-stakes judgment call waits. |
-| "Rule 1 says surface tradeoffs and ask." | Rule 1's *ask* is suspended for reversible decisions. You honor "surface tradeoffs" by listing+evaluating options in the decisions log, then deciding. Not deciding = the loop dies. |
+| "This design choice belongs to the human." | In the loop you own every **reversible research** decision. Log it per `.claude/rules/decisions-log.md`; the human reviews and corrects later. That log IS their involvement. Only a hard-to-reverse action or a high-stakes judgment call waits. |
+| "Rule 1 says surface tradeoffs and ask." | Rule 1's *ask* is suspended for reversible decisions. You honor "surface tradeoffs" by listing+evaluating options (logging subject-matter ones), then deciding. Not deciding = the loop dies. |
 | "The brainstorming HARD-GATE needs approval before I implement." | Invoking the loop is the standing approval. Your recorded decisions + spec self-review substitute for the interactive gate. Proceed. |
 | "I'll draft the options and wait for them to wake up." | Waiting = the loop dies. Never defer a reversible choice to the human mid-loop; the only stop is the 08:00 time-gate. |
 | "I should stop at the PR for human merge approval." | Attended mode stops at the PR; the loop does not. Merge it via `merge-pr` when green. |
@@ -147,4 +131,4 @@ If you catch yourself doing any of these, STOP that impulse and apply the Iron R
 ## Notes
 
 - This skill **orchestrates** the existing skills — it does not replace them. Use `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:subagent-driven-development`, `superpowers:systematic-debugging`, and `merge-pr` as the loop's steps; this skill only adds the autonomy discipline + the reversibility/judgment boundary + the iteration cadence + the closeout/next-step/time-gate rules.
-- Follow all the repo's standing conventions (`.claude/rules/`): branch off `develop`, commit-message + co-author/reviewer trailers, the spec/plan locations, the iterations-history closeout entry, the open-topics convention. Unattended mode changes *who approves* (you, recorded), not *what gets produced*.
+- Follow all the repo's standing conventions (`.claude/rules/`): branch off `develop`, commit-message + co-author/reviewer trailers, the spec/plan locations, the iterations-history closeout entry, the open-topics convention, and the decisions-log convention. Unattended mode changes *who approves* (you, recorded), not *what gets produced*.
