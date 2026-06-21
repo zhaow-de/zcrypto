@@ -142,20 +142,25 @@ def stress(
         deltas = [r["delta_sharpe"] for r in results]
         aggregate["delta_mean_across_windows"] = sum(deltas) / len(deltas)
 
+        # Pooled candidate daily_long: concatenate across windows.
+        pooled_daily = pd.concat(all_cand_daily).sort_index()
+
         # Register trial and compute deflated Sharpe.
+        # Use per-period (non-annualized) Sharpe of the pooled daily series so the
+        # registered value matches deflated_sharpe's per-period contract (and rank's
+        # per-period in-run Sharpes).  The per-window sharpe_mean / null_sharpe_mean /
+        # delta_sharpe reported above are the annualized qlib numbers — left as-is.
+        from cli.experiment.stats import sharpe as _sharpe
+
         trials_path = out / "trials.jsonl"
-        candidate_mean_sharpe = sum(r["sharpe_mean"] for r in results) / len(results)
         register_trial(
             trials_path,
             recipe_name=recipe.name,
             config_hash=recipe_config_hash(recipe),
-            sharpe=candidate_mean_sharpe,
+            sharpe=_sharpe(pooled_daily.to_numpy()),
             created=created.isoformat(),
         )
         sr_trials = cumulative_sr_trials(trials_path)
-
-        # Pooled candidate daily_long: concatenate across windows.
-        pooled_daily = pd.concat(all_cand_daily).sort_index()
         aggregate["deflated_sharpe"] = _deflated_sharpe(pooled_daily.to_numpy(), sr_trials)
 
     (bundle / "stress_summary.json").write_text(

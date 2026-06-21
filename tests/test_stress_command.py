@@ -194,6 +194,28 @@ def test_stress_null_benchmarking_unit(monkeypatch, tmp_path):
     assert len(lines) >= 1
     assert lines[-1]["recipe"] == "steady"
 
+    # Registered sharpe must be per-period (non-annualized), matching deflated_sharpe's contract.
+    # The fake holdout returns a daily series of [0.001]*5; per-period Sharpe of that pooled
+    # series is 0.0 (zero std-dev with ddof=1 across identical values → degenerate → 0.0).
+    # Regardless, it must NOT be the annualized mean-of-window-means (which would be ~-0.5,
+    # the qlib annualized summary value the stub returns).
+    from cli.experiment.stats import sharpe as _sharpe
+
+    # Reconstruct the pooled daily series the command would have used (4 windows × 5 days).
+    pooled = pd.concat([_make_daily_series() for _ in range(4)]).sort_index()
+    expected_per_period_sharpe = _sharpe(pooled.to_numpy())
+    registered_sharpe = lines[-1]["sharpe"]
+    assert registered_sharpe == pytest.approx(expected_per_period_sharpe, abs=1e-9), (
+        f"registered sharpe {registered_sharpe} != per-period sharpe {expected_per_period_sharpe}; "
+        "unit-convention bug: annualized value was registered instead of per-period"
+    )
+    # Also confirm it is NOT the annualized mean-of-window-means (-0.5 from the stub).
+    annualized_mean = -0.5  # the stub's summary["sharpe"]["mean"]
+    assert abs(registered_sharpe - annualized_mean) > 0.1, (
+        f"registered sharpe {registered_sharpe} suspiciously close to annualized mean {annualized_mean}; "
+        "unit-convention bug: annualized value appears to have been registered"
+    )
+
 
 @pytest.mark.skipif(not _redis_up(), reason="needs redis (scripts/redis.sh start)")
 def test_stress_null_benchmark_real_beta_null(tmp_path, monkeypatch):
