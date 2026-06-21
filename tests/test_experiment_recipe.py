@@ -460,3 +460,20 @@ def test_regime_crossasset_voltarget_is_crossasset_book_plus_voltarget_gate():
     assert rc.model_config["kwargs"] == cs.model_config["kwargs"]
     assert rc.feature_config == cs.feature_config
     assert rc.fee_preset == cs.fee_preset and rc.label_horizon_days == cs.label_horizon_days
+
+
+# --- linear_steady recipe: steady book + Ridge (sklearn) instead of LGBM (iter-27 model-axis test) ---
+
+
+def test_linear_steady_is_ridge_on_steady_book():
+    ln, st = resolve_recipe("linear_steady"), resolve_recipe("steady")
+    mc = ln.model_config
+    assert mc["class"] == "Ridge"
+    assert mc["module_path"] == "sklearn.linear_model"
+    assert mc["kwargs"]["alpha"] == 10.0
+    # steady's book preserved (only the model differs)
+    assert ln.handler_kwargs == st.handler_kwargs
+    assert ln.feature_config == st.feature_config
+    assert ln.strategy_config == st.strategy_config
+    assert ln.universe == st.universe and ln.segments == st.segments
+    assert ln.fee_preset == st.fee_preset and ln.label_horizon_days == st.label_horizon_days
