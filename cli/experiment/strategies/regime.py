@@ -157,6 +157,8 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         chop_exposure=0.5,
         vol_target=None,
         vol_lookback=30,
+        membership_top_n: int | None = None,
+        membership_lookback_days: int | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -171,6 +173,9 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.chop_exposure = chop_exposure
         self.vol_target = vol_target
         self.vol_lookback = vol_lookback
+        self.membership_top_n = membership_top_n
+        self.membership_lookback_days = membership_lookback_days
+        self._membership_schedule: dict | None = None  # lazy; injectable for tests
         self._exposure = self._build_exposure()
         self._vol_panel = self._build_vol_panel()
 
@@ -205,6 +210,31 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         prior = exp.loc[:date]
         return float(prior.iloc[-1]) if len(prior) else 1.0
 
+    def _members_for(self, date) -> set[str] | None:
+        """Return the set of liquidity-member symbols for *date*, or None if no filter is set."""
+        if self.membership_top_n is None:
+            return None
+        # Lazily build the schedule on first call (unless injected for testing).
+        if self._membership_schedule is None:
+            from qlib.data import D
+
+            from cli.experiment.universe_schedule import liquidity_rank_schedule
+
+            df = D.features(self.weight_universe, ["$amount"], freq="day")
+            amount_wide = df["$amount"].unstack(level="instrument").sort_index()
+            self._membership_schedule = liquidity_rank_schedule(
+                amount_wide,
+                top_n=self.membership_top_n,
+                lookback_days=self.membership_lookback_days,
+            )
+        schedule = self._membership_schedule
+        # Normalize to month-start, then exact-or-carry-forward most recent prior rebalance.
+        t = pd.Timestamp(date).normalize().to_period("M").to_timestamp()
+        keys = sorted(k for k in schedule if k <= t)
+        if not keys:
+            return None  # before first rebalance -> no restriction
+        return set(schedule[keys[-1]])
+
     def get_risk_degree(self, trade_step=None):
         step = trade_step if trade_step is not None else self.trade_calendar.get_trade_step()
         _, date = self.trade_calendar.get_step_time(step)
@@ -212,6 +242,10 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
 
     def generate_target_weight_position(self, score, current, trade_start_time, trade_end_time):
         names = list(score.index)
+        if getattr(self, "membership_top_n", None) is not None:
+            members = self._members_for(trade_start_time)
+            if members is not None:
+                names = [n for n in names if n in members]
         t = pd.Timestamp(trade_start_time).normalize()
         vp = self._vol_panel
         prior = vp.loc[vp.index < t]  # NO LOOK-AHEAD: strictly-prior vol row only
