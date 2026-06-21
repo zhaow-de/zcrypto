@@ -35,6 +35,10 @@ def summarize_seed_metrics(per_seed: list[dict]) -> dict:
     metrics = list(per_seed[0].keys())
     result = {}
     for m in metrics:
+        first = per_seed[0][m]
+        # Skip non-scalar fields (e.g. pandas Series carrying daily return series).
+        if not isinstance(first, (int, float)):
+            continue
         # A degenerate window (e.g. a fully gated-to-cash regime arm) yields a constant return
         # series -> Sharpe/PSR are 0/0 = nan/inf, which crashes statistics.stdev. Map any
         # non-finite metric to 0.0 (an all-cash window has no risk-adjusted edge).
@@ -267,6 +271,8 @@ def _holdout_metrics_for_seed(recipe, seed, deterministic, ctx):
         "max_drawdown": float(abs_df.loc["max_drawdown"].iloc[0]),
         "ls_sharpe": ls["sharpe"],
         "ls_ending": ls["ending"],
+        "daily_long": cost_adj,
+        "daily_ls": ls["daily"],
     }
 
 
@@ -285,7 +291,8 @@ def run_holdout_seeds(recipe, *, data_dir, seeds, deterministic=False) -> dict:
         for k in range(1, seeds + 1):
             metrics = _holdout_metrics_for_seed(recipe, k, deterministic, ctx)
             per_seed.append({"seed": k, **metrics})
-            logger.info("holdout-seed-done", extra={"seed": k, "metrics": metrics})
+            scalar_metrics = {kk: vv for kk, vv in metrics.items() if isinstance(vv, (int, float))}
+            logger.info("holdout-seed-done", extra={"seed": k, "metrics": scalar_metrics})
     finally:
         # Monkeypatched test contexts (a bare object()) carry no _cm; guard for them.
         cm = getattr(ctx, "_cm", None)
