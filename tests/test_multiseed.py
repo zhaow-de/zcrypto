@@ -116,3 +116,19 @@ def test_run_holdout_seeds_aggregates(monkeypatch):
     assert [d["seed"] for d in out["per_seed"]] == [1, 2, 3, 4]
     assert out["summary"]["sharpe"]["n"] == 4
     assert abs(out["summary"]["sharpe"]["mean"] - 0.25) < 1e-9
+
+
+def test_summarize_seed_metrics_sanitizes_nonfinite():
+    """A fully gated-to-cash window yields a constant return series -> nan/inf Sharpe; the
+    aggregation must map non-finite values to 0.0 instead of crashing statistics.stdev."""
+    from cli.experiment.multiseed import summarize_seed_metrics
+
+    per_seed = [
+        {"sharpe": float("nan"), "ending": 10000.0},
+        {"sharpe": float("inf"), "ending": 10000.0},
+        {"sharpe": 0.0, "ending": 10000.0},
+    ]
+    out = summarize_seed_metrics(per_seed)
+    assert out["sharpe"]["mean"] == 0.0  # all three sanitized/zero -> 0.0
+    assert out["sharpe"]["std"] == 0.0
+    assert out["ending"]["mean"] == 10000.0
