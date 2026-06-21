@@ -289,6 +289,7 @@ The **default cost model is calibrated realistic costs**: size-scaled slippage +
 | `alpha360_steady`           | `steady`'s book + qlib's built-in `Alpha360` feature handler (~360 raw OHLCV factors) instead of Alpha158. A/B against `steady`.                                                                        |
 | `crossasset_steady`         | `steady`'s book + Alpha158 features + `CrossAssetProcessor`: BTC-anchored cross-asset features (relative strength, rolling beta, lead-lag, cointegration-deviation, cross-sectional momentum/vol rank). |
 | `funding_steady`            | `steady`'s book + perp-funding carry features (`FundingRateProcessor`): level, z-score, cross-sectional rank, moving average, rate-of-change. Isolation A/B vs `steady`.                                |
+| `regime_funding_voltarget`  | `funding_steady`'s book + a binary 200-day-MA regime gate with vol-targeting (iter-25 regime×funding stack test).                                                                                       |
 | `funding_crossasset_steady` | `crossasset_steady`'s book + funding features stacked (`CrossAssetProcessor` then `FundingRateProcessor`). Stacking A/B vs `crossasset_steady`.                                                         |
 
 ##### Recipe fields: `feature_config`, `strategy_config`, and walk-forward knobs
