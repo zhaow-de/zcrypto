@@ -545,3 +545,26 @@ def test_regime_equalweight_majors_is_10_major_basket():
     assert rm.feature_config == st.feature_config
     assert rm.segments == st.segments
     assert rm.fee_preset == st.fee_preset and rm.label_horizon_days == st.label_horizon_days
+
+
+# --- regime_equalweight_top5 recipe: regime_equalweight_majors on 5-megacap universe (iter-31 A/B) ---
+
+
+def test_regime_equalweight_top5_is_5_megacap_basket():
+    t5, mj, st = (
+        resolve_recipe("regime_equalweight_top5"),
+        resolve_recipe("regime_equalweight_majors"),
+        resolve_recipe("steady"),
+    )
+    mega = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT")
+    assert t5.universe == mega
+    assert t5.strategy_config["kwargs"]["topk"] == 5 == len(t5.universe)  # hold-all equal-weight
+    # everything else matches the 10-major best: model + the rest of the gate
+    assert t5.model_config == mj.model_config  # DummyRegressor
+    for k in ("regime_mode", "regime_ma_window", "vol_target", "regime_benchmark", "n_drop", "hold_thresh"):
+        assert t5.strategy_config["kwargs"][k] == mj.strategy_config["kwargs"][k]
+    # steady's data book preserved (universe is the only data-book change)
+    assert t5.handler_kwargs == st.handler_kwargs
+    assert t5.feature_config == st.feature_config
+    assert t5.segments == st.segments
+    assert t5.fee_preset == st.fee_preset and t5.label_horizon_days == st.label_horizon_days
