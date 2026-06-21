@@ -591,3 +591,51 @@ def test_regime_volweight_majors_is_volweighted_gated_10major():
     assert rv.feature_config == st.feature_config
     assert rv.segments == st.segments
     assert rv.fee_preset == st.fee_preset and rv.label_horizon_days == st.label_horizon_days
+
+
+# --- beta_null recipe: pre-registered passive-beta-timing null/yardstick (iter-34 Stage-0) ---
+
+
+def test_beta_null_resolves_and_frozen_params():
+    r = resolve_recipe("beta_null")
+    assert r.name == "beta_null"
+    sc = r.strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    # frozen gate params
+    assert sc["kwargs"]["vol_target"] == 0.50
+    assert sc["kwargs"]["regime_ma_window"] == 200
+    assert sc["kwargs"]["regime_mode"] == "binary"
+    # membership filter
+    assert sc["kwargs"]["membership_top_n"] == 10
+    assert sc["kwargs"]["membership_lookback_days"] == 30
+    # model
+    assert r.model_config["class"] == "DummyRegressor"
+    assert r.model_config["module_path"] == "sklearn.dummy"
+    # label / fee
+    assert r.fee_preset == "vip2_bnb"
+    assert r.label_horizon_days == 6
+
+
+def test_beta_null_universe_is_full_liquid_set():
+    r = resolve_recipe("beta_null")
+    ew = resolve_recipe("regime_equalweight")
+    rv = resolve_recipe("regime_volweight_majors")
+    # broader than the 10-major set
+    assert len(r.universe) > len(rv.universe)
+    # matches the full 19-coin liquid set used by regime_equalweight
+    assert r.universe == ew.universe
+    # weight_universe also covers the full set
+    sc = r.strategy_config
+    assert tuple(sc["kwargs"]["weight_universe"]) == ew.universe
+
+
+def test_beta_null_non_lever_fields_match_steady():
+    r, st = resolve_recipe("beta_null"), resolve_recipe("steady")
+    assert r.segments == st.segments
+    assert r.account == st.account
+    assert r.benchmark == st.benchmark
+    assert r.fee_preset == st.fee_preset
+    assert r.handler_kwargs == st.handler_kwargs
+    assert r.feature_config == st.feature_config
+    assert r.label_horizon_days == st.label_horizon_days
