@@ -477,3 +477,24 @@ def test_linear_steady_is_ridge_on_steady_book():
     assert ln.strategy_config == st.strategy_config
     assert ln.universe == st.universe and ln.segments == st.segments
     assert ln.fee_preset == st.fee_preset and ln.label_horizon_days == st.label_horizon_days
+
+
+# --- h1/h10/h20_steady recipes: steady's book with different label horizons (iter-28) ---
+
+
+@pytest.mark.parametrize(
+    "name,fwd,horizon",
+    [("h1_steady", 2, 2), ("h10_steady", 11, 11), ("h20_steady", 21, 21)],
+)
+def test_horizon_recipe_is_steady_book_with_changed_label(name, fwd, horizon):
+    r, st = resolve_recipe(name), resolve_recipe("steady")
+    assert r.handler_kwargs["label"] == ([f"Ref($close, -{fwd})/Ref($close, -1) - 1"], ["LABEL0"])
+    assert r.label_horizon_days == horizon
+    # rest of steady's book preserved
+    assert r.model_config == st.model_config
+    assert r.strategy_config == st.strategy_config
+    assert r.feature_config == st.feature_config
+    assert r.handler_kwargs["infer_processors"] == st.handler_kwargs["infer_processors"]
+    assert r.handler_kwargs["learn_processors"] == st.handler_kwargs["learn_processors"]
+    assert r.universe == st.universe and r.segments == st.segments
+    assert r.fee_preset == st.fee_preset
