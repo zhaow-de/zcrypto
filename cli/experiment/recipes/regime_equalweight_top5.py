@@ -1,9 +1,16 @@
 """regime_equalweight_top5 recipe — gated equal-weight on the 5 mega-caps (concentration A/B).
 
-iter-31 concentration point vs the iter-30 best (regime_equalweight_majors, the 10-major gated
-equal-weight basket). Same DummyRegressor (no selection) + same gate (binary 200d + vol_target 0.50);
-the ONLY change is the universe — the 5 most-liquid mega-caps. topk=5 = the universe size, so it
-still holds all equal-weight. Tests whether further concentration beats the 10-major basket.
+iter-31 — tests whether further concentration into mega-caps beats the 10-major basket. Same DummyRegressor
+(no selection) + same gate (binary 200d + vol_target 0.50) + topk=5 (= universe size, all held equal-weight);
+the ONLY change is the universe — the 5 most-liquid mega-caps (BTC ETH BNB SOL XRP). A/B against
+`regime_equalweight_majors` (the 10-major gated equal-weight basket); everything else is
+`regime_equalweight_majors`'s book verbatim, so the comparison isolates the one variable — the universe.
+
+Verdict (OOS-stress, 8-seed, per-window 2022-2025): per-window 2022 0.000 / 2023 1.663 / 2024 0.994 / 2025
+−0.283 → mean 0.594 (the HIGHEST mean of all 18 recipes), worst −0.283 — but FLAGGED as concentration-OVERFIT
+to the one 2025 bear (iter-31/33). The monotonic concentration was an overfitting checkpoint, so the sweep was
+STOPPED ON PRINCIPLE (do not grid-search universe-N to the holdout); 0.594 sits at the
+expected-max-of-18-noisy-trials ceiling and is not the deployable best.
 """
 
 from cli.experiment.recipes.base import Recipe

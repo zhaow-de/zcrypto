@@ -1,31 +1,18 @@
-"""regime_steady recipe — steady's book + binary-200-day MA regime gate + walk-forward holdout.
+"""regime_steady recipe — steady's book + a binary 200-day-MA BTC-trend regime gate (plus walk-forward
+retraining).
 
-Thesis: on daily klines over 19 survivor-biased majors, ``steady``'s GBDT/Alpha158 ranker shows a
-positive CPCV out-of-sample Sharpe on 2020-2024 that inverts to negative on the 2025-2026 holdout
-(PBO = 0.91), strongly suggesting a market-regime mismatch rather than an over-fit model. Adding a
-binary regime gate — long-only when BTC is above its 200-day SMA, flat otherwise — should filter
-the worst drawdown periods without requiring any look-ahead or re-labelling.
+iter-23 (gate fixed; built iter-12) — tests whether a binary long/cash gate (long only when BTC > its 200-day
+SMA, flat otherwise) filters the worst drawdowns, i.e. that `steady`'s CPCV(+1.0) -> holdout(-0.63), PBO 0.91
+inversion is a regime mismatch rather than an overfit model. A/B against `steady`; everything else is
+`steady`'s book verbatim (5-day label, diversified 10-name sticky book, regularized LGBM) plus
+`RegimeGatedTopkStrategy` binary mode with vol_target off and quarterly expanding-window walk-forward
+retraining, so the comparison isolates the regime gate.
 
-Specifically: ``regime_steady`` keeps *all* of ``steady``'s levers (5-day label, diversified 10-name
-sticky book, regularized LGBM) and adds the ``RegimeGatedTopkStrategy`` in ``binary`` mode with a
-200-day MA on BTCUSDT, vol-targeting off. Walk-forward retraining is enabled (``wf_enabled=True``):
-the holdout is produced by retraining each quarter on an expanding window rather than one fit over
-the whole train segment, so the model tracks the regime shift instead of being frozen at 2023.
-
-This is a falsifiable hypothesis. The honest verdict is the CPCV out-of-sample Sharpe
-distribution + PSR/DSR/PBO and the holdout drawdown (``zcrypto experiment --recipe regime_steady``
-then ``zcrypto rank``). If the regime gate does not improve on ``steady`` on those metrics, that is
-itself a real finding.
-
-**Measured (2025-2026 holdout, current data — iter-12 validation): the gate did not help.**
-``regime_steady`` is the worst of the three on the holdout — ending ~3,477 USDT vs ``steady``
-~3,551 vs ``skeleton`` ~3,664; absolute Sharpe -0.68 vs -0.67 vs -0.63; holdout PSR 0.152 vs
-0.158 vs 0.174 — and PBO across the three trials is 0.99. The 2025-2026 holdout was mostly
-risk-on (BTC above its 200-day MA), so the binary gate rarely engaged, and walk-forward
-retraining on the same Alpha158/LGBM signal still produced a negative holdout. The honest
-lesson: the scaffold extensions work and are validated, but on this survivor-biased
-universe/period the signal has no edge a regime gate or periodic retraining can rescue — the
-CPCV(~+1.0) -> holdout(~-0.6) inversion persists.
+Verdict (OOS-stress, 8-seed, across-window mean 2022-2025): mean 0.289 (slow-gate family), worst -0.220 —
+Pareto-better than `steady`'s 0.154 / -0.753: full-cash avoids the 2022 crash (0.000 vs -0.753) and halves the
+2025 loss. The FIRST OOS-robust improvement in the project — defensive market-timing, not new alpha
+(iter-23/33). (iter-12's single-run "gate did not help" was a false negative — the gate was inert due to a
+sizing bug that never consulted it.)
 """
 
 from cli.experiment.recipes.base import Recipe

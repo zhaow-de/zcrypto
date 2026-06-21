@@ -1,17 +1,19 @@
-"""funding_crossasset_steady recipe — crossasset's book + funding features stacked (A/B vs ``crossasset_steady``).
+"""funding_crossasset_steady recipe — vs ``crossasset_steady``, ``FundingRateProcessor`` is stacked AFTER
+``CrossAssetProcessor`` (both prepended before ``RobustZScoreNorm``).
 
-The A/B hypothesis: does stacking perp-funding carry features (level, z-score, cross-sectional rank,
-moving average, and rate-of-change) on top of the cross-asset features in ``crossasset_steady`` add
-further edge, holding the book, model, label, universe, and fees constant?
+iter-20 — tests whether funding carry stacks additional edge on top of the cross-asset features. A/B against
+``crossasset_steady``; everything else is ``crossasset_steady``'s book verbatim (book, model, label, universe,
+fees), so the comparison isolates the stacked funding features. ``CrossAssetProcessor`` is first,
+``FundingRateProcessor`` immediately after, so all columns (Alpha158 native + cross-asset + funding) are
+normalized on the same scale.
 
-``CrossAssetProcessor`` is prepended first, then ``FundingRateProcessor`` immediately after, so both
-feature sets are appended before ``RobustZScoreNorm`` normalizes all columns (Alpha158 native + cross-asset
-+ funding) on the same scale. ``feature_config`` stays ``Alpha158``; the handler class is unchanged.
+Verdict (16-seed multi-seed holdout, paired, iter-20): funding_crossasset_steady −0.477 vs
+``crossasset_steady`` −0.457, mean ΔSharpe −0.065, z ≈ −1.1 (within noise) — funding does NOT stack with
+cross-asset features (redundant crowding / relative-strength info). NOT in the iter-33 18-recipe OOS-stress
+sweep — its verdict is holdout/A-B-based only.
 
-This is the stacking A/B: funding features added on top of cross-asset features.
-
-Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
-2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the 2025-bear
+holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

@@ -1,12 +1,15 @@
-"""regime_fast recipe — steady's book + a FASTER (100-day MA) binary BTC-trend regime gate.
+"""regime_fast recipe — regime_steady's gate with a faster 100-day MA window (vs 200-day).
 
-iter-23 responsiveness sweep. iter-12's regime_steady used a 200-day MA gate that "rarely
-engaged" (BTC was mostly above its slow 200-day MA), so it behaved like steady. regime_fast
-halves the MA window to 100 days so the gate engages sooner in downturns. Everything else is
-steady's book verbatim, so the A/B (vs steady and vs regime_steady) isolates gate responsiveness.
+iter-23 responsiveness sweep — does a faster gate engage sooner in downturns and improve bear defense? A/B
+against `regime_steady` (and `steady`); everything else is `steady`'s book verbatim, only the binary gate's MA
+window drops 200 -> 100 days, so the comparison isolates gate responsiveness.
 
-Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
-2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
+Verdict (OOS-stress, 8-seed, across-window mean 2022-2025): mean 0.110 (fast-gate whipsaw group) — WORSE than
+ungated `steady`'s 0.154 and below the slow gate's 0.289; it whipsaws (2022 -1.277) by re-entering on
+bear-market dead-cat bounces. Gate responsiveness HURTS; the slow 200-day gate wins (iter-23/33).
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the 2025-bear
+holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

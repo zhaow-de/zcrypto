@@ -1,38 +1,19 @@
-"""crossasset_steady recipe — steady book + cross-asset features prepended to Alpha158.
+"""crossasset_steady recipe — vs ``steady``, ``CrossAssetProcessor`` is prepended (rel-strength vs BTC, rolling
+beta, BTC lead-lag corr, cointegration-deviation z, cross-sectional momentum/vol rank); ``feature_config``
+stays Alpha158.
 
-**A/B hypothesis:** does injecting cross-asset information (relative strength vs BTC,
-rolling beta to BTC, BTC lead-lag correlation, cointegration-deviation z-score, and
-cross-sectional momentum/volatility rank) that Alpha158 structurally lacks carry
-additional edge, holding steady's book, model, label, universe, and fees constant?
+iter-13 (single-run), iter-14 (multi-seed), iter-26 (ungated stress sub-finding) — tests whether cross-asset
+co-movement info that Alpha158 structurally lacks adds incremental edge. A/B against ``steady``; everything
+else is ``steady``'s book verbatim (book, model, label, universe, fees), so the comparison isolates the
+cross-asset features. ``CrossAssetProcessor`` is the first ``infer_processor`` so its appended columns are
+normalized by ``RobustZScoreNorm`` on the same scale as Alpha158's native factors.
 
-The cross-asset features ride on Alpha158 via ``CrossAssetProcessor`` — prepended as
-the first ``infer_processor`` so the subsequent ``RobustZScoreNorm`` normalizes both
-Alpha158's native factors and the appended cross-asset columns on the same scale.
-``feature_config`` stays ``Alpha158``; the handler class is unchanged.
-
-**Falsifiable test:** run both ``steady`` and ``crossasset_steady`` under CPCV; compare
-out-of-sample Sharpe distribution, PSR/DSR, PBO, and holdout drawdown. The cross-asset
-features win only if the CPCV Sharpe is materially higher *and* PBO < 0.5 on the
-holdout — not merely better in-sample. If they do not outperform, that is itself a
-real finding: the cross-asset co-movement signal (vs BTC) adds no incremental edge
-beyond what Alpha158 already captures from each instrument's own OHLCV history.
-
-**Measured (2025-2026 holdout, iter-13 validation): best of the four, but NOT established.**
-``crossasset_steady`` ranked #1 — ending ~5,027 USDT; absolute Sharpe -0.34; PSR 0.310; lowest
-max-drawdown; cross-trial PBO 0.477 (vs ~0.95 in prior iterations) — suggestive that the cross-asset
-features help. BUT the holdout is nondeterministic: ``steady`` alone spans 3,621-4,817 across identical
-runs (open-topic ``T0011``), so the ~4% gap over ``steady`` is within run noise and the edge is NOT
-established. All four still lose (~-50% for ``crossasset_steady``/``steady`` to ~-66% for
-``skeleton``/``alpha360_steady``). Re-run under determinism (``T0011``) before claiming an edge.
-
-**Measured (multi-seed, iter-14 — 16 seeds, light-``lgb.train`` basis, 2025-2026 holdout, after 12 bps
-fees): BEST mean of the four — Sharpe −0.43 ± 0.14, ending value ~4,507 USDT, PSR 0.27.** The only
-pairwise separation beyond the seed-noise band is vs ``steady`` (z ≈ 1.1, modest); vs ``skeleton`` the
-gap is within noise (z ≈ 0.6), so the cross-asset edge is real-but-modest, NOT clearly above the
-strongest baseline. All four still lose (~−55% to −64%). Iter-13's single-run #1 (5,027) was partly
-seed luck — the true mean is lower. The multi-seed distribution is on the light ``lgb.train``
-(fixed-rounds, no early-stopping) holdout path — internally consistent across the four recipes but NOT
-directly comparable to iter-13's MLflow single-fit numbers. ``T0011`` resolved.
+Verdict (two lenses): (a) 16-seed multi-seed holdout, 2025-26 (iter-14): BEST mean of the four — Sharpe −0.43
+± 0.14, ending ~4,507 USDT, PSR 0.27; the only separation beyond seed noise is vs ``steady`` (z ≈ 1.1,
+modest), vs ``skeleton`` within noise (z ≈ 0.6) — real-but-modest, not clearly above the strongest baseline.
+iter-13's single-run #1 (ending ~5,027, abs Sharpe −0.34, PSR 0.310) was partly seed luck. (b) OOS-stress,
+across-window mean (iter-33 sweep): 0.180 (ungated group) — marginally beats ``steady`` ungated (+0.026,
+within noise), best ungated feature book, but the gate erases the difference (iter-26).
 """
 
 from cli.experiment.recipes.base import Recipe

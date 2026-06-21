@@ -1,12 +1,15 @@
-"""Skeleton recipe — baseline LightGBM/Alpha158 experiment.
+"""skeleton recipe — the naive baseline itself (Alpha158 + LGBM, topk=5 / n_drop=1, 2-day default label, no
+hold_thresh).
 
-**Measured (multi-seed, iter-14 — 16 seeds, light-``lgb.train`` basis, 2025-2026 holdout, after 12 bps
-fees): 2nd-best by mean and most stable — Sharpe −0.51 ± 0.15, ending value ~4,329 USDT, PSR 0.23.**
-The baseline held up better than its unlucky iter-13 single run suggested (that run ended ~3,664). True
-order across all four recipes: ``crossasset_steady`` > ``skeleton`` > ``alpha360_steady`` > ``steady``
-— which inverts iter-13's single-run order. All four still lose. Light-``lgb.train`` holdout path —
-internally consistent across recipes but NOT directly comparable to iter-13's MLflow single-fit
-numbers. ``T0011`` resolved.
+baseline — a single GBDT on Alpha158, churning a 5-name book daily, is the naive reference book that
+``steady`` and friends A/B against. It is not compared to anything upstream; it is the upstream. Measured at
+iter-14.
+
+Verdict (16-seed multi-seed holdout, 2025-26, 12bps): Sharpe −0.51 ± 0.15, ending ~4,329 USDT, PSR 0.23 —
+2nd-best of the four early recipes and the most stable. True 4-recipe order is ``crossasset_steady`` >
+``skeleton`` > ``alpha360_steady`` > ``steady``, which inverts iter-13's single-run order (that was seed
+luck). All four lose ~55-64%. NOT in the iter-33 18-recipe OOS-stress sweep — its verdict is
+holdout/multi-seed only (iter-14).
 """
 
 from cli.experiment.recipes.base import Recipe

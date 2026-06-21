@@ -1,9 +1,17 @@
 """regime_volweight_majors recipe — inverse-vol (risk-parity-lite) gated basket of the 10 majors.
 
-iter-32 A/B vs the iter-30 best (regime_equalweight_majors, gated EQUAL-weight). Same 10-major
-universe, same DummyRegressor (no selection), same gate (binary 200d + vol_target 0.50); the only
-change is the weighting — VolWeightedRegimeStrategy weights held names by inverse trailing vol
-(down-weighting the more volatile), motivated by iter-30/31 (volatile names drag the basket).
+iter-32 — tests whether down-weighting the more volatile names (which drag the basket) improves the tail. Same
+10-major universe, same DummyRegressor (no selection), same gate (binary 200d + vol_target 0.50); the only
+change is the weighting — VolWeightedRegimeStrategy weights held names by inverse 30-day trailing vol
+(risk-parity-lite). A/B against `regime_equalweight_majors` (gated EQUAL-weight); everything else is
+`regime_equalweight_majors`'s book verbatim, so the comparison isolates the one variable — equal vs
+inverse-vol weighting.
+
+Verdict (OOS-stress, 8-seed, per-window 2022-2025): per-window 2022 0.000 / 2023 1.198 / 2024 0.977 / 2025
+−0.158 → mean 0.504, worst −0.158 — holds the mean (≈ equal-weight 0.493) and NEARLY HALVES the worst-window
+drawdown (−0.158 vs −0.444) (iter-32/33). The PRINCIPLED, robust default and most-defensible deployable best
+(vs top5's 0.594, which is concentration-overfit). This is the Phase-1 deliverable: BTC-trend-time an
+inverse-vol-weighted basket of the 10 large-cap majors, no ML.
 """
 
 from cli.experiment.recipes.base import Recipe

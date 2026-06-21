@@ -1,42 +1,19 @@
-"""alpha360_steady recipe — steady book, Alpha360 features instead of Alpha158.
+"""alpha360_steady recipe — vs ``steady``, the feature handler swaps Alpha158 → Alpha360 (~360 raw OHLCV-derived
+features).
 
-**A/B hypothesis:** does replacing Alpha158 (158 engineered factors) with Alpha360
-(~360 raw OHLCV-derived features) carry additional edge, holding steady's book,
-model, label, universe, and fees constant?
+iter-13 (single-run), iter-14 (multi-seed) — tests whether more raw OHLCV dimensions carry additional edge
+(prior: NO — redundant transforms add curse-of-dimensionality overfit). A/B against ``steady``; everything
+else is ``steady``'s book verbatim (book, model, label, universe, fees), so the comparison isolates the
+feature handler. Alpha360.__init__ accepts the ``label`` kwarg via the same ``**kwargs`` pop mechanism as
+Alpha158, so steady's 5-day label override is fully supported.
 
-**Falsifiable test:** run both recipes under CPCV; compare out-of-sample Sharpe
-distribution, PSR/DSR, PBO, and holdout drawdown. Alpha360 wins only if its
-CPCV Sharpe is materially higher *and* PBO < 0.5 (i.e. the best CPCV fold beats
-chance on the holdout).
+Verdict (16-seed multi-seed holdout, 2025-26): middling — Sharpe −0.57 ± 0.17, ending ~3,827 USDT, PSR 0.20 —
+NOT the worst (``steady`` is); iter-13's single-run "worst" ranking (ending ~3,389, abs Sharpe −0.69, PSR
+0.149) was seed noise. More raw OHLCV dims gave no edge over Alpha158; all four lose (iter-14). NOT in the
+iter-33 18-recipe OOS-stress sweep — its verdict is holdout/multi-seed only.
 
-**Honest expectation:** Alpha360 adds more dimensions but carries the same
-per-instrument OHLCV information as Alpha158 — the extra columns are redundant
-transformations of the same source. More dimensions with the same signal-to-noise
-typically increases the curse of dimensionality; a GBDT will fit the extra
-features in-sample and pay for it out-of-sample. The prior is that Alpha360 does
-*not* outperform Alpha158 on this universe. The point of this recipe is to
-measure, not assume.
-
-**Label note (RECON confirmed):** Alpha360.__init__ accepts the ``label`` kwarg
-via ``**kwargs`` (line 71: ``kwargs.pop("label", self.get_label_config())``) —
-identical mechanism to Alpha158. The steady 5-day label override
-``(["Ref($close, -6)/Ref($close, -1) - 1"], ["LABEL0"])`` is fully supported.
-
-**Measured (2025-2026 holdout, iter-13 validation): worst of the four.** ``alpha360_steady`` ranked
-last — ending ~3,389 USDT vs ``steady`` ~4,817, ``skeleton`` ~3,664, ``crossasset_steady`` ~5,027;
-absolute Sharpe -0.69; PSR 0.149 — confirming the expectation that more raw OHLCV dimensions add
-overfit, not edge. Caveat: holdout estimates are nondeterministic (open-topic ``T0011``), so treat the
-ranking as indicative, not exact.
-
-**Measured (multi-seed, iter-14 — 16 seeds, light-``lgb.train`` basis, 2025-2026 holdout, after 12 bps
-fees): middling — Sharpe −0.57 ± 0.17, ending value ~3,827 USDT, PSR 0.20.** NOT the worst by mean
-(``steady`` is); iter-13's single-run "worst" ranking was partly seed noise. More raw OHLCV dims still
-gave no edge over Alpha158. All four still lose. Light-``lgb.train`` holdout path — internally
-consistent across recipes but NOT directly comparable to iter-13's MLflow single-fit numbers.
-``T0011`` resolved.
-
-Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
-2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the 2025-bear
+holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

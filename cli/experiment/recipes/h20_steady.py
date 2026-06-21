@@ -1,10 +1,15 @@
 """h20_steady recipe — steady's book with a 20-day label (vs steady's 5-day).
 
-iter-28 label-horizon sweep: does a different forecast horizon generalize OOS where the 5-day
-label inverts on 2025+? Everything except the label + label_horizon_days is steady's book verbatim.
+iter-28 label-horizon sweep — does a much longer forecast horizon avoid the 5-day label's OOS inversion on
+2025+? A/B against `steady`; everything except the label (`Ref(close,-21)/Ref(close,-1)-1`,
+`label_horizon_days=21`) is `steady`'s book verbatim, so the comparison isolates the forecast horizon.
 
-Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
-2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
+Verdict (OOS-stress, 8-seed, across-window mean 2022-2025): mean 0.036 — the WEAKEST of the ungated group,
+below `steady`'s 0.154 — REFUTED; the inversion is horizon-invariant, 20-day if anything worse. With
+`h1`/`h10` this proves the OHLCV wall is airtight across the horizon axis (iter-28/33).
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the 2025-bear
+holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe

@@ -1,12 +1,17 @@
-"""regime_graded recipe — steady's book + a GRADED 200-day-MA BTC-trend regime gate.
+"""regime_graded recipe — regime_steady's binary gate replaced by a graded 200-day-MA gate (vs all-or-nothing).
 
-iter-24 refinement of the iter-23 binary-200d winner (regime_steady). The binary gate is
-all-or-nothing and gave up bull-window upside; the graded gate holds full exposure above the
-200-day SMA by +5%, half exposure within a +/-5% chop band, and cash below it by -5% — recovering
-some of the surrendered upside near the SMA. Everything else is steady's book verbatim.
+iter-24 refinement — does a graded gate recover bull upside surrendered by the all-or-nothing binary winner?
+Full exposure above the 200d SMA by +5%, half exposure within a +/-5% chop band, cash below -5%. A/B against
+`regime_steady` (the binary winner); everything else is `steady`'s book verbatim, only the gate mode changes
+binary -> graded, so the comparison isolates the gating curve.
 
-Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the
-2025-bear holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
+Verdict (OOS-stress, 8-seed, across-window mean 2022-2025): mean 0.259 (slow-gate family) — WORSE than binary
+`regime_steady`'s 0.289 and `regime_voltarget`'s 0.311; the +/-5% chop band keeps partial exposure THROUGH the
+2022 crash (-0.658 vs full-cash 0.000), blowing up the worst case. The binary full-cash-in-bear is the
+load-bearing mechanism; graded is net-negative (iter-24/33).
+
+Conditional verdict: this negative is specific to the current setup (LightGBM + Alpha158, the 2025-bear
+holdout); re-test if the model, feature set, universe, or regime changes — not a permanent dead end.
 """
 
 from cli.experiment.recipes.base import Recipe
