@@ -522,3 +522,26 @@ def test_regime_equalweight_is_no_selection_gated_universe():
     assert ew.feature_config == st.feature_config
     assert ew.universe == st.universe and ew.segments == st.segments
     assert ew.fee_preset == st.fee_preset and ew.label_horizon_days == st.label_horizon_days
+
+
+# --- regime_equalweight_majors recipe: regime_equalweight on 10-major universe (iter-30 A/B) ---
+
+
+def test_regime_equalweight_majors_is_10_major_basket():
+    rm, ew, st = (
+        resolve_recipe("regime_equalweight_majors"),
+        resolve_recipe("regime_equalweight"),
+        resolve_recipe("steady"),
+    )
+    majors = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOGEUSDT", "TRXUSDT")
+    assert rm.universe == majors
+    assert rm.strategy_config["kwargs"]["topk"] == 10 == len(rm.universe)  # hold-all equal-weight
+    # everything else matches regime_equalweight (the iter-29 best): model + the rest of the gate
+    assert rm.model_config == ew.model_config  # DummyRegressor
+    for k in ("regime_mode", "regime_ma_window", "vol_target", "regime_benchmark", "n_drop", "hold_thresh"):
+        assert rm.strategy_config["kwargs"][k] == ew.strategy_config["kwargs"][k]
+    # steady's data book preserved (universe is the only data-book change)
+    assert rm.handler_kwargs == st.handler_kwargs
+    assert rm.feature_config == st.feature_config
+    assert rm.segments == st.segments
+    assert rm.fee_preset == st.fee_preset and rm.label_horizon_days == st.label_horizon_days
