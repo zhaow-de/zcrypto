@@ -440,3 +440,23 @@ def test_regime_funding_voltarget_is_funding_book_plus_voltarget_gate():
     assert rf.model_config["kwargs"] == fs.model_config["kwargs"]
     assert rf.feature_config == fs.feature_config
     assert rf.fee_preset == fs.fee_preset and rf.label_horizon_days == fs.label_horizon_days
+
+
+def test_regime_crossasset_voltarget_is_crossasset_book_plus_voltarget_gate():
+    rc, cs = resolve_recipe("regime_crossasset_voltarget"), resolve_recipe("crossasset_steady")
+    sc = rc.strategy_config
+    assert sc["class"] == "RegimeGatedTopkStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["regime_mode"] == "binary"
+    assert sc["kwargs"]["regime_ma_window"] == 200
+    assert sc["kwargs"]["vol_target"] == 0.50
+    assert sc["kwargs"]["regime_benchmark"] == "BTCUSDT"
+    assert sc["kwargs"]["topk"] == 10 and sc["kwargs"]["n_drop"] == 1 and sc["kwargs"]["hold_thresh"] == 5
+    # crossasset_steady's book preserved (the CrossAssetProcessor must stay FIRST in infer_processors)
+    assert rc.handler_kwargs["infer_processors"] == cs.handler_kwargs["infer_processors"]
+    assert rc.handler_kwargs["infer_processors"][0]["class"] == "CrossAssetProcessor"
+    assert rc.universe == cs.universe and rc.segments == cs.segments
+    assert rc.handler_kwargs["label"] == cs.handler_kwargs["label"]
+    assert rc.model_config["kwargs"] == cs.model_config["kwargs"]
+    assert rc.feature_config == cs.feature_config
+    assert rc.fee_preset == cs.fee_preset and rc.label_horizon_days == cs.label_horizon_days
