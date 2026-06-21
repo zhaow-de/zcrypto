@@ -85,3 +85,55 @@ def test_regime_get_risk_degree_scales_base_by_multiplier(monkeypatch):
     # a date past the series -> carry forward the last value (0.5)
     _use(_Cal(pd.Timestamp("2025-06-01")))
     assert abs(strat.get_risk_degree(0) - 0.475) < 1e-9
+
+
+def test_generate_trade_decision_pushes_gated_risk_degree_onto_attribute(monkeypatch):
+    """Regression for the qlib inconsistency (see .tmp/qlib-bug-topkdropout-ignores-get-risk-degree.md):
+    TopkDropoutStrategy sizes buys with the RAW ``self.risk_degree`` attribute, not ``get_risk_degree()``.
+    So the regime gate is inert unless generate_trade_decision pushes the gated value onto the attribute
+    before delegating. This test captures ``self.risk_degree`` at the moment qlib's sizing would read it.
+    """
+    from qlib.contrib.strategy.signal_strategy import TopkDropoutStrategy
+
+    from cli.experiment.strategies import regime as rg
+
+    idx = pd.date_range("2025-01-01", periods=3, freq="D")
+    monkeypatch.setattr(
+        rg.RegimeGatedTopkStrategy,
+        "_build_exposure",
+        lambda self: pd.Series([1.0, 0.0, 0.5], index=idx),
+    )
+    strat = rg.RegimeGatedTopkStrategy(topk=5, n_drop=1, signal=pd.Series(dtype="float64"), risk_degree=0.95)
+
+    class _Cal:
+        def __init__(self, d):
+            self._d = d
+
+        def get_trade_step(self):
+            return 0
+
+        def get_step_time(self, step, shift=0):
+            return (self._d, self._d)
+
+    captured = {}
+
+    def _fake_super(self, execute_result=None):
+        captured["risk_degree"] = self.risk_degree  # what qlib's line-266 buy sizing would read
+        return "DECISION"
+
+    monkeypatch.setattr(TopkDropoutStrategy, "generate_trade_decision", _fake_super)
+
+    def _use(cal):
+        monkeypatch.setattr(rg.RegimeGatedTopkStrategy, "trade_calendar", property(lambda self: cal), raising=False)
+
+    _use(_Cal(idx[1]))  # risk-off date -> gate 0.0 -> buys sized to cash
+    assert strat.generate_trade_decision() == "DECISION"
+    assert captured["risk_degree"] == 0.0
+
+    _use(_Cal(idx[0]))  # full exposure -> base 0.95
+    strat.generate_trade_decision()
+    assert captured["risk_degree"] == 0.95
+
+    _use(_Cal(idx[2]))  # chop 0.5 -> 0.95 * 0.5
+    strat.generate_trade_decision()
+    assert abs(captured["risk_degree"] - 0.475) < 1e-9
