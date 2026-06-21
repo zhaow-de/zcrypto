@@ -9,6 +9,7 @@
 Standard single-package uv project: `pyproject.toml`, `uv.lock`, `.python-version`, and `ruff.toml` all live at the **repo root**, and every `uv` command runs from the root.
 
 - `cli/` — the application package; run via `uv run python -m cli`.
+- `cli/experiment/` — the research harness. A **recipe** is the one swappable unit: a `Recipe` dataclass in `recipes/<name>.py`, auto-discovered by a module-level `RECIPE` and resolved via `resolve_recipe`; strategies live in `strategies/`, features in `features/`. New recipes copy a baseline's book (e.g. `steady`) and change one thing, drift-guarded by a test against `resolve_recipe("steady")`. Measurement paths: multi-seed holdout + CPCV via `zcrypto experiment --seeds N --deterministic`, and out-of-sample walk-forward via `zcrypto stress`; read verdicts on **cost-adjusted Sharpe, not gross `ending_value`**.
 - `.claude/rules/`, `.claude/skills/` — repo-specific Claude Code rules and skills.
 - **CLI subcommands** are sibling packages `cli/<name>/`, each with a `command.py`. Single-command ones register in `cli/__main__.py` via `from cli.<name>.command import <fn>` + `app.command(name=...)(...)`; multi-command groups (e.g. `data`) expose a Typer sub-app registered via `app.add_typer(...)`. Loggers are named `get_logger("<package>.<module>")` — in `command.py` or a submodule (e.g. `example.workflow`, `data.pipeline`).
 - `zcrypto.toml` — the app's config, loaded by `cli/config.py`.
