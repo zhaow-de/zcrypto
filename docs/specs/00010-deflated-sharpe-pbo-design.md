@@ -3,7 +3,7 @@
 - **Date:** 2026-06-18
 - **Status:** Approved design (pre-plan)
 - **Iteration:** iter-11
-- **Scope:** Resolve open-topic `00002` (validation rigor) by adding the
+- **Scope:** Resolve open-topic `T0002` (validation rigor) by adding the
   **probabilistic / deflated Sharpe ratio** and the **probability of backtest
   overfitting (PBO)** on top of the CPCV machinery, plus an on-demand
   **`zcrypto rank`** command that treats each persisted run as a *trial* and
@@ -12,7 +12,7 @@
 - **Depends on:** spec `00008` (CPCV: the per-path Sharpe distribution + the run
   bundle / `cv_results.json`) and the iter-10 caveats mechanism
   (`cli/experiment/caveats.py`).
-- **Resolves:** open-topic `00002` (flips `partial → resolved`), including its two
+- **Resolves:** open-topic `T0002` (flips `partial → resolved`), including its two
   *Interpretation caveats* (indicative band; holdout-vs-path regime mismatch).
 
 ## Goal
@@ -31,7 +31,7 @@ the best can turn a true Sharpe < 0.5 into an apparent 2.0."
 - **No new data.** PSR/DSR/PBO are post-hoc statistics on the *return series and
   Sharpe ratios already produced* from daily klines; the ranking surface is
   bookkeeping over persisted runs. (The data-hungry validation concerns are
-  separate topics: `00004` execution realism needs aggTrades; `00005`
+  separate topics: `T0004` execution realism needs aggTrades; `T0005`
   survivorship needs more daily klines.)
 - **PBO/CSCV is inherently multi-trial** — it ranks multiple configs in-sample vs
   out-of-sample, so it needs each trial's daily return series over a common
@@ -46,19 +46,19 @@ the best can turn a true Sharpe < 0.5 into an apparent 2.0."
   "indicative band" is replaced by a real probability and the
   holdout-vs-path comparison stops being presented as an overfit test.
 - **Repo rules unchanged.** README `## Usage` (the `rank` command + PSR);
-  `docs/iterations-history.md` closeout; `00002` → resolved; branch + PR into
+  `docs/iterations-history.md` closeout; `T0002` → resolved; branch + PR into
   `develop`.
 
 ## Decisions (resolved during brainstorming)
 
 | Fork | Decision |
 | --- | --- |
-| Scope | **Full `00002`** in one iteration: per-recipe PSR + the `rank` command (DSR + PBO). |
+| Scope | **Full `T0002`** in one iteration: per-recipe PSR + the `rank` command (DSR + PBO). |
 | Ranking surface | **On-demand `rank` scanning `runs/`** (stateless; N = bundles found); each run persists `returns.csv`. |
 | **D1** Library | **Implement the formulas directly** (short, exact; fully testable). Do *not* add the heavy/aging MLFinLab dependency — use it only as a dev cross-check. |
 | **D2** Cardinality | **PSR** = per-recipe (single-strategy significance). **DSR + PBO** = cross-recipe (in `rank`). |
 | **D3** Return series | Persist `returns.csv` = the **holdout (test-window) cost-adjusted daily returns** per run; `rank` runs DSR + CSCV/PBO over the **common test window** across trials. |
-| **D4** Caveats | DSR/PBO become the honest overfitting measures; the report's holdout marker is **relabelled a different-period reference** (not an overfit test). Both `00002` interpretation caveats are retired. |
+| **D4** Caveats | DSR/PBO become the honest overfitting measures; the report's holdout marker is **relabelled a different-period reference** (not an overfit test). Both `T0002` interpretation caveats are retired. |
 | **D5** Command surface | A new **top-level `zcrypto rank`** (sibling to `experiment`) — not a restructure of `experiment` into `run`/`rank` subcommands. |
 
 ## Components
@@ -72,8 +72,8 @@ cli/experiment/
 cli/__main__.py  # MODIFY: register `rank`
 ```
 
-`cli/experiment/caveats.py` is **unchanged**: the two `00002` interpretation caveats live in
-the `00002` doc, not in `EXPERIMENT_CAVEATS` (iter-10 surfaced only survivorship), so retiring
+`cli/experiment/caveats.py` is **unchanged**: the two `T0002` interpretation caveats live in
+the `T0002` doc, not in `EXPERIMENT_CAVEATS` (iter-10 surfaced only survivorship), so retiring
 them is a doc-only closeout change (below).
 
 ## The statistics (`cli/experiment/stats.py`)
@@ -126,7 +126,7 @@ larger than T → error.
 - **Report (`report.py`):** keep the CPCV path-Sharpe histogram as a *descriptive
   dispersion* view (honestly labelled, no longer implied to be a CI), annotate the
   holdout marker as a **different-period (test-window) reference**, and show
-  `PSR = …` in the panel. This is the concrete resolution of the two `00002`
+  `PSR = …` in the panel. This is the concrete resolution of the two `T0002`
   interpretation caveats.
 
 ## The `rank` command (`cli/experiment/rank.py`, `cli/__main__.py`)
@@ -175,8 +175,8 @@ report DSR/PBO as N/A with a note (need ≥2 for cross-trial deflation).
 
 ## Out of scope
 
-- Execution realism / slippage (`00004`); survivorship / PIT universe (`00005`);
-  the BTC-regime overlay (`00003`). DSR/PBO improve in *power* with more
+- Execution realism / slippage (`T0004`); survivorship / PIT universe (`T0005`);
+  the BTC-regime overlay (`T0003`). DSR/PBO improve in *power* with more
   history/instruments but do not require it.
 - A persistent trials registry (the on-demand scan was chosen); MLFinLab as a
   runtime dependency.
@@ -184,7 +184,7 @@ report DSR/PBO as N/A with a note (need ≥2 for cross-trial deflation).
 ## Closeout (executed at end of iteration, per the rules)
 
 - README `## Usage` — document `zcrypto rank` and the per-run PSR.
-- `docs/open-topics/00002-validation-rigor.md` — flip `status: partial →
+- `docs/open-topics/T0002-validation-rigor.md` — flip `status: partial →
   resolved`; add a `## Resolution` note (PSR per-recipe, DSR + PBO via `rank`,
   caveats retired); move its bullet to `## Resolved` in
   `docs/open-topics/README.md`.
@@ -192,7 +192,7 @@ report DSR/PBO as N/A with a note (need ≥2 for cross-trial deflation).
 
 ## References
 
-- Open-topic: `docs/open-topics/00002-validation-rigor.md`.
+- Open-topic: `docs/open-topics/T0002-validation-rigor.md`.
 - Bailey & López de Prado (2012), *The Sharpe Ratio Efficient Frontier* (PSR);
   (2014) *The Deflated Sharpe Ratio*; Bailey, Borwein, López de Prado, Zhu
   (2015), *The Probability of Backtest Overfitting* (CSCV).

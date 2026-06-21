@@ -8,9 +8,10 @@ from typing import Optional
 import typer
 
 from cli.config import ConfigError, load_config, resolve_backup_dir, resolve_data_dir
+from cli.data.aggtrades import fetch_aggtrades_sample
 from cli.data.binance import BinanceSource
 from cli.data.layout import DatasetPaths
-from cli.data.pipeline import PipelineError, backfill_pipeline, delist_pipeline, download_pipeline, rename_pipeline
+from cli.data.pipeline import PipelineError, backfill_pipeline, download_pipeline, drop_pipeline, parse_pairs_file, rename_pipeline
 from cli.data.verify import verify_dataset
 
 _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -118,6 +119,12 @@ def download_cmd(
         None, "--to", callback=_to_callback, help="ISO date YYYY-MM-DD (default: yesterday UTC)."
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
+    allow_interior_gaps: bool = typer.Option(
+        False,
+        "--allow-interior-gaps",
+        help="Fill a 404 inside a pair's [from, to] range with a NaN suspension row (for a trading-halted "
+        "pair, e.g. FTT during the FTX collapse) instead of hard-erroring. Off by default.",
+    ),
 ) -> None:
     """Fetch Binance spot klines and write/append a Qlib-ready dataset."""
     fd: dt.date = from_date if isinstance(from_date, dt.date) else dt.date(2020, 1, 1)  # type: ignore[assignment]
@@ -126,7 +133,15 @@ def download_cmd(
     paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     try:
         download_pipeline(
-            paths, pairs_file, interval, fd, td, source=BinanceSource(fetch=cfg.fetch), fetch=cfg.fetch, dry_run=dry_run
+            paths,
+            pairs_file,
+            interval,
+            fd,
+            td,
+            source=BinanceSource(fetch=cfg.fetch),
+            fetch=cfg.fetch,
+            dry_run=dry_run,
+            allow_interior_gaps=allow_interior_gaps,
         )
     except PipelineError as e:
         typer.echo(f"ERROR: {e}", err=True)
@@ -165,8 +180,8 @@ def backfill_cmd(
         typer.echo(f"backfill complete: {data_dir}")
 
 
-@data_app.command("delist")
-def delist_cmd(
+@data_app.command("drop")
+def drop_cmd(
     symbol: str = typer.Argument(..., help="Symbol to remove (e.g. BTCUSDT)."),
     data_dir: Optional[Path] = typer.Option(  # noqa: UP007
         None, "--data-dir", help="Compiled dataset dir. Defaults to [zcrypto].data_dir in zcrypto.toml.", file_okay=False
@@ -179,17 +194,17 @@ def delist_cmd(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the plan without mutating the dataset."),
 ) -> None:
-    """Remove SYMBOL from the dataset."""
+    """Remove SYMBOL from the dataset (e.g. a mistaken or unwanted pair)."""
     symbol = symbol.upper()
     _cfg, data_dir, backup_dir = _load_and_resolve(data_dir, backup_dir, need_backup=True)
     paths = DatasetPaths(data_dir=data_dir, backup_dir=backup_dir)
     try:
-        delist_pipeline(paths, symbol, dry_run=dry_run)
+        drop_pipeline(paths, symbol, dry_run=dry_run)
     except PipelineError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1)
     if not dry_run:
-        typer.echo(f"delist complete: {symbol} removed from {data_dir}")
+        typer.echo(f"drop complete: {symbol} removed from {data_dir}")
 
 
 @data_app.command("rename")
@@ -219,3 +234,57 @@ def rename_cmd(
         raise typer.Exit(1)
     if not dry_run:
         typer.echo(f"rename complete: {old_symbol} → {new_symbol} in {data_dir}")
+
+
+@data_app.command("aggtrades")
+def aggtrades_cmd(
+    pairs_file: Path = typer.Argument(..., help="Plain-text file: one Binance symbol per line.", exists=True, dir_okay=False),
+    backup_dir: Optional[Path] = typer.Option(  # noqa: UP007
+        None,
+        "--backup-dir",
+        help="Backup dir for the raw mirror (raw/); created if absent. Defaults to [zcrypto].backup_dir.",
+        file_okay=False,
+    ),
+    from_date: Optional[str] = typer.Option(  # noqa: UP007
+        None, "--from", callback=_from_callback, help="ISO date YYYY-MM-DD (sample window start)."
+    ),
+    to_date: Optional[str] = typer.Option(  # noqa: UP007
+        None, "--to", callback=_to_callback, help="ISO date YYYY-MM-DD (sample window end, default: yesterday UTC)."
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview the fetch plan (pairs × date count) without fetching."),
+) -> None:
+    """Fetch a bounded aggTrades sample into the raw mirror (execution-calibration, NOT the qlib dataset)."""
+    fd: dt.date = from_date if isinstance(from_date, dt.date) else (dt.date.today() - dt.timedelta(days=7))  # type: ignore[assignment]
+    td: dt.date = to_date if isinstance(to_date, dt.date) else (dt.date.today() - dt.timedelta(days=1))  # type: ignore[assignment]
+
+    try:
+        pairs = parse_pairs_file(pairs_file)
+    except PipelineError as e:
+        typer.echo(f"ERROR: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    if dry_run:
+        n_dates = max(0, (td - fd).days + 1)
+        typer.echo(f"DRY-RUN: aggtrades plan: {len(pairs)} pair(s) × {n_dates} day(s) = {len(pairs) * n_dates} zip(s)")
+        for p in pairs:
+            typer.echo(f"  {p}: {fd} → {td}")
+        return
+
+    try:
+        cfg = load_config()
+        bk_dir = resolve_backup_dir(backup_dir, cfg)
+    except ConfigError as e:
+        typer.echo(f"ERROR: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    paths = DatasetPaths(data_dir=bk_dir / "_unused", backup_dir=bk_dir)
+    source = BinanceSource(fetch=cfg.fetch)
+    try:
+        manifest = fetch_aggtrades_sample(paths, source, pairs, fd, td, fetch=cfg.fetch)
+    except PipelineError as e:
+        typer.echo(f"ERROR: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    total_fetched = sum(s["fetched"] for s in manifest["pairs_stats"].values())
+    total_skipped = sum(s["skipped"] for s in manifest["pairs_stats"].values())
+    typer.echo(f"OK — aggtrades sample complete: {total_fetched} fetched, {total_skipped} skipped (already present).")

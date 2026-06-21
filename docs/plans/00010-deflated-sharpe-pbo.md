@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Resolve open-topic `00002` — add per-recipe PSR (probabilistic Sharpe) to every experiment run and a new `zcrypto rank` command that applies the deflated Sharpe ratio + PBO across persisted runs (trials). All from existing daily-kline backtest outputs; no new data.
+**Goal:** Resolve open-topic `T0002` — add per-recipe PSR (probabilistic Sharpe) to every experiment run and a new `zcrypto rank` command that applies the deflated Sharpe ratio + PBO across persisted runs (trials). All from existing daily-kline backtest outputs; no new data.
 
 **Architecture:** A pure stats module (`cli/experiment/stats.py`: `sharpe`, `psr`, `expected_max_sharpe`, `deflated_sharpe`, `pbo_cscv`) with no qlib. `command.py` computes PSR on the holdout returns, persists a per-run `returns.csv`, and surfaces PSR in `cv_results.json`/report/stdout. A new top-level `rank` command scans `runs/`, treats each bundle as a trial, and reports DSR + PBO + a ranked table.
 
@@ -22,7 +22,7 @@ Gate after each task: `uv run ruff check && uv run ruff format --check && uv run
 | `cli/experiment/command.py` | Holdout PSR; persist `returns.csv`; `cv_results.json` `psr`; stdout; `cv_arg["holdout_psr"]` | 2 |
 | `cli/experiment/report.py` | Relabel the path band "(descriptive)"; holdout marker → different-period + PSR | 3 |
 | `cli/experiment/rank.py` (new) + `cli/__main__.py` | `zcrypto rank`: scan `runs/` → DSR + PBO → ranked table + `runs/rank.json` | 4 |
-| README, `docs/open-topics/00002` + index, `docs/iterations-history.md` | Closeout (`00002` → resolved) | 5 |
+| README, `docs/open-topics/T0002` + index, `docs/iterations-history.md` | Closeout (`T0002` → resolved) | 5 |
 
 ---
 
@@ -579,13 +579,13 @@ git commit -m "feat(experiment): add zcrypto rank (deflated Sharpe + PBO across 
 
 ---
 
-## Task 5: Closeout — README, `00002` resolved, iterations-history
+## Task 5: Closeout — README, `T0002` resolved, iterations-history
 
-**Files:** Modify `README.md`, `docs/open-topics/00002-validation-rigor.md`, `docs/open-topics/README.md`, `docs/iterations-history.md`.
+**Files:** Modify `README.md`, `docs/open-topics/T0002-validation-rigor.md`, `docs/open-topics/README.md`, `docs/iterations-history.md`.
 
 - [ ] **Step 1: README `## Usage`.** Document the new top-level `zcrypto rank` command (`--out`, `--n-splits`; scans run bundles, reports the deflated Sharpe ratio of the best trial + PBO + a ranked table, writes `runs/rank.json`) and note that each `experiment` run now reports a **holdout PSR** and persists `returns.csv`. Let `mdformat` regenerate the TOC.
 
-- [ ] **Step 2: Resolve `docs/open-topics/00002-validation-rigor.md`.**
+- [ ] **Step 2: Resolve `docs/open-topics/T0002-validation-rigor.md`.**
 
 2a. Front-matter `status: partial` → `status: resolved`.
 
@@ -610,23 +610,23 @@ Resolved in iter-11 (spec `docs/specs/00010-deflated-sharpe-pbo-design.md`):
   was required.
 ```
 
-- [ ] **Step 3: Move the index entry.** In `docs/open-topics/README.md`, move the `00002` bullet from `## Partially done` to the end of `## Resolved`, reworded to past tense (e.g. "purged k-fold + embargo + CPCV (iter-9), then per-recipe PSR + the `rank` command's deflated Sharpe + PBO (iter-11) — validation rigor resolved"). Let `mdformat` regenerate the TOC; never hand-edit the `<!-- mdformat-toc -->` block.
+- [ ] **Step 3: Move the index entry.** In `docs/open-topics/README.md`, move the `T0002` bullet from `## Partially done` to the end of `## Resolved`, reworded to past tense (e.g. "purged k-fold + embargo + CPCV (iter-9), then per-recipe PSR + the `rank` command's deflated Sharpe + PBO (iter-11) — validation rigor resolved"). Let `mdformat` regenerate the TOC; never hand-edit the `<!-- mdformat-toc -->` block.
 
-- [ ] **Step 4: Append the iter-11 entry to `docs/iterations-history.md`** — a `## 2026-06-18 — iter-11: deflated Sharpe, PBO, and the rank command` section covering: the new `cli/experiment/stats.py` (PSR/DSR/PBO, pure); per-run holdout PSR in `cv_results.json`/report/stdout + the new `returns.csv` artifact; the new top-level `zcrypto rank` command (scans `runs/`, deflated Sharpe + PBO, `runs/rank.json`, the `rank-scan`/`rank-aligned`/`rank-done` log events); the report relabel (descriptive band + different-period holdout marker); and that open-topic `00002` is resolved — all on existing daily data, no new dependency (scipy already present).
+- [ ] **Step 4: Append the iter-11 entry to `docs/iterations-history.md`** — a `## 2026-06-18 — iter-11: deflated Sharpe, PBO, and the rank command` section covering: the new `cli/experiment/stats.py` (PSR/DSR/PBO, pure); per-run holdout PSR in `cv_results.json`/report/stdout + the new `returns.csv` artifact; the new top-level `zcrypto rank` command (scans `runs/`, deflated Sharpe + PBO, `runs/rank.json`, the `rank-scan`/`rank-aligned`/`rank-done` log events); the report relabel (descriptive band + different-period holdout marker); and that open-topic `T0002` is resolved — all on existing daily data, no new dependency (scipy already present).
 
 - [ ] **Step 5: Gate + commit**
 
 ```bash
 uv run ruff check && uv run ruff format --check && uv run pytest -q
-git add README.md docs/open-topics/00002-validation-rigor.md docs/open-topics/README.md docs/iterations-history.md
-git commit -m "docs(experiment): close out iter-11 — README, 00002 resolved, iterations-history"
+git add README.md docs/open-topics/T0002-validation-rigor.md docs/open-topics/README.md docs/iterations-history.md
+git commit -m "docs(experiment): close out iter-11 — README, T0002 resolved, iterations-history"
 ```
 
 ---
 
 ## Self-review (against the spec)
 
-- **Spec coverage:** stats module (PSR/DSR/PBO, D1 direct/no-MLFinLab) → Task 1; per-recipe PSR + `returns.csv` (D2/D3) → Task 2; report relabel + PSR + caveat resolution (D4) → Task 3; `rank` command (D5 top-level; on-demand scan of `runs/`; DSR + PBO) → Task 4; `00002` → resolved + README + iterations-history → Task 5. `cv_results.json` `psr`, `returns.csv`, `runs/rank.json` artifacts all covered.
+- **Spec coverage:** stats module (PSR/DSR/PBO, D1 direct/no-MLFinLab) → Task 1; per-recipe PSR + `returns.csv` (D2/D3) → Task 2; report relabel + PSR + caveat resolution (D4) → Task 3; `rank` command (D5 top-level; on-demand scan of `runs/`; DSR + PBO) → Task 4; `T0002` → resolved + README + iterations-history → Task 5. `cv_results.json` `psr`, `returns.csv`, `runs/rank.json` artifacts all covered.
 - **Placeholder scan:** none — complete code for both new files, exact edit anchors for modifications, exact commands.
 - **Type consistency:** `sharpe`/`psr`/`expected_max_sharpe`/`deflated_sharpe`/`pbo_cscv` defined in Task 1 are consumed with matching signatures in Task 2 (`psr(holdout_returns)`) and Task 4 (`sharpe`/`psr` per trial, `deflated_sharpe(returns_best, sr_trials)`, `pbo_cscv(matrix, n_splits)`); the `cv` dict gains `holdout_psr` in Task 2 and is read via `cv.get("holdout_psr")` in Task 3; `returns.csv` columns (`date,ret`) written in Task 2 match the reader in Task 4 (`_load_trials`).
 

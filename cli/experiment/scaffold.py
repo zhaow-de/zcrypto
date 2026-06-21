@@ -27,6 +27,49 @@ logger = get_logger("experiment.scaffold")
 _METRICS = ["annualized_return", "information_ratio", "max_drawdown"]
 
 
+def _seeded_model_config(model_config: dict, *, seed: int | None = None, deterministic: bool = False) -> dict:
+    """Return a model_config dict with seed/deterministic injected into its kwargs.
+
+    Non-mutating: the input ``model_config`` and its nested ``kwargs`` dict are not
+    modified. At defaults (seed=None, deterministic=False) the returned dict is a
+    shallow copy with the original kwargs unchanged — behavior-preserving no-op.
+
+    When ``deterministic=True``, both ``deterministic=True`` and ``force_row_wise=True``
+    are injected (LightGBM requires force_row_wise or force_col_wise for multi-threaded
+    reproducibility with deterministic=True).
+    """
+    extra: dict = {}
+    if seed is not None:
+        extra["seed"] = seed
+    if deterministic:
+        extra["deterministic"] = True
+        extra["force_row_wise"] = True
+    if not extra:
+        return model_config
+    return {**model_config, "kwargs": {**model_config.get("kwargs", {}), **extra}}
+
+
+def handler_config(feature_config, *, instruments, start, end, fit_start, fit_end, handler_kwargs):
+    """Build the full qlib handler config from a recipe's feature_config + runtime kwargs."""
+    return {
+        **feature_config,
+        "kwargs": {
+            **handler_kwargs,
+            "instruments": list(instruments),
+            "start_time": start,
+            "end_time": end,
+            "fit_start_time": fit_start,
+            "fit_end_time": fit_end,
+            "freq": "day",
+        },
+    }
+
+
+def strategy_config_with_signal(strategy_config: dict, signal) -> dict:
+    """Inject the runtime ``signal`` into a recipe's static strategy config."""
+    return {**strategy_config, "kwargs": {**strategy_config.get("kwargs", {}), "signal": signal}}
+
+
 @dataclass
 class RunResult:
     """Everything downstream tasks (trades, report, command) need from one run."""
@@ -43,6 +86,9 @@ class RunResult:
     recorder_dir: Path
     recipe: Recipe
     data_fingerprint: str
+    # Walk-forward provenance: None for the single-fit holdout, else the number of
+    # retrain periods stitched into report_df (see cli/experiment/walkforward.py).
+    wf_periods: int | None = None
 
 
 def redis_preflight() -> None:
@@ -57,49 +103,58 @@ def redis_preflight() -> None:
 
 
 def _dataset_config(recipe: Recipe) -> dict:
-    """Alpha158 over the traded universe, wrapped in a DatasetH.
+    """Feature handler over the traded universe, wrapped in a DatasetH.
 
     Passing ``instruments`` restricts the tradable set to the USDT pairs and
-    excludes the reference instruments (BTCEUR, ETHBTC). The Alpha158 default
-    label (2-day forward return) is left untouched.
+    excludes the reference instruments (BTCEUR, ETHBTC). The handler class is
+    recipe-pluggable via ``recipe.feature_config`` (default: Alpha158).
     """
-    handler_kwargs = {
-        **recipe.handler_kwargs,
-        "instruments": list(recipe.universe),
-        "start_time": recipe.segments["train"][0],
-        "end_time": recipe.segments["test"][1],
-        "fit_start_time": recipe.segments["train"][0],
-        "fit_end_time": recipe.segments["train"][1],
-        "freq": "day",
-    }
     return {
         "class": "DatasetH",
         "module_path": "qlib.data.dataset",
         "kwargs": {
-            "handler": {
-                "class": "Alpha158",
-                "module_path": "qlib.contrib.data.handler",
-                "kwargs": handler_kwargs,
-            },
+            "handler": handler_config(
+                recipe.feature_config,
+                instruments=recipe.universe,
+                start=recipe.segments["train"][0],
+                end=recipe.segments["test"][1],
+                fit_start=recipe.segments["train"][0],
+                fit_end=recipe.segments["train"][1],
+                handler_kwargs=recipe.handler_kwargs,
+            ),
             "segments": recipe.segments,
         },
     }
 
 
 def exchange_kwargs(recipe: Recipe) -> dict:
-    """Shared exchange config for both the holdout backtest and CPCV path backtests.
+    """Shared exchange config for the holdout + CPCV path backtests.
 
-    `trade_unit=None` enables fractional crypto fills. qlib.init(region=REG_US) sets
-    C.trade_unit=1 and Exchange.__init__ does kwargs.pop("trade_unit", C.trade_unit),
-    so omitting this key would floor order amounts to whole coins and zero out
-    BTC/ETH on a $10k account.
+    `trade_unit=None` enables fractional crypto fills (qlib.init(region=REG_US) sets
+    C.trade_unit=1, which would floor order amounts to whole coins and zero out BTC/ETH on a
+    $10k account).
+
+    Cost model (see docs/specs/00018): by default realistic — qlib `impact_cost` (size-scaled
+    slippage, per-instrument `(order$/bar$-vol)**2`) plus a maker-fill haircut folded into the
+    fee fractions. `recipe.fees_only=True` reverts to the raw fee_preset with no slippage (the
+    A/B baseline, byte-identical to the pre-iter-19 output).
     """
     fee_open, fee_close = FEE_PRESETS[recipe.fee_preset]
+    if recipe.fees_only:
+        return {
+            "freq": "day",
+            "deal_price": "close",
+            "open_cost": fee_open,
+            "close_cost": fee_close,
+            "min_cost": 0,
+            "trade_unit": None,
+        }
     return {
         "freq": "day",
         "deal_price": "close",
-        "open_cost": fee_open,
-        "close_cost": fee_close,
+        "open_cost": fee_open + recipe.maker_fill_haircut,
+        "close_cost": fee_close + recipe.maker_fill_haircut,
+        "impact_cost": recipe.impact_cost,
         "min_cost": 0,
         "trade_unit": None,
     }
@@ -112,11 +167,7 @@ def _port_analysis_config(recipe: Recipe, model, dataset) -> dict:
             "module_path": "qlib.backtest.executor",
             "kwargs": {"time_per_step": "day", "generate_portfolio_metrics": True},
         },
-        "strategy": {
-            "class": "TopkDropoutStrategy",
-            "module_path": "qlib.contrib.strategy.signal_strategy",
-            "kwargs": {**recipe.strategy_kwargs, "signal": (model, dataset)},
-        },
+        "strategy": strategy_config_with_signal(recipe.strategy_config, (model, dataset)),
         "backtest": {
             "start_time": recipe.segments["test"][0],
             "end_time": recipe.segments["test"][1],
@@ -163,6 +214,8 @@ def run_experiment(
     data_dir: Path,
     out_dir: Path,
     refresh_cache: bool = False,
+    seed: int | None = None,
+    deterministic: bool = False,
 ) -> RunResult:
     """Run train -> backtest -> extract for *recipe* and return a RunResult.
 
@@ -172,6 +225,15 @@ def run_experiment(
     data_dir = Path(data_dir).resolve()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if recipe.wf_enabled:
+        # Walk-forward holdout: periodic retraining + stitched report_df. Returns a
+        # single-fit-compatible RunResult; the single-fit path below is untouched.
+        from cli.experiment.walkforward import run_walkforward_holdout
+
+        return run_walkforward_holdout(
+            recipe, data_dir=data_dir, refresh_cache=refresh_cache, seed=seed, deterministic=deterministic
+        )
 
     redis_preflight()
     logger.info("redis-ok", extra={"port": int(os.environ.get("ZCRYPTO_REDIS_PORT", "6379"))})
@@ -211,7 +273,7 @@ def run_experiment(
         logger.info("init", extra={"provider_uri": str(data_dir), "mlflow_uri": mlflow_uri})
 
         dataset = init_instance_by_config(_dataset_config(recipe))
-        model = init_instance_by_config(recipe.model_config)
+        model = init_instance_by_config(_seeded_model_config(recipe.model_config, seed=seed, deterministic=deterministic))
         logger.info("dataset-built", extra={"recipe": recipe.name, "n_instruments": len(recipe.universe)})
 
         port_cfg = _port_analysis_config(recipe, model, dataset)

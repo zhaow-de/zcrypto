@@ -266,6 +266,37 @@ def test_download_leaves_live_dir_pristine_on_error(tmp_path):
     assert verify_dataset(data_dir).ok
 
 
+# ---------------------------------------------------------------------------
+# fetch_checksummed_zip (shared fetch + checksum-validate atomic)
+# ---------------------------------------------------------------------------
+
+
+from cli.data.pipeline import fetch_checksummed_zip  # noqa: E402
+
+
+def test_fetch_checksummed_zip_matching_checksum_returns_validated():
+    import hashlib
+
+    raw = b"some-zip-bytes"
+    digest = hashlib.sha256(raw).hexdigest()
+    out, validated = fetch_checksummed_zip(lambda: raw, lambda: digest)
+    assert out == raw
+    assert validated is True
+
+
+def test_fetch_checksummed_zip_mismatch_raises():
+    raw = b"some-zip-bytes"
+    with pytest.raises(PipelineError, match="checksum"):
+        fetch_checksummed_zip(lambda: raw, lambda: "0" * 64)
+
+
+def test_fetch_checksummed_zip_absent_checksum_returns_unvalidated():
+    raw = b"some-zip-bytes"
+    out, validated = fetch_checksummed_zip(lambda: raw, lambda: None)
+    assert out == raw
+    assert validated is False
+
+
 def test_download_extend_contiguous_no_adjust(tmp_path):
     """`--from == index.to + 1` is the no-overlap-no-gap case; no warning needed, just continue."""
     pairs = tmp_path / "pairs.txt"
@@ -287,6 +318,73 @@ def test_download_extend_contiguous_no_adjust(tmp_path):
     cal_lines = (data_dir / "calendars" / "day.txt").read_text(encoding="utf-8").splitlines()
     assert cal_lines[0] == "2024-01-01"
     assert cal_lines[-1] == "2024-01-08"
+
+
+# ---------------------------------------------------------------------------
+# Funding write tests (iter-15 Task 3)
+# ---------------------------------------------------------------------------
+
+
+import math  # noqa: E402
+
+from cli.data.qlib_writer import read_bin  # noqa: E402
+
+
+def test_download_writes_funding_bin_aligned_to_calendar(tmp_path):
+    """download writes features/<inst>/funding.day.bin aligned to the kline calendar.
+
+    The synthetic funding zip puts three settlements (0.0001+0.0002+0.0003 = 0.0006)
+    on day 1 of each month and nothing else, so day-1 funding == 0.0006 and every
+    other day in the month is absent (NaN)."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    data_dir = tmp_path / "data"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=tmp_path / "bk")
+
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    for d in (dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(4)):
+        src.add_kline("BTCUSDT", "1d", d, base_price=20000.0)
+    src.add_funding("BTCUSDT", 2024, 1)  # day-1 funding == 0.0006, days 2-4 absent
+
+    download_pipeline(paths, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 4), src)
+    assert verify_dataset(data_dir).ok
+
+    start_idx, values = read_bin(data_dir / "features" / "btcusdt" / "funding.day.bin")
+    assert start_idx == 0  # same start_index as the kline bins (calendar starts 2024-01-01)
+    _, close_values = read_bin(data_dir / "features" / "btcusdt" / "close.day.bin")
+    assert len(values) == len(close_values)  # same row count as the kline bins
+    assert values[0] == pytest.approx(0.0006)  # 2024-01-01: sum of the three settlements
+    assert all(math.isnan(v) for v in values[1:])  # 2024-01-02..04 absent → NaN
+
+
+def test_download_funding_starts_late_has_nan_early(tmp_path):
+    """A pair whose funding archive starts in a later month than its klines has the
+    early (pre-funding) dates absent/NaN, aligned to the same calendar."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("BTCUSDT\n")
+    data_dir = tmp_path / "data"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=tmp_path / "bk")
+
+    src = FakeSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    # Klines span Jan→Feb 2024; funding archive only exists for February.
+    cur = dt.date(2024, 1, 30)
+    while cur <= dt.date(2024, 2, 2):
+        src.add_kline("BTCUSDT", "1d", cur, base_price=20000.0)
+        cur += dt.timedelta(days=1)
+    src.add_funding("BTCUSDT", 2024, 2)  # Jan archive is a 404 (not registered)
+
+    download_pipeline(paths, pairs, "1d", dt.date(2024, 1, 30), dt.date(2024, 2, 2), src)
+    assert verify_dataset(data_dir).ok
+
+    start_idx, values = read_bin(data_dir / "features" / "btcusdt" / "funding.day.bin")
+    assert start_idx == 0
+    # Calendar: 2024-01-30, 01-31, 02-01, 02-02.
+    assert math.isnan(values[0])  # 2024-01-30 — no Jan archive
+    assert math.isnan(values[1])  # 2024-01-31 — no Jan archive
+    assert values[2] == pytest.approx(0.0006)  # 2024-02-01 — three Feb settlements
+    assert math.isnan(values[3])  # 2024-02-02 — absent within Feb archive
 
 
 # ---------------------------------------------------------------------------
@@ -832,3 +930,73 @@ def test_find_available_range_arb_shaped_mid_window_listing_does_not_degrade_to_
         "this suggests the algorithm regressed back to the recursive bisect that "
         "exhausted the no-data left half on ARB-shaped pairs"
     )
+
+
+# ---------------------------------------------------------------------------
+# --allow-interior-gaps tests (iter-16 Task 3)
+# ---------------------------------------------------------------------------
+
+
+def _seed_interior_gap_source() -> FakeSource:
+    """A pair listed contiguously [2024-01-01..2024-01-05] EXCEPT an interior 404 at 2024-01-03.
+
+    Endpoints (01-01, 01-05) and 01-02, 01-04 have klines; 01-03 has none, so
+    `find_available_range` resolves [2024-01-01, 2024-01-05] and 2024-01-03 is a
+    strictly-interior missing date that 404s during the fetch."""
+    src = FakeSource()
+    src.add_pair("FTTUSDT", "FTT", "USDT")
+    for d in (dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(5)):
+        if d == dt.date(2024, 1, 3):
+            continue  # interior gap — no kline
+        src.add_kline("FTTUSDT", "1d", d, base_price=20.0)
+    return src
+
+
+def test_download_interior_gap_filled_with_nan_when_flag_set(tmp_path, caplog, monkeypatch):
+    """With allow_interior_gaps=True, an interior 404 becomes a NaN suspension row + a warning."""
+    import logging
+
+    monkeypatch.setattr(logging.getLogger("zcrypto"), "propagate", True)
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("FTTUSDT\n")
+    data_dir = tmp_path / "data"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=tmp_path / "bk")
+    src = _seed_interior_gap_source()
+
+    with caplog.at_level(logging.WARNING):
+        download_pipeline(
+            paths,
+            pairs,
+            "1d",
+            dt.date(2024, 1, 1),
+            dt.date(2024, 1, 5),
+            src,
+            allow_interior_gaps=True,
+        )
+
+    assert verify_dataset(data_dir).ok
+    # Pair spans its full [from, to] (the gap day is included, not truncated).
+    instr = (data_dir / "instruments" / "all.txt").read_text(encoding="utf-8").splitlines()
+    assert "FTTUSDT\t2024-01-01\t2024-01-05" in instr
+    # The gap day (offset 2 → 2024-01-03) is NaN; the other days are real.
+    start_idx, close_values = read_bin(data_dir / "features" / "fttusdt" / "close.day.bin")
+    assert start_idx == 0
+    assert len(close_values) == 5
+    assert math.isnan(close_values[2])  # 2024-01-03 — synthetic NaN suspension row
+    assert not math.isnan(close_values[0])  # 2024-01-01 — real data
+    assert not math.isnan(close_values[4])  # 2024-01-05 — real data
+    # A per-gap warning was logged.
+    assert any("2024-01-03" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+
+
+def test_download_interior_gap_hard_errors_without_flag(tmp_path):
+    """Without the flag (default), the same interior 404 still hard-errors — unchanged behavior."""
+    pairs = tmp_path / "pairs.txt"
+    pairs.write_text("FTTUSDT\n")
+    data_dir = tmp_path / "data"
+    paths = DatasetPaths(data_dir=data_dir, backup_dir=tmp_path / "bk")
+    src = _seed_interior_gap_source()
+
+    # The hard error is the SAME interior 404 (2024-01-03) the flag-on test fills.
+    with pytest.raises(PipelineError, match="2024-01-03"):
+        download_pipeline(paths, pairs, "1d", dt.date(2024, 1, 1), dt.date(2024, 1, 5), src)

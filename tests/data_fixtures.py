@@ -8,6 +8,29 @@ import io
 import zipfile
 
 
+def synthetic_funding_zip(perp: str, year: int, month: int) -> bytes:
+    """One Binance-shaped funding-rate CSV (header + 3 rows at 00/08/16 UTC on day 1) packed as a zip.
+
+    Matches the schema verified against data.binance.vision:
+    calc_time, funding_interval_hours, last_funding_rate (header present).
+    """
+    day1 = dt.datetime(year, month, 1, tzinfo=dt.timezone.utc)
+    base_ms = int(day1.timestamp() * 1000)
+    rows = [
+        (base_ms + 0 * 8 * 3600 * 1000, 8, "0.00010000"),
+        (base_ms + 1 * 8 * 3600 * 1000, 8, "0.00020000"),
+        (base_ms + 2 * 8 * 3600 * 1000, 8, "0.00030000"),
+    ]
+    lines = ["calc_time,funding_interval_hours,last_funding_rate"]
+    lines += [f"{ct},{iv},{rate}" for ct, iv, rate in rows]
+    csv = ("\n".join(lines) + "\n").encode()
+    inner_name = f"{perp}-fundingRate-{year}-{month:02d}.csv"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(inner_name, csv)
+    return buf.getvalue()
+
+
 def synthetic_kline_csv(date: dt.date, *, base_price: float = 100.0, base_vol: float = 50.0, precision: str = "ms") -> str:
     """One Binance-shaped 12-column 1d kline CSV row for the given UTC date.
 
@@ -47,7 +70,7 @@ def make_zip_with_checksum(csv_text: str, inner_name: str) -> tuple[bytes, str]:
 
 
 class FakeSource:
-    """In-memory Source for tests; pre-load via `.add_pair` / `.add_kline`."""
+    """In-memory Source for tests; pre-load via `.add_pair` / `.add_kline` / `.add_funding`."""
 
     def __init__(self) -> None:
         self.exchange_info: list[dict] = []
@@ -55,6 +78,12 @@ class FakeSource:
         self._klines: dict[tuple[str, str, dt.date], tuple[bytes, str]] = {}
         # (symbol, interval, date) entries with no published .CHECKSUM
         self._no_checksum: set[tuple[str, str, dt.date]] = set()
+        # (perp, year, month) -> zip_bytes
+        self._funding: dict[tuple[str, int, int], bytes] = {}
+        # (symbol, date) -> zip_bytes
+        self._aggtrades: dict[tuple[str, dt.date], bytes] = {}
+        # (symbol, date) -> sha256_hex, only for entries registered with a checksum
+        self._aggtrades_checksum: dict[tuple[str, dt.date], str] = {}
 
     def add_pair(self, symbol: str, base: str, quote: str, status: str = "TRADING") -> None:
         self.exchange_info.append({"symbol": symbol, "baseAsset": base, "quoteAsset": quote, "status": status})
@@ -81,6 +110,24 @@ class FakeSource:
         """Simulate a published zip with no sibling `.CHECKSUM` (fetch returns None)."""
         self._no_checksum.add((symbol, interval, date))
 
+    def add_aggtrades(self, symbol: str, date: dt.date, *, raw: bytes, checksum: str | None = None) -> None:
+        """Register raw zip bytes for (symbol, date) aggTrades.
+
+        Pass `checksum` (sha256 hex) to also register a published `.CHECKSUM`, so
+        `fetch_aggtrades_checksum` returns it (the sha256-validated path). Omit it
+        (default) to leave the entry unchecksummed (`fetch_aggtrades_checksum` → None)."""
+        self._aggtrades[(symbol, date)] = raw
+        if checksum is not None:
+            self._aggtrades_checksum[(symbol, date)] = checksum
+
+    def add_funding(self, perp: str, year: int, month: int, *, raw: bytes | None = None) -> None:
+        """Register a synthetic monthly funding archive for `perp` / `year-month`.
+
+        If `raw` is omitted, `synthetic_funding_zip` is used to generate 3 rows (00/08/16 UTC on day 1).
+        Pass `raw` to supply custom bytes (must be parseable by `funding.parse_funding`).
+        """
+        self._funding[(perp, year, month)] = raw if raw is not None else synthetic_funding_zip(perp, year, month)
+
     # Source protocol
     def fetch_exchange_info(self) -> list[dict]:
         return list(self.exchange_info)
@@ -95,6 +142,15 @@ class FakeSource:
         if (symbol, interval, date) in self._no_checksum:
             return None
         return self._klines[(symbol, interval, date)][1]
+
+    def fetch_funding_archive(self, perp: str, year: int, month: int) -> bytes | None:
+        return self._funding.get((perp, year, month))
+
+    def fetch_aggtrades_archive(self, symbol: str, date: dt.date) -> bytes:
+        return self._aggtrades[(symbol, date)]
+
+    def fetch_aggtrades_checksum(self, symbol: str, date: dt.date) -> str | None:
+        return self._aggtrades_checksum.get((symbol, date))
 
 
 import threading

@@ -17,6 +17,7 @@ from cli.config import FetchConfig
 from cli.data import mirror
 from cli.data.binance import Source
 from cli.data.config import FIELDS, SCHEMA_VERSION, SUPPORTED_INTERVALS
+from cli.data.funding import daily_funding, parse_funding, perp_symbol
 from cli.data.index import (
     CalendarEntry,
     FieldEntry,
@@ -46,8 +47,8 @@ __all__ = [
     "DownloadPlan",
     "backfill_pipeline",
     "BackfillPlan",
-    "delist_pipeline",
-    "DelistPlan",
+    "drop_pipeline",
+    "DropPlan",
     "rename_pipeline",
     "RenamePlan",
 ]
@@ -357,7 +358,7 @@ def _resolve_ranges(
     requested = set(pair_to_assets.keys())
     absent_from_file = sorted(indexed_pairs - requested)
     if absent_from_file:
-        raise PipelineError(f"indexed pairs absent from pairs file (use delist/rename): {absent_from_file}")
+        raise PipelineError(f"indexed pairs absent from pairs file (use drop/rename): {absent_from_file}")
 
     total_pairs = len(pair_to_assets)
     for i, (sym, (base, quote, status)) in enumerate(pair_to_assets.items(), start=1):
@@ -384,7 +385,7 @@ def _resolve_ranges(
                     raise PipelineError(
                         f"{sym}: no new archive data since {existing_to} ({days_since} days > "
                         f"{fetch.backfill_right_edge_grace_days}-day publishing-lag grace); "
-                        "likely delisted or renamed. Reconcile with `zcrypto data delist` or "
+                        "likely delisted or renamed. Reconcile with `zcrypto data drop` or "
                         "`zcrypto data rename`."
                     )
                 logger.info(
@@ -438,8 +439,38 @@ def _resolve_ranges(
     return plan
 
 
+def _synthetic_gap_row(date: dt.date) -> _pd.DataFrame:
+    """A single-row DataFrame for an interior-404 suspension day: gap `date` + every
+    kline field set to its synthetic value (`_FIELD_SYNTH` — OHLC/VWAP NaN, volume-like
+    0.0, factor 1.0). Same schema as a parsed kline row, so it merges seamlessly and the
+    per-pair gap-check sees the date present. Funding is left to the funding path (NaN)."""
+    return _pd.DataFrame([{"date": date, **{f: _synthetic_value(f) for f in FIELDS}}])
+
+
+def fetch_checksummed_zip(
+    fetch_zip_fn: Callable[[], bytes],
+    fetch_checksum_fn: Callable[[], str | None],
+) -> tuple[bytes, bool]:
+    """Fetch a remote zip and verify it against its published `.CHECKSUM`.
+
+    `fetch_zip_fn()` returns the raw zip bytes; `fetch_checksum_fn()` returns the published
+    sha256 hex (already parsed by the `Source`, e.g. via `parse_checksum_file`) or `None` when
+    no `.CHECKSUM` exists. A present checksum is compared by sha256 (mismatch → `PipelineError`)
+    and returns `(bytes, True)`; an absent one returns `(bytes, False)` so the caller runs its
+    own integrity gate (e.g. parse). Shared by the kline download path and the aggTrades fetcher.
+    """
+    zip_bytes = fetch_zip_fn()
+    checksum = fetch_checksum_fn()
+    if checksum is None:
+        return zip_bytes, False
+    actual = _hashlib.sha256(zip_bytes).hexdigest()
+    if actual.lower() != checksum.lower():
+        raise PipelineError("checksum mismatch")
+    return zip_bytes, True
+
+
 def _fetch_one_date(
-    source: Source, sym: str, interval: str, date: dt.date, mirror_root: Path
+    source: Source, sym: str, interval: str, date: dt.date, mirror_root: Path, *, allow_interior_gaps: bool = False
 ) -> tuple[str, dt.date, _pd.DataFrame]:
     """Resolve one (sym, interval, date) tuple to its parsed single-row DataFrame.
 
@@ -447,30 +478,47 @@ def _fetch_one_date(
     from the remote, verify, save to the mirror, and parse. Verification has two modes —
     a published `.CHECKSUM` is compared by sha256 (then save → parse); a missing one
     (fetch returns None) makes the parse itself (extractable + exactly one csv + parse-able)
-    the integrity gate, so we parse → warn → save, never caching an unparseable zip."""
+    the integrity gate, so we parse → warn → save, never caching an unparseable zip.
+
+    `allow_interior_gaps` (opt-in, off by default): on a mirror miss, probe `exists_kline`
+    first; a missing date (a real 404) within the pair's resolved range becomes a synthetic
+    NaN suspension row (logged as a warning) instead of raising. Flag off is byte-identical to
+    before — the probe and gap branch are skipped, so a 404 raises as today."""
     mpath = mirror.mirror_path(mirror_root, sym, interval, date)
     cached = mirror.read_zip(mpath)
     if cached is not None:
         logger.debug("mirror hit %s %s: %s", sym, date, mpath)
         return sym, date, parse_kline_zip(cached, sym, interval, date)
 
-    zip_bytes = source.fetch_kline_zip(sym, interval, date)
-    checksum = source.fetch_kline_checksum(sym, interval, date)
-    if checksum is None:
+    if allow_interior_gaps and not source.exists_kline(sym, interval, date):
+        logger.warning("%s %s: interior archive gap (404); filling with a NaN suspension row", sym, date)
+        return sym, date, _synthetic_gap_row(date)
+
+    try:
+        zip_bytes, validated = fetch_checksummed_zip(
+            lambda: source.fetch_kline_zip(sym, interval, date),
+            lambda: source.fetch_kline_checksum(sym, interval, date),
+        )
+    except PipelineError:
+        raise PipelineError(f"{sym} {date}: checksum mismatch") from None
+    if not validated:
         df = parse_kline_zip(zip_bytes, sym, interval, date)
         logger.warning("%s %s: no .CHECKSUM published; verified by structure+parse only", sym, date)
         mirror.save_zip(mpath, zip_bytes)
     else:
-        actual = _hashlib.sha256(zip_bytes).hexdigest()
-        if actual.lower() != checksum.lower():
-            raise PipelineError(f"{sym} {date}: checksum mismatch")
         mirror.save_zip(mpath, zip_bytes)
         df = parse_kline_zip(zip_bytes, sym, interval, date)
     return sym, date, df
 
 
 def _fetch_all_concurrent(
-    source: Source, plan: list[_PerPair], interval: str, fetch: FetchConfig, mirror_root: Path
+    source: Source,
+    plan: list[_PerPair],
+    interval: str,
+    fetch: FetchConfig,
+    mirror_root: Path,
+    *,
+    allow_interior_gaps: bool = False,
 ) -> dict[str, _pd.DataFrame]:
     """Fetch every (pair, date) tuple via a bounded thread pool. Per-pair gap-check runs after collection.
 
@@ -503,7 +551,13 @@ def _fetch_all_concurrent(
     completed = 0
     log_every = fetch.fetch_progress_log_interval
     with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="zcrypto-fetch") as pool:
-        futures = {pool.submit(_fetch_one_date, source, sym, interval, d, mirror_root): (sym, d) for sym, d in work}
+        futures = {
+            pool.submit(_fetch_one_date, source, sym, interval, d, mirror_root, allow_interior_gaps=allow_interior_gaps): (
+                sym,
+                d,
+            )
+            for sym, d in work
+        }
         try:
             for fut in as_completed(futures):
                 sym, d = futures[fut]
@@ -569,6 +623,58 @@ def _read_existing_pair(
     return _pd.DataFrame(rec)
 
 
+def _fetch_funding_archive_cached(source: Source, perp: str, year: int, month: int, mirror_root: Path) -> bytes | None:
+    """Monthly funding-rate zip bytes for `perp`/`year-month`, mirror-cached.
+
+    Mirror hit → return cached bytes. Miss → fetch from the source; a 404 (None) is
+    cached as a miss (not persisted — a later run re-probes in case the archive
+    appears); otherwise the bytes are saved to the mirror and returned.
+    """
+    mpath = mirror.funding_mirror_path(mirror_root, perp, year, month)
+    cached = mirror.read_zip(mpath)
+    if cached is not None:
+        logger.debug("funding mirror hit %s %d-%02d: %s", perp, year, month, mpath)
+        return cached
+    raw = source.fetch_funding_archive(perp, year, month)
+    if raw is None:
+        return None
+    mirror.save_zip(mpath, raw)
+    return raw
+
+
+def _funding_for_pair(
+    source: Source, instrument: str, from_date: dt.date, to_date: dt.date, mirror_root: Path
+) -> dict[dt.date, float]:
+    """Daily-summed funding for `instrument` over [from_date, to_date], honoring the
+    per-date perp mapping (PEPE→1000PEPEUSDT, POL→MATIC/POL split with a rename gap).
+
+    Each (perp, UTC-month) archive is fetched at most once. Months where `perp_symbol`
+    is None (rename gap) or `fetch_funding_archive` returns None (404) contribute no
+    funding — those dates are simply absent from the returned map (→ NaN on write).
+    """
+    # The (perp, year, month) tuples needed across the range — deduped. We scan
+    # day-by-day (cheap: pure date arithmetic, no I/O) rather than once-per-month so
+    # the POL split is captured: September 2024 maps to BOTH MATICUSDT (≤09-10) and
+    # POLUSDT (≥09-13), and a once-per-month probe would miss the second perp.
+    needed: dict[tuple[str, int, int], None] = {}
+    cur = from_date
+    while cur <= to_date:
+        perp = perp_symbol(instrument, cur)
+        if perp is not None:
+            needed[(perp, cur.year, cur.month)] = None
+        cur += dt.timedelta(days=1)
+
+    out: dict[dt.date, float] = {}
+    for perp, year, month in needed:
+        raw = _fetch_funding_archive_cached(source, perp, year, month, mirror_root)
+        if raw is None:
+            continue
+        for day, rate in daily_funding(parse_funding(raw)).items():
+            if from_date <= day <= to_date and perp_symbol(instrument, day) == perp:
+                out[day] = rate
+    return out
+
+
 def _build_staging(
     out_dir: Path,
     staging: Path,
@@ -576,6 +682,8 @@ def _build_staging(
     new_rows_per_sym: dict[str, _pd.DataFrame],
     existing: IndexData | None,
     interval: str,
+    source: Source,
+    mirror_root: Path,
 ) -> None:
     """Assemble the complete dataset in `staging/`. Old + new rows merged per pair."""
     if staging.exists():
@@ -623,6 +731,18 @@ def _build_staging(
             rel = f"features/{p.symbol.lower()}/{f}.day.bin"
             write_bin(staging / rel, [float(v) for v in df[f].tolist()], start_index=start_idx)
             fields_entries[f] = FieldEntry(bin=rel, sha256=compute_sha256(staging / rel), updated_at=utc_now_iso())
+        # Funding: a registered field aligned to the same calendar slots as the kline
+        # bins (same start_index, same row count). Dates with no funding (pre-perp-launch,
+        # the MATIC→POL rename gap, or an archive 404) are absent from the map → NaN,
+        # matching how the kline path leaves missing days (qlib returns NaN on query).
+        pair_from, pair_to = df["date"].iloc[0], df["date"].iloc[-1]
+        fmap = _funding_for_pair(source, p.symbol, pair_from, pair_to, mirror_root)
+        funding_values = [fmap.get(d, float("nan")) for d in df["date"].tolist()]
+        funding_rel = f"features/{p.symbol.lower()}/funding.day.bin"
+        write_bin(staging / funding_rel, funding_values, start_index=start_idx)
+        fields_entries["funding"] = FieldEntry(
+            bin=funding_rel, sha256=compute_sha256(staging / funding_rel), updated_at=utc_now_iso()
+        )
         pairs_entries[p.symbol] = PairEntry(
             base_asset=p.base,
             quote_asset=p.quote,
@@ -792,14 +912,26 @@ def _download_plan(
     return DownloadPlan(per_pair=per_pair, existing=existing, arg_to=arg_to, interval=interval, is_noop=is_noop)
 
 
-def _download_apply(paths: DatasetPaths, staging: Path, plan: DownloadPlan, source: Source, fetch: FetchConfig) -> None:
+def _download_apply(
+    paths: DatasetPaths,
+    staging: Path,
+    plan: DownloadPlan,
+    source: Source,
+    fetch: FetchConfig,
+    *,
+    allow_interior_gaps: bool = False,
+) -> None:
     """Fetch + build staging. The harness handles snapshot, post-verify, commit."""
     non_empty = [p for p in plan.per_pair if p.effective_from <= p.effective_to]
-    fetched = _fetch_all_concurrent(source, non_empty, plan.interval, fetch, mirror.root_for(paths))
+    fetched = _fetch_all_concurrent(
+        source, non_empty, plan.interval, fetch, mirror.root_for(paths), allow_interior_gaps=allow_interior_gaps
+    )
     new_rows_per_sym: dict[str, _pd.DataFrame] = {
         p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan.per_pair
     }
-    _build_staging(paths.data_dir, staging, plan.per_pair, new_rows_per_sym, plan.existing, plan.interval)
+    _build_staging(
+        paths.data_dir, staging, plan.per_pair, new_rows_per_sym, plan.existing, plan.interval, source, mirror.root_for(paths)
+    )
 
 
 def download_pipeline(
@@ -812,10 +944,16 @@ def download_pipeline(
     *,
     fetch: FetchConfig = FetchConfig(),
     dry_run: bool = False,
+    allow_interior_gaps: bool = False,
 ) -> None:
-    """Orchestrate: parse → validate → resolve → fetch → stage → verify → commit."""
+    """Orchestrate: parse → validate → resolve → fetch → stage → verify → commit.
+
+    `allow_interior_gaps` (opt-in, off by default): a 404 strictly inside a pair's resolved
+    `[from, to]` range is filled with a NaN suspension row (each gap day logged as a warning)
+    instead of hard-erroring — for deliberately acquiring a trading-halted pair (e.g. FTT during
+    the FTX collapse). Off is byte-identical to before: an interior 404 still hard-errors."""
     plan_fn = lambda d: _download_plan(d, pairs_file, interval, from_date, to_date, source, fetch)
-    apply_fn = lambda paths, s, p: _download_apply(paths, s, p, source, fetch)
+    apply_fn = lambda paths, s, p: _download_apply(paths, s, p, source, fetch, allow_interior_gaps=allow_interior_gaps)
     _execute_mutation(paths, "download", plan_fn, apply_fn, dry_run=dry_run)
 
 
@@ -885,7 +1023,7 @@ def _backfill_plan(out_dir: Path, interval: str, arg_to: dt.date, source: Source
                     f"{sym}: no new archive data since {current_to} ({days_since} days > "
                     f"{fetch.backfill_right_edge_grace_days}-day publishing-lag grace); "
                     "likely delisted or renamed. Reconcile with "
-                    "'zcrypto data delist' or 'zcrypto data rename'."
+                    "'zcrypto data drop' or 'zcrypto data rename'."
                 )
             logger.info(
                 "%s: no new archive data since %s (%d-day publishing-lag grace not yet exceeded); skipping.",
@@ -952,7 +1090,7 @@ def _backfill_apply(
     for p in carry_over:
         new_rows_per_sym[p.symbol] = _pd.DataFrame(columns=["date"] + list(FIELDS))
 
-    _build_staging(paths.data_dir, staging, all_pairs, new_rows_per_sym, existing, interval)
+    _build_staging(paths.data_dir, staging, all_pairs, new_rows_per_sym, existing, interval, source, mirror.root_for(paths))
 
 
 def backfill_pipeline(
@@ -971,12 +1109,12 @@ def backfill_pipeline(
 
 
 # ---------------------------------------------------------------------------
-# Delist pipeline
+# Drop pipeline
 # ---------------------------------------------------------------------------
 
 
 @_dc.dataclass
-class DelistPlan:
+class DropPlan:
     symbol: str
     new_calendar: list[dt.date]
     front_trim: int
@@ -986,7 +1124,7 @@ class DelistPlan:
     is_noop: bool
 
     def dry_run_summary(self) -> str:
-        lines = [f"DRY-RUN: delist plan: {self.symbol}"]
+        lines = [f"DRY-RUN: drop plan: {self.symbol}"]
         lines.append(f"  features/{self.symbol.lower()}/ → deleted")
         lines.append(f"  instruments/all.txt → 1 line removed")
         lines.append(f"  index.json → 1 pair entry removed")
@@ -999,10 +1137,10 @@ class DelistPlan:
         return "\n".join(lines)
 
 
-def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
+def _drop_plan(out_dir: Path, symbol: str) -> DropPlan:
     """Read-only: validate symbol is in the index, compute calendar shrink plan."""
     idx = load_index(out_dir)
-    assert idx is not None, "_delist_plan called on empty/missing index"
+    assert idx is not None, "_drop_plan called on empty/missing index"
     sym = symbol.upper()
 
     if sym not in idx.pairs:
@@ -1010,7 +1148,7 @@ def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
 
     remaining = {s: p for s, p in idx.pairs.items() if s != sym}
     if not remaining:
-        raise PipelineError(f"delisting {sym} would leave the dataset empty; remove {out_dir} manually if that's intended")
+        raise PipelineError(f"dropping {sym} would leave the dataset empty; remove {out_dir} manually if that's intended")
 
     interval = "1d"
     new_from = min(dt.date.fromisoformat(p.intervals[interval].from_date) for p in remaining.values())
@@ -1025,8 +1163,8 @@ def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
         )
         if not covers:
             raise PipelineError(
-                f"delisting {sym} would create a non-contiguous calendar "
-                f"(no remaining pair covers {cur}); reconcile manually before delisting"
+                f"dropping {sym} would create a non-contiguous calendar "
+                f"(no remaining pair covers {cur}); reconcile manually before dropping"
             )
         cur += dt.timedelta(days=1)
 
@@ -1036,7 +1174,7 @@ def _delist_plan(out_dir: Path, symbol: str) -> DelistPlan:
     back_trim = (old_to - new_to).days
     new_cal = [new_from + dt.timedelta(days=i) for i in range((new_to - new_from).days + 1)]
 
-    return DelistPlan(
+    return DropPlan(
         symbol=sym,
         new_calendar=new_cal,
         front_trim=front_trim,
@@ -1058,7 +1196,7 @@ def _rewrite_bin_start_index(bin_path: Path, delta: int) -> None:
     bin_path.write_bytes(bytes(data))
 
 
-def _delist_apply(paths: DatasetPaths, staging: Path, plan: DelistPlan) -> None:
+def _drop_apply(paths: DatasetPaths, staging: Path, plan: DropPlan) -> None:
     """Copy remaining pairs' bins, conditionally rewrite headers, write calendar/instruments/index."""
     interval = "1d"
     idx = load_index(paths.data_dir)
@@ -1144,16 +1282,16 @@ def _delist_apply(paths: DatasetPaths, staging: Path, plan: DelistPlan) -> None:
     save_index(staging, new_index)
 
 
-def delist_pipeline(
+def drop_pipeline(
     paths: DatasetPaths,
     symbol: str,
     *,
     dry_run: bool = False,
 ) -> None:
     """Remove SYMBOL from the dataset under the snapshot+commit discipline."""
-    plan_fn = lambda d: _delist_plan(d, symbol)
-    apply_fn = lambda paths, s, p: _delist_apply(paths, s, p)
-    _execute_mutation(paths, "delist", plan_fn, apply_fn, dry_run=dry_run)
+    plan_fn = lambda d: _drop_plan(d, symbol)
+    apply_fn = lambda paths, s, p: _drop_apply(paths, s, p)
+    _execute_mutation(paths, "drop", plan_fn, apply_fn, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------
@@ -1180,6 +1318,9 @@ _FIELD_SYNTH: dict[str, float] = {
     "taker_buy_base": 0.0,
     "taker_buy_amount": 0.0,
     "factor": 1.0,
+    # Funding has no value across a rename gap (the perp was halted), so NaN —
+    # mirroring the price fields' suspension marker.
+    "funding": _NAN,
 }
 
 
@@ -1370,12 +1511,17 @@ def _build_pair_entry_from_staging(
     rows: int,
     interval: str = "1d",
 ) -> PairEntry:
-    """Build a PairEntry by computing sha256 of each field bin in staging."""
+    """Build a PairEntry by computing sha256 of each field bin in staging.
+
+    Registers every ``*.bin`` actually present in the pair's staging dir (not the FIELDS
+    constant) so carried-over fields such as funding are registered, never orphaned.
+    """
     fields_entries: dict[str, FieldEntry] = {}
     feat_lower = sym.lower()
-    for fname in FIELDS:
+    feat_dir = staging / "features" / feat_lower
+    for bin_path in sorted(feat_dir.glob("*.day.bin")):
+        fname = bin_path.name.removesuffix(".day.bin")
         rel = f"features/{feat_lower}/{fname}.day.bin"
-        bin_path = staging / rel
         fields_entries[fname] = FieldEntry(
             bin=rel,
             sha256=compute_sha256(bin_path),
@@ -1424,7 +1570,9 @@ def _rename_apply_variant1(paths: DatasetPaths, staging: Path, plan: RenamePlan)
 
         if sym == plan.old_symbol and plan.gap_dates:
             # Append synthetic float32 values for each gap day to each field bin.
-            for field in FIELDS:
+            # Iterate the pair's ACTUAL registered fields (not the FIELDS constant) so
+            # any field carried in the dataset — e.g. funding — gets gap-filled too.
+            for field in pair_entry.intervals[interval].fields:
                 bin_path = dst_dir / f"{field}.day.bin"
                 gap_bytes = b""
                 for _d in plan.gap_dates:
@@ -1472,7 +1620,9 @@ def _rename_apply_variant1(paths: DatasetPaths, staging: Path, plan: RenamePlan)
             feat_lower = sym.lower()
 
         fields_entries: dict[str, FieldEntry] = {}
-        for fname in FIELDS:
+        # Register the pair's ACTUAL fields (not the FIELDS constant) so a carried-over
+        # field such as funding is registered and never left as an orphan bin.
+        for fname in pair_entry.intervals[interval].fields:
             rel = f"features/{feat_lower}/{fname}.day.bin"
             bin_path = staging / rel
             fields_entries[fname] = FieldEntry(
@@ -1558,7 +1708,9 @@ def _rename_apply_variant2(paths: DatasetPaths, staging: Path, plan: RenamePlan)
 
     new_start_index = new_cal_dates.index(merged_from)
 
-    for field in FIELDS:
+    # Merge the NEW pair's ACTUAL fields (not the FIELDS constant) so a carried-over
+    # field such as funding is merged (OLD + gap + NEW) and registered, not orphaned.
+    for field in new_interval.fields:
         old_bytes = (old_dir_live / f"{field}.day.bin").read_bytes()
         new_bytes = (new_dir_live / f"{field}.day.bin").read_bytes()
         # Strip the 4-byte start_index header from each.

@@ -6,12 +6,22 @@ one-line summary and the topic id a reader follows for the full picture.
 """
 
 SURVIVORSHIP = {
-    "topic": "00005",
+    "topic": "T0005",
     "summary": (
         "universe is survivorship-biased — today's surviving pairs only; "
         "historically-delisted pairs are absent, so the CPCV paths and the holdout "
         "are optimistically inflated (listing dates are respected). "
-        "See docs/open-topics/00005-point-in-time-universe.md."
+        "See docs/open-topics/T0005-point-in-time-universe.md."
+    ),
+}
+
+POINT_IN_TIME = {
+    "topic": "T0005",
+    "summary": (
+        "point-in-time universe — historically delisted/faded majors are included over their "
+        "real listing ranges, so the run is survivorship-free. Delisting-loss is captured by "
+        "qlib's position freeze at the last close (frozen capital is not redeployed — a "
+        "conservative imperfection). See docs/open-topics/T0005-point-in-time-universe.md."
     ),
 }
 
@@ -19,4 +29,8 @@ SURVIVORSHIP = {
 EXPERIMENT_CAVEATS = [SURVIVORSHIP]
 
 # Short marker for the report subtitle and the stdout line.
-SURVIVORSHIP_MARKER = "survivorship-biased universe — see open-topic 00005"
+SURVIVORSHIP_MARKER = "survivorship-biased universe — see open-topic T0005"
+
+# Marker for the report subtitle + stdout line when --pit-universe is on (the run is
+# survivorship-free, so the SURVIVORSHIP_MARKER above must not appear).
+PIT_MARKER = "point-in-time universe (survivorship-free) — see open-topic T0005"

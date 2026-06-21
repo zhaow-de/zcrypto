@@ -1,4 +1,4 @@
-![Version](https://img.shields.io/badge/version-v0.3.1-blue)
+![Version](https://img.shields.io/badge/version-v0.4.0-blue)
 ![GitHub License](https://img.shields.io/github/license/zhaow-de/zcrypto)
 ![Python Version from PEP 621 TOML](https://img.shields.io/python/required-version-toml?tomlFilePath=https://raw.githubusercontent.com/zhaow-de/zcrypto/develop/pyproject.toml)
 ![Coveralls](https://img.shields.io/coverallsCoverage/github/zhaow-de/zcrypto)
@@ -18,6 +18,7 @@ Learning-for-Fun project to experience Microsoft Qlib.
     - [`zcrypto data`](#zcrypto-data)
     - [`zcrypto experiment`](#zcrypto-experiment)
     - [`zcrypto rank`](#zcrypto-rank)
+    - [`zcrypto stress`](#zcrypto-stress)
 
 <!-- mdformat-toc end -->
 
@@ -100,6 +101,8 @@ Prepare a Qlib-ready dataset from Binance spot klines. Bare `zcrypto data` print
 
 **Status-aware behavior:** Pairs with Binance status `TRADING` are extended to `--to`; non-`TRADING` pairs (e.g. delisted — status `BREAK`, `HALT`, etc.) are downloaded as historical archive only or skipped during backfill.
 
+**Funding rates (`$funding`):** alongside OHLCV, each instrument also carries a `$funding` field — the daily-summed Binance USDT-perpetual funding rate (the carry signal), fetched from the Binance Vision `futures/um/monthly/fundingRate` archives and aligned same-day with `$close`. It is handled transparently by every subcommand: `download`/`backfill` fetch and write it, `verify` reports its per-coin coverage, `delist` removes it, and `rename` carries it across the old→new symbol. The spot↔perp mapping is mostly identity, with `PEPE`→`1000PEPEUSDT` and a MATIC→POL time-split; instruments without a perp (or before its launch) read `NaN`. No extra flags — funding rides the normal data lifecycle.
+
 ##### Layout
 
 The dataset uses a **two-root layout**:
@@ -122,6 +125,7 @@ Fetch Binance spot 1d klines from `data.binance.vision`, sha256-validate them, a
 | `--from`                            | `2020-01-01`                   | Lower bound (ISO `YYYY-MM-DD`).                                                                                               |
 | `--to`                              | yesterday (UTC)                | Upper bound (ISO `YYYY-MM-DD`).                                                                                               |
 | `--dry-run`                         | off                            | Print the fetch plan and exit without writing anything.                                                                       |
+| `--allow-interior-gaps`             | off                            | Fill a 404 inside a pair's resolved `[from, to]` range with a NaN suspension row (each gap day logged) instead of erroring.   |
 
 ```bash
 echo BTCUSDT > pairs.txt
@@ -135,6 +139,8 @@ zcrypto data download pairs.txt --dry-run                            # preview o
 **Local mirror & recovery:** every verified zip is saved to the `--backup-dir` mirror at `<backup-dir>/raw`, under a tree that mirrors the remote archive layout plus a year subdir — e.g. `./bk/raw/spot/daily/klines/DOTUSDT/1d/2025/DOTUSDT-1d-2025-10-14.zip`. On a later run a present zip is read from the mirror instead of re-downloaded, so a partial or failed download resumes cheaply rather than starting over. The `raw/` directory lives inside `backup-dir` and is excluded from snapshots, verification, and the atomic commit. The mirror is trusted as immutable and read without re-checksumming; delete a file (or the tree) to force a re-fetch.
 
 **Missing `.CHECKSUM`:** some recent archive days ship the zip without a sibling `.CHECKSUM`. Rather than fail, the download verifies the zip structurally (it extracts to exactly one parse-able CSV), logs a warning, and continues.
+
+**Interior gaps (`--allow-interior-gaps`):** by default a 404 strictly inside a pair's resolved `[from, to]` range is a hard error — a genuine archive problem that should not be silently tolerated. Pass `--allow-interior-gaps` to instead fill each such day with a NaN suspension row (OHLC/VWAP `NaN` — qlib's not-tradable marker — volume-like `0.0`, `factor` `1.0`, the same synthetic row `rename` uses for its gap fill), logging every gap day as a warning. This is for deliberately acquiring a trading-halted pair — e.g. FTT, whose Binance archive has a 404 hole at `2022-11-16` from the FTX-collapse halt. Routine `download`/`backfill` leave the flag off and stay strict.
 
 ##### `zcrypto data verify`
 
@@ -173,9 +179,9 @@ zcrypto data backfill --backup-dir ./bk --data-dir ./data --to 2024-06-30  # exp
 zcrypto data backfill --dry-run                          # preview only
 ```
 
-##### `zcrypto data delist SYMBOL`
+##### `zcrypto data drop SYMBOL`
 
-Remove a pair from the dataset. The calendar is conditionally shrunk: if the delisted pair was the earliest or latest in the dataset the calendar is front- or back-trimmed to cover the remaining pairs; a mid-calendar delist that would leave a gap is rejected with an error.
+Remove a pair from the dataset (e.g. a mistaken or unwanted entry). The calendar is conditionally shrunk: if the dropped pair was the earliest or latest in the dataset the calendar is front- or back-trimmed to cover the remaining pairs; a removal that would leave a mid-calendar gap is rejected with an error.
 
 Refuses with an actionable error when: the symbol is not in the index, it is the last pair in the dataset, or removing it would create a non-contiguous calendar gap.
 
@@ -184,12 +190,12 @@ Refuses with an actionable error when: the symbol is not in the index, it is the
 | `SYMBOL` (positional, required) | —                              | Binance symbol to remove (case-insensitive).       |
 | `--data-dir`                    | `[zcrypto].data_dir` in toml   | Compiled qlib dataset directory.                   |
 | `--backup-dir`                  | `[zcrypto].backup_dir` in toml | Backup dir (raw/ + snapshots/); created if absent. |
-| `--dry-run`                     | off                            | Print the delist plan and exit without writing.    |
+| `--dry-run`                     | off                            | Print the drop plan and exit without writing.      |
 
 ```bash
-zcrypto data delist MATICUSDT                              # dirs from zcrypto.toml
-zcrypto data delist MATICUSDT --backup-dir ./bk --data-dir ./data  # explicit overrides
-zcrypto data delist MATICUSDT --dry-run                    # preview only
+zcrypto data drop MATICUSDT                              # dirs from zcrypto.toml
+zcrypto data drop MATICUSDT --backup-dir ./bk --data-dir ./data  # explicit overrides
+zcrypto data drop MATICUSDT --dry-run                    # preview only
 ```
 
 ##### `zcrypto data rename OLD_SYMBOL NEW_SYMBOL`
@@ -217,27 +223,119 @@ zcrypto data rename MATICUSDT POLUSDT --backup-dir ./bk --data-dir ./data   # ex
 zcrypto data rename MATICUSDT POLUSDT --dry-run                             # preview only
 ```
 
+##### `zcrypto data aggtrades PAIRS_FILE`
+
+Fetch a bounded daily aggTrades sample from `data.binance.vision` into the raw mirror. Purpose: execution-calibration research (tick-level fill/slippage analysis), **not** the Qlib kline dataset. Only touches the mirror under `--backup-dir`; no `index.json`, no compiled dataset, no qlib bins.
+
+**Mirror layout:** zips are stored under a year subdir, mirroring the kline convention — e.g. `<backup-dir>/raw/spot/daily/aggTrades/BTCUSDT/2025/BTCUSDT-aggTrades-2025-03-01.zip`. The fetch is idempotent: a zip already present in the mirror is skipped (counted as "skipped" in the manifest), so re-running the same window costs nothing.
+
+**Integrity gate:** a zip with a published `.CHECKSUM` is verified by sha256; one without is verified structurally (`validate_aggtrades_zip` — extracts to exactly one non-empty CSV) before being saved. An invalid zip is never cached.
+
+**Manifest:** after the fetch completes, `aggtrades-manifest.json` is written to `<backup-dir>/raw/spot/daily/aggTrades/`, recording the pairs list, the `[from, to]` window, and per-pair **present** dates + total bytes — the cumulative sample on disk, so re-running the same window yields an identical manifest (idempotent), documenting what's available to the calibration.
+
+| Argument / option                   | Default                        | Description                                                                                                   |
+| ----------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `PAIRS_FILE` (positional, required) | —                              | Plain text — one Binance symbol per line (blank lines allowed; symbols normalized to uppercase; ≥1 required). |
+| `--backup-dir`                      | `[zcrypto].backup_dir` in toml | Backup dir where the raw mirror (`raw/`) lives; created if absent.                                            |
+| `--from`                            | 7 days ago (UTC)               | Sample window start (ISO `YYYY-MM-DD`).                                                                       |
+| `--to`                              | yesterday (UTC)                | Sample window end (ISO `YYYY-MM-DD`).                                                                         |
+| `--dry-run`                         | off                            | Print the fetch plan (pairs × date count) and exit without fetching.                                          |
+
+```bash
+zcrypto data aggtrades pairs.txt --from 2025-03-01 --to 2025-03-07   # backup-dir from zcrypto.toml
+zcrypto data aggtrades pairs.txt --backup-dir ./bk --from 2025-03-01 --to 2025-03-07
+zcrypto data aggtrades pairs.txt --from 2025-03-01 --to 2025-03-07 --dry-run  # preview only
+```
+
 #### `zcrypto experiment`<a name="zcrypto-experiment"></a>
 
-Run an end-to-end Qlib pipeline — Alpha158 features (158-factor library, default 2-day-forward label) → LightGBM ranker → TopkDropout long/cash daily backtest → 3- or 4-panel Plotly report — and write a predict-ready run bundle. The **recipe is the single swappable moving part**: swap `cli/experiment/recipes/<name>.py` to change the universe, features, model, or strategy parameters and iterate.
+Run an end-to-end Qlib pipeline — Alpha158 features (158-factor library, default 2-day-forward label) → LightGBM ranker → TopkDropout long/cash daily backtest → 3- or 4-panel Plotly report — and write a predict-ready run bundle. The **recipe is the single swappable moving part**: swap `cli/experiment/recipes/<name>.py` to change the universe, features, model, strategy class, or strategy parameters and iterate.
 
 > **Prerequisite:** Redis must be running before you invoke this command (`./scripts/redis.sh start`). The command performs a Redis pre-flight check and exits with a clear error if Redis is unreachable.
 
 ```bash
-zcrypto experiment [--recipe skeleton] [--data-dir ./data] [--out ./runs] [--svg] [--refresh-cache] [--quick] [--open/--no-open]
+zcrypto experiment [--recipe skeleton] [--data-dir ./data] [--out ./runs] [--svg] [--refresh-cache] [--quick] [--open/--no-open] [--pit-universe]
 ```
 
 By default `experiment` runs combinatorial purged cross-validation (CPCV) over `train+valid` — writing `cv_results.json` (per-path Sharpe distribution + rank-IC + holdout PSR) and a 4th report panel — then the single holdout backtest on `test`. `--quick` skips CPCV. Every run also writes `returns.csv` (holdout cost-adjusted daily returns) and prints a **holdout PSR** (Probabilistic Sharpe Ratio) line — P(true holdout Sharpe > 0), corrected for sample length and non-normality.
 
-| Option               | Default                      | Description                                                                             |
-| -------------------- | ---------------------------- | --------------------------------------------------------------------------------------- |
-| `--recipe`           | `skeleton`                   | Recipe name to run (see `cli/experiment/recipes/`).                                     |
-| `--data-dir`         | `[zcrypto].data_dir` in toml | Qlib provider directory (the `index.json` / `features/` / `calendars/` tree).           |
-| `--out`              | `./runs`                     | Root directory for run bundles; each bundle lands at `<out>/<recipe>/<UTC timestamp>/`. |
-| `--svg/--no-svg`     | off                          | Also render `report.svg` (requires kaleido).                                            |
-| `--refresh-cache`    | off                          | Force-wipe qlib's on-disk feature/dataset cache before the run.                         |
-| `--quick/--no-quick` | off                          | Skip CPCV; run only the single train→backtest holdout.                                  |
-| `--open/--no-open`   | on when stdout is a TTY      | Open `report.html` in a browser when done. Auto-detected from whether stdout is a TTY.  |
+| Option                               | Default                      | Description                                                                                                                                                    |
+| ------------------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--recipe`                           | `skeleton`                   | Recipe name to run (see `cli/experiment/recipes/`).                                                                                                            |
+| `--data-dir`                         | `[zcrypto].data_dir` in toml | Qlib provider directory (the `index.json` / `features/` / `calendars/` tree).                                                                                  |
+| `--out`                              | `./runs`                     | Root directory for run bundles; each bundle lands at `<out>/<recipe>/<UTC timestamp>/`.                                                                        |
+| `--svg/--no-svg`                     | off                          | Also render `report.svg` (requires kaleido).                                                                                                                   |
+| `--refresh-cache`                    | off                          | Force-wipe qlib's on-disk feature/dataset cache before the run.                                                                                                |
+| `--quick/--no-quick`                 | off                          | Skip CPCV; run only the single train→backtest holdout.                                                                                                         |
+| `--open/--no-open`                   | on when stdout is a TTY      | Open `report.html` in a browser when done. Auto-detected from whether stdout is a TTY.                                                                         |
+| `--seeds N`                          | `1`                          | Run the holdout N times with seeds 1…N and write `holdout_seeds.json` (per-seed metrics + distribution summary). No-op when `N=1` (default).                   |
+| `--deterministic/--no-deterministic` | off                          | Fully deterministic mode: fixes seed=1 + LightGBM `force_row_wise`. Makes repeated runs byte-identical. Combine with `--seeds` for a canonical multi-seed run. |
+| `--pit-universe/--no-pit-universe`   | off                          | Expand the recipe's universe to point-in-time membership (the ever-top-25 delisted/faded majors) for a survivorship-free run.                                  |
+| `--fees-only/--no-fees-only`         | off                          | Use the fees-only cost model (no slippage/maker-fill) instead of the default calibrated realistic costs — the A/B baseline.                                    |
+
+The **default cost model is calibrated realistic costs**: size-scaled slippage + maker-fill haircut derived from backtest calibration (see `cli/experiment/costs.py`). Pass `--fees-only` to revert to the raw `fee_preset` only (no slippage, no maker-fill haircut) for an A/B comparison.
+
+##### Built-in recipes
+
+| Recipe                      | Description                                                                                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skeleton`                  | Naive baseline: `TopkDropoutStrategy` (topk=5), Alpha158 2-day label, no regime filter. Benchmark only — not a profitable strategy.                                                                     |
+| `steady`                    | Low-turnover book: `TopkDropoutStrategy` (topk=10, hold_thresh=5), 5-day label, stronger regularization. Validated but beats neither steady market.                                                     |
+| `regime_steady`             | `steady`'s model + book with a BTC-trend regime overlay (`RegimeGatedTopkStrategy`, binary 200-day SMA, vol-targeting off) and walk-forward holdout.                                                    |
+| `alpha360_steady`           | `steady`'s book + qlib's built-in `Alpha360` feature handler (~360 raw OHLCV factors) instead of Alpha158. A/B against `steady`.                                                                        |
+| `crossasset_steady`         | `steady`'s book + Alpha158 features + `CrossAssetProcessor`: BTC-anchored cross-asset features (relative strength, rolling beta, lead-lag, cointegration-deviation, cross-sectional momentum/vol rank). |
+| `funding_steady`            | `steady`'s book + perp-funding carry features (`FundingRateProcessor`): level, z-score, cross-sectional rank, moving average, rate-of-change. Isolation A/B vs `steady`.                                |
+| `funding_crossasset_steady` | `crossasset_steady`'s book + funding features stacked (`CrossAssetProcessor` then `FundingRateProcessor`). Stacking A/B vs `crossasset_steady`.                                                         |
+
+##### Recipe fields: `feature_config`, `strategy_config`, and walk-forward knobs
+
+Each recipe is a Python dataclass. Three sets of fields control the feature handler, the strategy class, and holdout retraining:
+
+**`feature_config`** — selects the qlib feature handler class. Defaults to `Alpha158`; override to use `Alpha360` or a custom handler.
+
+```python
+feature_config = {
+    "class": "Alpha158",
+    "module_path": "qlib.contrib.data.handler",
+}
+```
+
+The scaffold assembles the full handler config (instruments, segments, processors, label) from this dict; only the `class` and `module_path` vary across recipes.
+
+**`strategy_config`** — a full strategy init dict (mirrors `model_config`) that the scaffold passes to `init_instance_by_config`. This makes the strategy class recipe-selectable; the runtime `signal=(model, dataset)` is injected automatically.
+
+```python
+strategy_config = {
+    "class": "RegimeGatedTopkStrategy",
+    "module_path": "cli.experiment.strategies.regime",
+    "kwargs": {
+        "topk": 10,
+        "n_drop": 2,
+        "hold_thresh": 5,
+        "regime_mode": "binary",       # "binary" | "graded" | "cross"
+        "regime_benchmark": "BTCUSDT",
+        "regime_ma_window": 200,       # primary SMA window (days)
+        "regime_ma_fast": None,        # fast SMA for "cross" mode
+        "regime_band": 0.0,            # ±band around SMA for "graded" mode
+        "chop_exposure": 0.5,          # exposure in the graded middle tier
+        "vol_target": None,            # annualized vol target (None = off)
+        "vol_lookback": 30,            # realized-vol lookback (days)
+    },
+}
+```
+
+`skeleton` and `steady` use `strategy_config` pointing at `TopkDropoutStrategy` — behavior-identical to before the seam was opened.
+
+**Walk-forward knobs** (holdout only; CPCV is unaffected):
+
+| Field              | Default       | Description                                                                         |
+| ------------------ | ------------- | ----------------------------------------------------------------------------------- |
+| `wf_enabled`       | `False`       | Enable walk-forward holdout retraining (off by default; `regime_steady` sets True). |
+| `wf_retrain_freq`  | `"quarter"`   | Retrain cadence: `"quarter"` or `"year"`.                                           |
+| `wf_window`        | `"expanding"` | Window type: `"expanding"` (all history to period start) or `"rolling"`.            |
+| `wf_rolling_years` | `3`           | Training window length when `wf_window="rolling"` (years).                          |
+
+When `wf_enabled=True`, the holdout is produced by looping retrain periods: fit on the train window, predict the period, backtest it, then stitch the per-period daily returns into one holdout curve. The stitched curve feeds the same `metrics.json` / `returns.csv` / holdout PSR outputs as the single-fit path. Each period starts all-cash (conservative; mirrors CPCV path independence).
 
 **Run bundle layout** — each run writes a timestamped directory `runs/<recipe>/<UTC-timestamp>/`:
 
@@ -251,20 +349,24 @@ By default `experiment` runs combinatorial purged cross-validation (CPCV) over `
 | `trades.csv`           | Flat trade log (one row per executed order).                                                                                                                                   |
 | `run_meta.json`        | Manifest: recipe, git commit, qlib/lightgbm versions, segments, universe, fee preset, index fingerprint.                                                                       |
 | `recipe_snapshot.json` | Full recipe parameters as a JSON dict (reproducibility).                                                                                                                       |
+| `holdout_seeds.json`   | Per-seed holdout metrics + distribution summary (only with `--seeds N` where N>1): `{"per_seed": [{seed, ending_value, sharpe, psr, max_drawdown}, …], "summary": {…}}`.       |
 | `model.pkl`            | Predict-ready serialized LightGBM model (copied from the per-run MLflow store).                                                                                                |
 | `mlruns/`              | Per-run MLflow experiment store; inspect with `mlflow ui --backend-store-uri runs/<recipe>/<ts>/mlruns`.                                                                       |
 
 > **Realistic-expectations caveat:** The default `skeleton` recipe is a naive baseline, **not** a profitable strategy. A cold run over the 2025–2026 test window currently turns 10,000 → ~3,700 USDT and underperforms BTCUSDT buy-and-hold. It exists to validate the pipeline and to be iterated on — see `docs/open-topics/` for the deferred robustness topics (validation rigor, regime overlay, realistic execution, point-in-time universe, paper trading).
 
-Every run emits a survivorship caveat (universe is today's surviving pairs; delisted pairs absent) — shown in the report title and stdout, and recorded under `caveats` in `run_meta.json`; see open-topic `00005`.
+Every run emits a survivorship caveat (universe is today's surviving pairs; delisted pairs absent) — shown in the report title and stdout, and recorded under `caveats` in `run_meta.json`; see open-topic `T0005`.
 
 ```bash
-./scripts/redis.sh start                                   # ensure Redis is up
-zcrypto experiment                                         # run with CPCV + holdout (default)
-zcrypto experiment --quick                                 # holdout only; skip CPCV
-zcrypto experiment --recipe my_recipe                      # run a custom recipe
-zcrypto experiment --refresh-cache --no-open               # bust the cache; no browser
-mlflow ui --backend-store-uri runs/skeleton/<ts>/mlruns    # inspect the MLflow run
+./scripts/redis.sh start                                      # ensure Redis is up
+zcrypto experiment                                            # run with CPCV + holdout (default)
+zcrypto experiment --quick                                    # holdout only; skip CPCV
+zcrypto experiment --recipe regime_steady                     # BTC-regime overlay + walk-forward
+zcrypto experiment --recipe my_recipe                         # run a custom recipe
+zcrypto experiment --refresh-cache --no-open                  # bust the cache; no browser
+zcrypto experiment --deterministic                            # reproducible canonical run (seed=1)
+zcrypto experiment --seeds 20 --deterministic                 # canonical run + 20-seed holdout distribution → holdout_seeds.json
+mlflow ui --backend-store-uri runs/skeleton/<ts>/mlruns       # inspect the MLflow run
 ```
 
 #### `zcrypto rank`<a name="zcrypto-rank"></a>
@@ -289,3 +391,20 @@ zcrypto rank                          # scan runs/ from cwd
 zcrypto rank --out ./runs             # explicit output dir
 zcrypto rank --n-splits 8             # fewer splits (faster, coarser PBO estimate)
 ```
+
+#### `zcrypto stress`<a name="zcrypto-stress"></a>
+
+Walk-forward out-of-sample validation: loops over annual OOS windows (2022, 2023, 2024, 2025), trains only on data strictly before each test period (expanding from data start), and runs the multi-seed holdout per window to report per-window long-only and market-neutral L/S Sharpe. The test windows are fixed (`2022-01-01`, `2023-01-01`, `2024-01-01`, `2025-01-01`); training data expands from `data_start` up to `test_start − 8 days` (purge gap). Writes `stress_summary.json` to the output bundle.
+
+```bash
+zcrypto stress [--recipe steady] [--seeds 8] [--data-dir ./data] [--out ./runs]
+```
+
+| Option       | Default    | Description                                                                           |
+| ------------ | ---------- | ------------------------------------------------------------------------------------- |
+| `--recipe`   | `steady`   | Recipe to validate out-of-sample (see `cli/experiment/recipes`).                      |
+| `--seeds`    | `8`        | Seeds per OOS window; reuses the multi-seed holdout (`run_holdout_seeds`) per window. |
+| `--data-dir` | _(config)_ | Qlib provider directory. Defaults to `[zcrypto].data_dir` in `zcrypto.toml`.          |
+| `--out`      | `./runs`   | Root for stress bundles; each run lands at `<out>/stress/<recipe>/<UTC timestamp>/`.  |
+
+The command writes `<out>/stress/<recipe>/<ts>/stress_summary.json` with keys `recipe`, `seeds`, `windows` (per-window `label`, `train`, `test`, `sharpe_mean`, `ls_sharpe_mean`, `ls_sharpe_min`), and `aggregate` (cross-window L/S Sharpe summary).

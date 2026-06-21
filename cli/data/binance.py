@@ -42,6 +42,12 @@ class Source(Protocol):
 
     def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str | None: ...
 
+    def fetch_funding_archive(self, perp: str, year: int, month: int) -> bytes | None: ...
+
+    def fetch_aggtrades_archive(self, symbol: str, date: dt.date) -> bytes: ...
+
+    def fetch_aggtrades_checksum(self, symbol: str, date: dt.date) -> str | None: ...
+
 
 def kline_archive_parts(symbol: str, interval: str, date: dt.date) -> tuple[str, str]:
     """(archive-relative dir, filename) for a daily kline zip.
@@ -60,6 +66,41 @@ def kline_zip_url(symbol: str, interval: str, date: dt.date) -> str:
 
 def kline_checksum_url(symbol: str, interval: str, date: dt.date) -> str:
     return kline_zip_url(symbol, interval, date) + ".CHECKSUM"
+
+
+def aggtrades_archive_parts(symbol: str, date: dt.date) -> tuple[str, str]:
+    """(archive-relative dir, filename) for a daily aggTrades zip.
+
+    Single source of truth for the layout, reused by both the remote URL and the local
+    mirror path (`cli.data.mirror`) so the two can never drift. Change the layout here once.
+    Note: no interval segment (unlike klines).
+    """
+    iso = date.strftime("%Y-%m-%d")
+    return f"spot/daily/aggTrades/{symbol}", f"{symbol}-aggTrades-{iso}.zip"
+
+
+def aggtrades_zip_url(symbol: str, date: dt.date) -> str:
+    rel_dir, name = aggtrades_archive_parts(symbol, date)
+    return f"{BASE_URL}/data/{rel_dir}/{name}"
+
+
+def aggtrades_checksum_url(symbol: str, date: dt.date) -> str:
+    return aggtrades_zip_url(symbol, date) + ".CHECKSUM"
+
+
+def funding_archive_parts(perp: str, year: int, month: int) -> tuple[str, str]:
+    """(archive-relative dir, filename) for a monthly funding-rate zip.
+
+    Single source of truth for the layout, reused by both the remote URL and any future
+    local mirror path so the two can never drift. Change the layout here once.
+    """
+    month_str = f"{month:02d}"
+    return f"futures/um/monthly/fundingRate/{perp}", f"{perp}-fundingRate-{year}-{month_str}.zip"
+
+
+def funding_url(perp: str, year: int, month: int) -> str:
+    rel_dir, name = funding_archive_parts(perp, year, month)
+    return f"{BASE_URL}/data/{rel_dir}/{name}"
 
 
 def parse_checksum_file(content: str) -> str:
@@ -168,6 +209,38 @@ class BinanceSource:
     def fetch_kline_checksum(self, symbol: str, interval: str, date: dt.date) -> str | None:  # pragma: no cover
         """The published sha256 for this zip, or None if no `.CHECKSUM` exists (404)."""
         url = kline_checksum_url(symbol, interval, date)
+        try:
+            resp = _retryable_request(
+                "GET", url, timeout=self._fetch.http_timeout_head_secs, attempts=self._fetch.http_retry_attempts
+            )
+        except HttpStatusError as e:
+            if e.status == 404:
+                return None
+            raise
+        return parse_checksum_file(resp.data.decode("utf-8"))
+
+    def fetch_funding_archive(self, perp: str, year: int, month: int) -> bytes | None:  # pragma: no cover
+        """Raw zip bytes for the monthly funding-rate archive, or None if the month has no archive (404)."""
+        url = funding_url(perp, year, month)
+        try:
+            resp = _retryable_request(
+                "GET", url, timeout=self._fetch.http_timeout_get_secs, attempts=self._fetch.http_retry_attempts
+            )
+        except HttpStatusError as e:
+            if e.status == 404:
+                return None
+            raise
+        return resp.data
+
+    def fetch_aggtrades_archive(self, symbol: str, date: dt.date) -> bytes:  # pragma: no cover
+        """Raw zip bytes for the daily aggTrades archive."""
+        url = aggtrades_zip_url(symbol, date)
+        resp = _retryable_request("GET", url, timeout=self._fetch.http_timeout_get_secs, attempts=self._fetch.http_retry_attempts)
+        return resp.data
+
+    def fetch_aggtrades_checksum(self, symbol: str, date: dt.date) -> str | None:  # pragma: no cover
+        """The published sha256 for this aggTrades zip, or None if no `.CHECKSUM` exists (404)."""
+        url = aggtrades_checksum_url(symbol, date)
         try:
             resp = _retryable_request(
                 "GET", url, timeout=self._fetch.http_timeout_head_secs, attempts=self._fetch.http_retry_attempts

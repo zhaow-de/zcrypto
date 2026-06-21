@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Surface a survivorship caveat in every `zcrypto experiment` run (`run_meta.json`, `report.html` title, stdout) — a concise pointer to open-topic `00005` — so results are read with the right prior; no data, universe, or backtest-logic change.
+**Goal:** Surface a survivorship caveat in every `zcrypto experiment` run (`run_meta.json`, `report.html` title, stdout) — a concise pointer to open-topic `T0005` — so results are read with the right prior; no data, universe, or backtest-logic change.
 
 **Architecture:** One shared wording module (`cli/experiment/caveats.py`) holds a structured `EXPERIMENT_CAVEATS` list (`{topic, summary}` pointers) and a short `SURVIVORSHIP_MARKER`. `command.py` writes the list into `run_meta.json` and prints one stdout line; `report.py` appends the marker to the figure title. `docs/open-topics/*` stays the single source of truth — the surfaces only point to it.
 
@@ -21,7 +21,7 @@ Run the gate after each task: `uv run ruff check && uv run ruff format --check &
 | `cli/experiment/caveats.py` (new) | The single home for caveat wording: `EXPERIMENT_CAVEATS` (list of `{topic, summary}`) + `SURVIVORSHIP_MARKER` | 1 |
 | `cli/experiment/report.py` | Append `SURVIVORSHIP_MARKER` to the figure title as a subtitle | 2 |
 | `cli/experiment/command.py` | `run_meta["caveats"] = EXPERIMENT_CAVEATS`; one stdout caveat line | 3 |
-| `README.md`, `docs/open-topics/00005-…`, `docs/iterations-history.md` | Closeout | 4 |
+| `README.md`, `docs/open-topics/T0005-…`, `docs/iterations-history.md` | Closeout | 4 |
 
 ---
 
@@ -41,7 +41,7 @@ def test_experiment_caveats_shape_and_survivorship_present():
     for c in EXPERIMENT_CAVEATS:
         assert {"topic", "summary"} <= set(c)
         assert c["topic"] and c["summary"]
-    assert "00005" in {c["topic"] for c in EXPERIMENT_CAVEATS}  # survivorship caveat present
+    assert "T0005" in {c["topic"] for c in EXPERIMENT_CAVEATS}  # survivorship caveat present
     assert isinstance(SURVIVORSHIP_MARKER, str) and SURVIVORSHIP_MARKER.strip()
 ```
 
@@ -58,12 +58,12 @@ one-line summary and the topic id a reader follows for the full picture.
 """
 
 SURVIVORSHIP = {
-    "topic": "00005",
+    "topic": "T0005",
     "summary": (
         "universe is survivorship-biased — today's surviving pairs only; "
         "historically-delisted pairs are absent, so the CPCV paths and the holdout "
         "are optimistically inflated (listing dates are respected). "
-        "See docs/open-topics/00005-point-in-time-universe.md."
+        "See docs/open-topics/T0005-point-in-time-universe.md."
     ),
 }
 
@@ -71,7 +71,7 @@ SURVIVORSHIP = {
 EXPERIMENT_CAVEATS = [SURVIVORSHIP]
 
 # Short marker for the report subtitle and the stdout line.
-SURVIVORSHIP_MARKER = "survivorship-biased universe — see open-topic 00005"
+SURVIVORSHIP_MARKER = "survivorship-biased universe — see open-topic T0005"
 ```
 
 - [ ] **Step 4: Run it, expect PASS** — `uv run pytest tests/test_experiment_caveats.py -v`.
@@ -81,7 +81,7 @@ SURVIVORSHIP_MARKER = "survivorship-biased universe — see open-topic 00005"
 ```bash
 uv run ruff check && uv run ruff format --check && uv run pytest -q
 git add cli/experiment/caveats.py tests/test_experiment_caveats.py
-git commit -m "feat(experiment): add caveats module (survivorship pointer to open-topic 00005)"
+git commit -m "feat(experiment): add caveats module (survivorship pointer to open-topic T0005)"
 ```
 
 ---
@@ -188,7 +188,7 @@ def test_experiment_emits_survivorship_caveat(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     bundle = next(iter((out_dir / "skeleton").glob("*")))
     meta = json.loads((bundle / "run_meta.json").read_text())
-    assert "00005" in {c["topic"] for c in meta["caveats"]}  # survivorship caveat recorded
+    assert "T0005" in {c["topic"] for c in meta["caveats"]}  # survivorship caveat recorded
     assert "survivorship" in result.output.lower()  # stdout caveat line printed
 ```
 
@@ -230,16 +230,16 @@ git commit -m "feat(experiment): record survivorship caveat in run_meta and stdo
 
 ---
 
-## Task 4: Closeout — README, `00005` update, iterations-history
+## Task 4: Closeout — README, `T0005` update, iterations-history
 
 **Files:**
 - Modify: `README.md` (`## Usage` → experiment section)
-- Modify: `docs/open-topics/00005-point-in-time-universe.md`
+- Modify: `docs/open-topics/T0005-point-in-time-universe.md`
 - Modify: `docs/iterations-history.md`
 
-- [ ] **Step 1: README `## Usage`.** In the `zcrypto experiment` subsection, add one sentence: "Every run emits a survivorship caveat (universe is today's surviving pairs; delisted pairs absent) — shown in the report title and stdout, and recorded under `caveats` in `run_meta.json`; see open-topic `00005`." Let `mdformat` regenerate the TOC; do not hand-edit the `<!-- mdformat-toc -->` block.
+- [ ] **Step 1: README `## Usage`.** In the `zcrypto experiment` subsection, add one sentence: "Every run emits a survivorship caveat (universe is today's surviving pairs; delisted pairs absent) — shown in the report title and stdout, and recorded under `caveats` in `run_meta.json`; see open-topic `T0005`." Let `mdformat` regenerate the TOC; do not hand-edit the `<!-- mdformat-toc -->` block.
 
-- [ ] **Step 2: Update `docs/open-topics/00005-point-in-time-universe.md`** (stays `status: open`).
+- [ ] **Step 2: Update `docs/open-topics/T0005-point-in-time-universe.md`** (stays `status: open`).
 
 2a. Append this paragraph to the end of the `## Findings so far` section:
 
@@ -273,21 +273,21 @@ honest survivorship caveat to the experiment outputs (report title, stdout,
   survivor universe.
 ```
 
-- [ ] **Step 3: Append the iter-10 entry to `docs/iterations-history.md`** — a new `## 2026-06-18 — iter-10: honest survivorship framing` section with bullets covering: a new `cli/experiment/caveats.py` holding `EXPERIMENT_CAVEATS` (`{topic, summary}` pointers) + `SURVIVORSHIP_MARKER`; the survivorship caveat now surfaces in the report title, stdout, and `run_meta.json` `caveats` (both default and `--quick`); `docs/open-topics/*` remains the single source of truth (the surfaces only point to `00005`); `00005` re-scoped to the data-acquisition reality; and the two iter-9 CPCV interpretation caveats captured in `00002` (with a next-step to surface them later). Note this iteration changed no data/universe/backtest logic.
+- [ ] **Step 3: Append the iter-10 entry to `docs/iterations-history.md`** — a new `## 2026-06-18 — iter-10: honest survivorship framing` section with bullets covering: a new `cli/experiment/caveats.py` holding `EXPERIMENT_CAVEATS` (`{topic, summary}` pointers) + `SURVIVORSHIP_MARKER`; the survivorship caveat now surfaces in the report title, stdout, and `run_meta.json` `caveats` (both default and `--quick`); `docs/open-topics/*` remains the single source of truth (the surfaces only point to `T0005`); `T0005` re-scoped to the data-acquisition reality; and the two iter-9 CPCV interpretation caveats captured in `T0002` (with a next-step to surface them later). Note this iteration changed no data/universe/backtest logic.
 
 - [ ] **Step 4: Gate + commit**
 
 ```bash
 uv run ruff check && uv run ruff format --check && uv run pytest -q
-git add README.md docs/open-topics/00005-point-in-time-universe.md docs/iterations-history.md
-git commit -m "docs(experiment): close out iter-10 — README usage, 00005 re-scope, iterations-history"
+git add README.md docs/open-topics/T0005-point-in-time-universe.md docs/iterations-history.md
+git commit -m "docs(experiment): close out iter-10 — README usage, T0005 re-scope, iterations-history"
 ```
 
 ---
 
 ## Self-review (against the spec)
 
-- **Spec coverage:** caveats.py (`EXPERIMENT_CAVEATS`/`SURVIVORSHIP_MARKER`) → Task 1; report subtitle → Task 2; `run_meta` caveats + stdout line → Task 3; SSOT (pointers only, no roadmap duplication) → honored across Tasks 1/3 (summary references the topic; no roadmap text outside `00005`); survivorship-only scope → only the `00005` caveat is defined; `00005` re-scope + README + iterations-history → Task 4. CPCV-interpretation caveats already captured in `00002` in the spec commit (out of this plan's scope).
+- **Spec coverage:** caveats.py (`EXPERIMENT_CAVEATS`/`SURVIVORSHIP_MARKER`) → Task 1; report subtitle → Task 2; `run_meta` caveats + stdout line → Task 3; SSOT (pointers only, no roadmap duplication) → honored across Tasks 1/3 (summary references the topic; no roadmap text outside `T0005`); survivorship-only scope → only the `T0005` caveat is defined; `T0005` re-scope + README + iterations-history → Task 4. CPCV-interpretation caveats already captured in `T0002` in the spec commit (out of this plan's scope).
 - **Placeholder scan:** none — every step has concrete code/text and exact commands.
 - **Type consistency:** `EXPERIMENT_CAVEATS` (list of `{topic, summary}`) and `SURVIVORSHIP_MARKER` (str) are defined in Task 1 and consumed identically in Tasks 2 (marker → title) and 3 (list → run_meta, marker → stdout); the test in Task 1 pins the shape the consumers rely on.
 

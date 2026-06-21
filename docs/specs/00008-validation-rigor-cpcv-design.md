@@ -56,7 +56,7 @@ holdout. `--quick` preserves the fast single-run iteration loop.
   `run_experiment` unchanged.
 - **Repo rules unchanged.** README `## Usage` updated in the same change;
   `docs/iterations-history.md` closeout; this iteration also enhances the
-  open-topics convention and transitions topic `00002` to *partially done* at
+  open-topics convention and transitions topic `T0002` to *partially done* at
   closeout (see *Closeout*).
 
 ## Decisions (resolved during brainstorming)
@@ -237,7 +237,7 @@ zcrypto experiment [--recipe skeleton] [--data-dir <dir>] [--out runs] \
 - **Manual**: run the default on real `./data`; open `report.html`; sanity-check
   the path distribution vs. the holdout marker.
 
-## Out of scope (deferred → open-topic `00002`)
+## Out of scope (deferred → open-topic `T0002`)
 
 - **Deflated Sharpe ratio + PBO** (probability of backtest overfitting) computed
   on top of the CPCV path distribution.
@@ -246,7 +246,7 @@ zcrypto experiment [--recipe skeleton] [--data-dir <dir>] [--out runs] \
   was cut.
 - **Hudson & Thames MLFinLab** as a reference-implementation dependency.
 
-`00002` stays **open** until the closeout below transitions it to *partially
+`T0002` stays **open** until the closeout below transitions it to *partially
 done* (it is not closed — the deferred items remain).
 
 ## Closeout (repo conventions — executed at end of iteration, after CPCV lands)
@@ -254,7 +254,7 @@ done* (it is not closed — the deferred items remain).
 - **Open-topics rule enhancement** (`.claude/rules/open-topics.md`): introduce a
   `partial` status, a `## Partially done` index section, and the
   partial-completion lifecycle + index-sync wording.
-- **`00002` partial-transition**: flip `status: open → partial`, add a truthful
+- **`T0002` partial-transition**: flip `status: open → partial`, add a truthful
   `## Done so far` (with this spec + the merged PR links), trim
   `## Suggested next steps` to the deferred remainder, and move its index bullet
   from `## Open` to `## Partially done`.
@@ -266,7 +266,7 @@ done* (it is not closed — the deferred items remain).
 - Prerequisites: spec `00006` (experiment skeleton), spec `00007` (config).
 - Research roadmap: `docs/research/01.binance-eea-spot-quant.md` §6 (purged
   k-fold + embargo), §12 (overfitting), §13 Stage 2–3.
-- Open topic: `docs/open-topics/00002-validation-rigor.md`.
+- Open topic: `docs/open-topics/T0002-validation-rigor.md`.
 - López de Prado, *Advances in Financial Machine Learning*, Ch. 7 (purged k-fold
   + embargo) & Ch. 12 (CPCV, backtest paths).
 - qlib: `qlib.backtest.backtest`, `TopkDropoutStrategy`, `risk_analysis`.

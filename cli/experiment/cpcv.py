@@ -22,7 +22,7 @@ import pandas as pd
 from cli.experiment.cache import ensure_cache_fresh
 from cli.experiment.cv import assemble_paths, build_cv_plan
 from cli.experiment.recipes.base import Recipe
-from cli.experiment.scaffold import exchange_kwargs, redis_preflight
+from cli.experiment.scaffold import exchange_kwargs, handler_config, redis_preflight, strategy_config_with_signal
 from cli.logging import get_logger
 
 logger = get_logger("experiment.cpcv")
@@ -38,23 +38,34 @@ class CPCVResult:
     rank_ic: dict  # mean / std / ir
 
 
-def _lgb_params(recipe: Recipe) -> tuple[dict, int]:
+def _lgb_params(recipe: Recipe, *, seed: int | None = None, deterministic: bool = False) -> tuple[dict, int]:
     """Translate the recipe's LGBModel config into raw lightgbm params + num_boost_round.
 
     Mirrors qlib.contrib.model.gbdt.LGBModel.__init__: loss -> objective, verbosity
     -1, the rest forwarded; num_boost_round / early_stopping_rounds are pulled out
     (early stopping is intentionally disabled inside CV folds — fixed rounds).
+
+    Optional keyword args inject reproducibility params without affecting the default path:
+    - seed: sets the LightGBM ``seed`` parameter when not None.
+    - deterministic: when True, sets ``deterministic=True`` + ``force_row_wise=True``
+      (LightGBM requires force_row_wise or force_col_wise to guarantee multi-threaded
+      reproducibility when deterministic=True).
     """
     kw = dict(recipe.model_config.get("kwargs", {}))
     num_boost_round = int(kw.pop("num_boost_round", 1000))
     kw.pop("early_stopping_rounds", None)
     loss = kw.pop("loss", "mse")
     params = {"objective": loss, "verbosity": -1, **kw}
+    if seed is not None:
+        params["seed"] = seed
+    if deterministic:
+        params["deterministic"] = True
+        params["force_row_wise"] = True
     return params, num_boost_round
 
 
-def _materialize(recipe: Recipe):
-    """Return (infer_df, learn_df) over train+valid, MultiIndex (datetime, instrument).
+def _materialize_span(recipe: Recipe, start: str, end: str):
+    """Return (infer_df, learn_df) over ``[start..end]``, MultiIndex (datetime, instrument).
 
     Uses CS_RAW (multi-level columns) so df["feature"] and df["label"] work.
     infer_df (DK_I): normalized features + label — used for prediction.
@@ -62,36 +73,32 @@ def _materialize(recipe: Recipe):
     dropped — used for training and rank-IC.
 
     Leakage precondition: normalization (RobustZScoreNorm) is fit ONCE over the full
-    train+valid span (fit_start_time..fit_end_time above), which is leakage-free for
-    GBDT models because they are invariant to per-feature monotone affine transforms.
-    A future linear/NN recipe or a feature-mixing processor would need per-fold
-    normalization to stay leakage-free.
+    span (fit_start_time..fit_end_time below), which is leakage-free for GBDT models
+    because they are invariant to per-feature monotone affine transforms. A future
+    linear/NN recipe or a feature-mixing processor would need per-fold normalization
+    to stay leakage-free.
+
+    CPCV fits over train+valid; walk-forward (cli.experiment.walkforward) fits over
+    each period's [train_start..predict_end] — both go through this one builder.
     """
     from qlib.data.dataset.handler import DataHandlerLP
     from qlib.utils import init_instance_by_config
 
-    cv_start = recipe.segments["train"][0]
-    cv_end = recipe.segments["valid"][1]
-    handler_kwargs = {
-        **recipe.handler_kwargs,
-        "instruments": list(recipe.universe),
-        "start_time": cv_start,
-        "end_time": cv_end,
-        "fit_start_time": cv_start,
-        "fit_end_time": cv_end,
-        "freq": "day",
-    }
     dataset = init_instance_by_config(
         {
             "class": "DatasetH",
             "module_path": "qlib.data.dataset",
             "kwargs": {
-                "handler": {
-                    "class": "Alpha158",
-                    "module_path": "qlib.contrib.data.handler",
-                    "kwargs": handler_kwargs,
-                },
-                "segments": {"all": (cv_start, cv_end)},
+                "handler": handler_config(
+                    recipe.feature_config,
+                    instruments=recipe.universe,
+                    start=start,
+                    end=end,
+                    fit_start=start,
+                    fit_end=end,
+                    handler_kwargs=recipe.handler_kwargs,
+                ),
+                "segments": {"all": (start, end)},
             },
         }
     )
@@ -99,6 +106,11 @@ def _materialize(recipe: Recipe):
     infer_df = dataset.prepare(segments="all", col_set=DataHandlerLP.CS_RAW, data_key=DataHandlerLP.DK_I)
     learn_df = dataset.prepare(segments="all", col_set=DataHandlerLP.CS_RAW, data_key=DataHandlerLP.DK_L)
     return infer_df, learn_df
+
+
+def _materialize(recipe: Recipe):
+    """CPCV materialization: (infer_df, learn_df) over the train+valid span."""
+    return _materialize_span(recipe, recipe.segments["train"][0], recipe.segments["valid"][1])
 
 
 def _split_xy(df: pd.DataFrame):
@@ -127,7 +139,9 @@ def _rank_ic(pred: pd.Series, label: pd.Series) -> float:
     return float(daily.mean())
 
 
-def run_cpcv(recipe: Recipe, *, data_dir: Path, refresh_cache: bool = False) -> CPCVResult:
+def run_cpcv(
+    recipe: Recipe, *, data_dir: Path, refresh_cache: bool = False, seed: int | None = None, deterministic: bool = False
+) -> CPCVResult:
     import lightgbm as lgb
     import qlib
     from qlib.backtest import backtest
@@ -172,7 +186,7 @@ def run_cpcv(recipe: Recipe, *, data_dir: Path, refresh_cache: bool = False) -> 
             },
         )
 
-        params, num_boost_round = _lgb_params(recipe)
+        params, num_boost_round = _lgb_params(recipe, seed=seed, deterministic=deterministic)
         predictions: dict = {}
         ic_values: list = []
         for i, split in enumerate(plan.splits):
@@ -196,11 +210,7 @@ def run_cpcv(recipe: Recipe, *, data_dir: Path, refresh_cache: bool = False) -> 
             pmd, _ = backtest(
                 start_time=dates.min(),
                 end_time=dates.max(),
-                strategy={
-                    "class": "TopkDropoutStrategy",
-                    "module_path": "qlib.contrib.strategy.signal_strategy",
-                    "kwargs": {**recipe.strategy_kwargs, "signal": signal},
-                },
+                strategy=strategy_config_with_signal(recipe.strategy_config, signal),
                 executor={
                     "class": "SimulatorExecutor",
                     "module_path": "qlib.backtest.executor",

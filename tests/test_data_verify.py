@@ -276,6 +276,154 @@ def test_verify_detects_orphan_in_instruments_dir(tmp_path):
     assert any("orphan" in p and "stray.txt" in p for p in report.problems)
 
 
+def _mk_pair_with_funding(
+    tmp_path: Path,
+    cal: list[dt.date],
+    sym: str,
+    base: str,
+    start: int,
+    rows: int,
+    funding_values: list[float] | None = None,
+) -> PairEntry:
+    """Build a PairEntry that includes a funding.day.bin alongside the kline fields."""
+    fields = {}
+    for f in FIELDS:
+        bin_rel = f"features/{sym.lower()}/{f}.day.bin"
+        write_bin(tmp_path / bin_rel, [1.0] * rows, start_index=start)
+        fields[f] = FieldEntry(bin=bin_rel, sha256=compute_sha256(tmp_path / bin_rel), updated_at=utc_now_iso())
+    # funding field — values default to real data (non-NaN) spanning the full row range
+    fvals = funding_values if funding_values is not None else [0.0001] * rows
+    funding_rel = f"features/{sym.lower()}/funding.day.bin"
+    write_bin(tmp_path / funding_rel, fvals, start_index=start)
+    fields["funding"] = FieldEntry(bin=funding_rel, sha256=compute_sha256(tmp_path / funding_rel), updated_at=utc_now_iso())
+    return PairEntry(
+        base_asset=base,
+        quote_asset="USDT",
+        intervals={
+            "1d": PairIntervalEntry(
+                from_date=cal[start].isoformat(),
+                to_date=cal[start + rows - 1].isoformat(),
+                rows=rows,
+                fields=fields,
+            )
+        },
+    )
+
+
+def test_verify_funding_reports_coverage_check(tmp_path):
+    """A dataset with funding bins should have a per-instrument coverage check reported."""
+    cal = [dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(5)]
+    pairs = {"BTCUSDT": _mk_pair_with_funding(tmp_path, cal, "BTCUSDT", "BTC", start=0, rows=5)}
+    _finalize(tmp_path, cal, pairs)
+    report = verify_dataset(tmp_path)
+    assert report.ok, report.problems
+    # A human-readable funding coverage check must appear
+    funding_checks = [c for c in report.checks if "funding" in c.lower()]
+    assert funding_checks, f"No funding check in report.checks: {report.checks}"
+    # Should mention the instrument and a date range
+    assert any("BTCUSDT" in c for c in funding_checks), funding_checks
+
+
+def test_verify_funding_all_nan_reported_not_failed(tmp_path):
+    """An all-NaN funding bin is reported as an observation but must NOT add to problems."""
+    cal = [dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(5)]
+    all_nan = [float("nan")] * 5
+    pairs = {"PEPEUSDT": _mk_pair_with_funding(tmp_path, cal, "PEPEUSDT", "PEPE", start=0, rows=5, funding_values=all_nan)}
+    _finalize(tmp_path, cal, pairs)
+    report = verify_dataset(tmp_path)
+    assert report.ok, report.problems  # all-NaN funding is NOT a hard failure
+    # But the situation must be surfaced (in checks or synthetic)
+    all_text = " ".join(report.checks + report.synthetic)
+    assert "PEPEUSDT" in all_text and ("no coverage" in all_text or "all NaN" in all_text or "all-NaN" in all_text)
+
+
+def test_verify_funding_absent_reported_not_failed(tmp_path):
+    """When funding.day.bin is missing entirely, it is reported but does NOT fail the dataset."""
+    cal = [dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(5)]
+    # Build a pair WITHOUT a funding field
+    pairs = {"NEWUSDT": _mk_pair(tmp_path, cal, "NEWUSDT", "NEW", start=0, rows=5)}
+    _finalize(tmp_path, cal, pairs)
+    report = verify_dataset(tmp_path)
+    assert report.ok, report.problems  # absent funding is NOT a hard failure
+    all_text = " ".join(report.checks + report.synthetic)
+    assert "NEWUSDT" in all_text and ("no coverage" in all_text or "absent" in all_text or "no funding" in all_text)
+
+
+def test_verify_funding_structural_corruption_is_problem(tmp_path):
+    """A funding.day.bin with a wrong start_index (structural corruption) IS a problem."""
+    cal = [dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(5)]
+    pairs = {"BTCUSDT": _mk_pair_with_funding(tmp_path, cal, "BTCUSDT", "BTC", start=0, rows=5)}
+    _finalize(tmp_path, cal, pairs)
+
+    # Overwrite funding.day.bin with a wrong start_index (2 instead of 0)
+    funding_path = tmp_path / "features" / "btcusdt" / "funding.day.bin"
+    import json as _json  # noqa: PLC0415 (local import for test isolation)
+
+    write_bin(funding_path, [0.0001] * 5, start_index=2)  # wrong: BTC starts at 0
+    # Patch SHA in index so the sha check doesn't fire first
+    raw = _json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
+    raw["pairs"]["BTCUSDT"]["intervals"]["1d"]["fields"]["funding"]["sha256"] = compute_sha256(funding_path)
+    (tmp_path / "index.json").write_text(_json.dumps(raw), encoding="utf-8")
+
+    report = verify_dataset(tmp_path)
+    assert not report.ok
+    assert any("funding" in p and "header" in p for p in report.problems)
+
+
+def test_verify_accepts_archive_only_delisted_pair(tmp_path):
+    """A delisted pair (TO < calendar.to / today) plus survivors covering to calendar.to → ok=True.
+
+    This is the archive-only case: WAVESUSDT-style pairs whose data ends years ago.
+    `verify_dataset` must treat them as structurally valid — their absence from recent
+    days is expected; the interior-gap completeness check is satisfied by survivor pairs.
+    """
+    # Calendar: 10 days (day 0..9).  Delisted pair spans days 0..5; survivor spans full 0..9.
+    cal = [dt.date(2020, 1, 1) + dt.timedelta(days=i) for i in range(10)]
+    delisted_rows = 6  # ends at cal[5] — well before cal[-1]
+    survivor_rows = 10  # full range
+
+    pairs = {
+        "WAVESUSDT": _mk_pair(tmp_path, cal, "WAVESUSDT", "WAVES", start=0, rows=delisted_rows),
+        "BTCUSDT": _mk_pair(tmp_path, cal, "BTCUSDT", "BTC", start=0, rows=survivor_rows),
+    }
+    _finalize(tmp_path, cal, pairs)
+
+    # Structural check (default) must pass: the delisted pair is self-consistent within the calendar.
+    report = verify_dataset(tmp_path)
+    assert report.ok, report.problems
+
+    # fail_on_gap must also pass: the survivor covers the full range, so no interior gap.
+    report_gap = verify_dataset(tmp_path, fail_on_gap=True)
+    assert report_gap.ok, report_gap.problems
+    assert any("no interior calendar gap" in c for c in report_gap.checks)
+
+    # The report must acknowledge both pairs — their date ranges appear in the instruments check.
+    joined_checks = " ".join(report_gap.checks)
+    assert "2 pair(s)" in joined_checks  # instruments check line names the pair count
+    assert not report_gap.problems
+
+
+def test_verify_corrupt_delisted_pair_still_fails(tmp_path):
+    """Structural corruption in a delisted pair's bin is still a hard failure."""
+    cal = [dt.date(2020, 1, 1) + dt.timedelta(days=i) for i in range(10)]
+    delisted_rows = 6  # ends at cal[5] — archive-only
+    survivor_rows = 10
+
+    pairs = {
+        "WAVESUSDT": _mk_pair(tmp_path, cal, "WAVESUSDT", "WAVES", start=0, rows=delisted_rows),
+        "BTCUSDT": _mk_pair(tmp_path, cal, "BTCUSDT", "BTC", start=0, rows=survivor_rows),
+    }
+    _finalize(tmp_path, cal, pairs)
+
+    # Tamper the delisted pair's close bin by appending extra bytes (size mismatch / sha mismatch).
+    waves_close = tmp_path / "features" / "wavesusdt" / "close.day.bin"
+    waves_close.write_bytes(waves_close.read_bytes() + b"\x00\x00\x00\x00")
+
+    report = verify_dataset(tmp_path)
+    assert not report.ok, "structural corruption in a delisted pair must be flagged"
+    assert any("WAVESUSDT" in p for p in report.problems)
+
+
 def test_verify_ignores_cache_and_staging_dirs(tmp_path):
     """cache/ (qlib disk cache) and .staging/ (pipeline work dir) must not trip the orphan scan.
 

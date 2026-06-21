@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+from cli.experiment.costs import COST_CALIBRATION
 
 # (open_cost, close_cost) round-trip fee fractions
 FEE_PRESETS: dict[str, tuple[float, float]] = {
@@ -31,19 +33,65 @@ class Recipe:
     name: str
     handler_kwargs: dict  # extra Alpha158 kwargs (infer_processors, learn_processors)
     model_config: dict  # full init_instance_by_config dict for the model
-    strategy_kwargs: dict  # TopkDropoutStrategy kwargs (topk, n_drop)
+    strategy_config: dict  # full init_instance_by_config dict for the strategy
     segments: dict  # {"train": (s, e), "valid": (s, e), "test": (s, e)} ISO date strings
     universe: tuple  # traded USDT symbols (uppercase)
     reference_instruments: tuple  # chart-only, not traded
     account: float = field(default=10_000.0)
     benchmark: str = field(default="BTCUSDT")
     fee_preset: str = field(default="vip2_bnb")
+    # Realistic execution-cost knobs (see docs/specs/00018). Defaults = calibrated values;
+    # fees_only=True reverts exchange_kwargs to the raw fee_preset (no slippage) for the A/B baseline.
+    impact_cost: float = field(default=COST_CALIBRATION["impact_cost"])
+    maker_fill_haircut: float = field(default=COST_CALIBRATION["maker_fill_haircut"])
+    fees_only: bool = field(default=False)
     # CPCV / purge-embargo knobs (see docs/specs/00008). Defaults match Alpha158's
     # default label horizon and longest feature window; behavior-preserving.
     label_horizon_days: int = field(default=2)
     feature_lookback_days: int = field(default=60)
     cv_n_groups: int = field(default=6)
     cv_test_groups: int = field(default=2)
+    # Pluggable feature handler class (see docs/specs/00013). Default = Alpha158.
+    feature_config: dict = field(default_factory=lambda: {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"})
+    # Walk-forward holdout retraining (see docs/specs/00011). Off = single-fit holdout.
+    wf_enabled: bool = field(default=False)
+    wf_retrain_freq: str = field(default="quarter")  # quarter | year
+    wf_window: str = field(default="expanding")  # expanding | rolling
+    wf_rolling_years: int = field(default=3)
+
+
+# Point-in-time universe additions (see docs/specs/00017). These ever-top-25 USDT majors
+# blew up (NANO/BTG/OMG/WAVES/XEM delisted) or faded out of today's survivor universe while
+# still listed (DASH/FTT/ICX/QTUM/ZEC); iter-16 acquired all 10 archive-only with real
+# listing/delisting ranges. LUNCUSDT is the Terra blow-up: old LUNA's full arc (2020-08-21 →
+# the 2022-05-13 crash) acquired capped before the reused-symbol Luna 2.0, renamed to its
+# canonical Luna-Classic identity (see cli/data/scripts/acquire_old_luna.py). Appending these
+# to a recipe's universe (the --pit-universe flag) makes a run survivorship-free — qlib trades
+# each only within its real range.
+PIT_ADDITIONS: tuple[str, ...] = (
+    "DASHUSDT",
+    "ZECUSDT",
+    "QTUMUSDT",
+    "ICXUSDT",
+    "FTTUSDT",
+    "WAVESUSDT",
+    "OMGUSDT",
+    "XEMUSDT",
+    "BTGUSDT",
+    "NANOUSDT",
+    "LUNCUSDT",
+)
+
+
+def with_pit_universe(recipe: Recipe) -> Recipe:
+    """Return a copy of *recipe* with its universe expanded to point-in-time membership.
+
+    Appends :data:`PIT_ADDITIONS` to ``recipe.universe``, de-duplicated and order-preserving
+    (survivors first). Every downstream stage reads ``recipe.universe``, so swapping it here
+    threads the PIT universe through cpcv/scaffold/multiseed with no other change.
+    """
+    merged = tuple(dict.fromkeys(recipe.universe + PIT_ADDITIONS))
+    return replace(recipe, universe=merged)
 
 
 def resolve_recipe(name: str) -> Recipe:

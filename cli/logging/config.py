@@ -16,7 +16,7 @@ def configure(path: Path | None, level: str) -> None:
     if not isinstance(numeric, int):
         raise ValueError(f"invalid log level: {level!r}")
 
-    # See docs/open-topics/00000-qlib-empty-slice-warnings.md
+    # See docs/open-topics/T0000-qlib-empty-slice-warnings.md
     warnings.filterwarnings(
         "ignore",
         message="Mean of empty slice",
