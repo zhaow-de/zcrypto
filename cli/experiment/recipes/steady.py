@@ -1,54 +1,20 @@
-"""Steady recipe — diversified, low-turnover, regularized LightGBM/Alpha158.
+"""steady recipe — vs ``skeleton``, three coordinated knobs at once: a 5-day label
+(``Ref(close,-6)/Ref(close,-1)-1``, ``label_horizon_days=6``), a diversified sticky book (topk 5→10,
+``hold_thresh=5``), and stronger regularization (lr .05→.03, depth 8→5, leaves 31→16, L1/L2 1→2, sub/col
+.8→.7).
 
-Thesis (vs ``skeleton``): on daily klines, long-only, over 19 survivor-biased
-majors at 12 bps round-trip fees, a single GBDT on Alpha158 has only a weak
-edge — so the ``skeleton`` baseline (a 2-day signal churning a 5-name book
-every day) bleeds most of that edge to turnover costs. ``steady`` keeps the
-same data universe, segments, and fees (a clean A/B) and changes three
-coordinated knobs, all aimed at *after-cost risk-adjusted* performance —
-Sharpe up, drawdown down — not raw return:
+iter-12/13 (built), iter-14 (multi-seed), iter-29 (stress baseline) — tests whether a lower-turnover,
+diversified, regularized book bleeds less edge to 12bps fees and generalizes better OOS. A/B against
+``skeleton``; everything else is ``skeleton``'s book verbatim (universe, segments, fees), so the comparison
+isolates the label + book + model bundle. The ``test_steady_matches_skeleton_ab_controls`` test guards the
+non-lever fields against drift.
 
-1. **Longer label (Lever 1).** Predict the 5-day-ahead return instead of the
-   2-day default. A smoother target raises the signal-to-noise for the ranker
-   and makes its predictions change more slowly, so the book turns over less on
-   its own. ``label_horizon_days`` is bumped to 6 to match the label's max
-   forward reference, keeping the CPCV purge leak-free (see docs/specs/00008).
-
-2. **Diversified, sticky book (Lever 2).** ``topk`` 5 -> 10 holds ~half the
-   19-pair universe, so idiosyncratic volatility falls (higher Sharpe, shallower
-   drawdown); ``n_drop`` stays at 1 and ``hold_thresh=5`` forbids selling a name
-   held fewer than 5 days. Together these cap turnover hard — the single biggest
-   after-cost lever at 12 bps.
-
-3. **Stronger regularization (Lever 3).** Slower learning rate, shallower trees,
-   heavier L1/L2, more aggressive row/column subsampling. A simpler model
-   generalizes better out-of-sample, which is exactly what the CPCV Sharpe
-   distribution and PBO reward; in-sample fit is irrelevant here.
-
-This is a falsifiable hypothesis, not a promise. The honest verdict is the CPCV
-out-of-sample Sharpe distribution + PSR/DSR/PBO and the holdout drawdown
-(``zcrypto experiment --recipe steady`` then ``zcrypto rank``). If ``steady``
-does not beat ``skeleton`` on those, that is itself a real finding.
-
-**Measured (2025-2026 holdout, current data — PR #41): the hypothesis did not
-pan out.** ``steady`` does *not* beat ``skeleton`` — marginally worse holdout
-Sharpe / PSR / excess-vs-BTC, and both lose ~63-66%. Both also show a positive
-CPCV out-of-sample Sharpe on 2020-2024 (~+1.0) that inverts to negative on the
-holdout (~-0.63), with PBO = 0.91: a market-regime mismatch that recipe-only
-tuning cannot fix. The lever that could is the BTC-regime overlay — open-topic
-T0003 (scaffold-level), not another recipe.
-
-**Measured (multi-seed, iter-14 — 16 seeds, light-``lgb.train`` basis, 2025-2026 holdout, after 12 bps
-fees): WORST of the four by mean — Sharpe −0.62 ± 0.21, ending value ~3,641 USDT, PSR 0.19 — with the
-widest spread.** Iter-12/iter-13 single-run apparent "wins" (e.g. ending 4,817 in one iter-13 run) were
-seed luck; the low-turnover book did not help out-of-sample. z-separation vs ``crossasset_steady`` is
-z ≈ 1.1 (modest). All four still lose. Light-``lgb.train`` holdout path — internally consistent across
-recipes but NOT directly comparable to iter-13's MLflow single-fit numbers. ``T0011`` resolved.
-
-The non-lever fields below (universe, segments, fees, account, benchmark,
-reference_instruments, feature_lookback_days, cv knobs) are deliberately
-identical to ``skeleton`` so the comparison is a clean A/B; the
-``test_steady_matches_skeleton_ab_controls`` test guards against drift.
+Verdict (two lenses): (a) 16-seed multi-seed holdout, 2025-26 (iter-14): WORST of the four by mean — Sharpe
+−0.62 ± 0.21, ending ~3,641 USDT, PSR 0.19, widest spread; the low-turnover book did not help OOS. (b)
+OOS-stress, 8-seed, per-window 2022-2025 (iter-29): 2022 −0.753 / 2023 1.244 / 2024 0.700 / 2025 −0.576 → mean
+0.154, worst −0.753 — the ungated baseline of the deployable progression. CPCV 2020-2024 ≈ +1.0 inverts to ≈
+−0.63 on the holdout, PBO 0.91. In the iter-33 sweep: 0.154 (ungated group). The two lenses ask different
+questions (the bear-only holdout vs the across-window mean that includes bull years) and do not conflict.
 """
 
 from cli.experiment.recipes.base import Recipe

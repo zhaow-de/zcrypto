@@ -1,6 +1,5 @@
 ---
 status: resolved
-priority: high
 ---
 
 # Validation rigor: purged k-fold CV + embargo, CPCV, deflated Sharpe

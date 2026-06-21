@@ -1,6 +1,5 @@
 ---
 status: partial
-priority: medium
 ---
 
 # Non-OHLCV features (funding-rate / on-chain / order-book)

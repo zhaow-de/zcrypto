@@ -1,8 +1,10 @@
 ---
-status: open
+status: resolved
 ---
 
 # Funding right-edge via /fapi/v1/fundingRate API (intra-month tail)
+
+> **Resolved (irrelevant now):** the funding feature did not survive the phase-1 OOS edge-test (a defensive low-beta tilt, redundant with explicit regime timing), so it is not carried to the live signal; with no live funding signal to keep current, fixing funding's intra-month right edge has no consumer.
 
 ## Context — what
 

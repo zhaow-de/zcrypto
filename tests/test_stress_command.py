@@ -88,3 +88,33 @@ def test_stress_unknown_recipe_exits_nonzero(monkeypatch, tmp_path):
     monkeypatch.setattr(cmd, "resolve_recipe", _raise)
     result = runner.invoke(app, ["stress", "--recipe", "nope"])
     assert result.exit_code == 1
+
+
+def test_stress_purge_scales_with_label_horizon(monkeypatch, tmp_path):
+    import datetime as dt
+
+    seen = []
+    _patch(monkeypatch, tmp_path, seen)
+    # override the patched recipe with a long-horizon one (label_horizon_days=20)
+    import cli.stress.command as cmd
+
+    @dataclasses.dataclass
+    class _LongRecipe:
+        name: str = "h20_steady"
+        segments: dict = dataclasses.field(
+            default_factory=lambda: {
+                "train": ("2020-01-01", "2023-12-31"),
+                "valid": ("2024-01-01", "2024-12-31"),
+                "test": ("2025-01-01", "2026-06-15"),
+            }
+        )
+        label_horizon_days: int = 20
+
+    monkeypatch.setattr(cmd, "resolve_recipe", lambda name: _LongRecipe())
+    out = tmp_path / "runs"
+    result = runner.invoke(app, ["stress", "--recipe", "h20_steady", "--seeds", "1", "--out", str(out)])
+    assert result.exit_code == 0, result.stdout
+    # every window's train_end must be >= 20 days before its test_start (purge >= horizon)
+    for train, test in seen:
+        gap = (dt.date.fromisoformat(test[0]) - dt.date.fromisoformat(train[1])).days
+        assert gap >= 20, f"purge {gap}d < label horizon 20d (leak)"

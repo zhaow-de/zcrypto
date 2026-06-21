@@ -12,8 +12,8 @@ _TARGET_LOGGERS = ("zcrypto", "qlib")
 
 def configure(path: Path | None, level: str) -> None:
     """Set up project + qlib loggers. Idempotent across repeated calls."""
-    numeric = logging.getLevelName(level)
-    if not isinstance(numeric, int):
+    numeric = logging.getLevelNamesMapping().get(level)
+    if numeric is None:
         raise ValueError(f"invalid log level: {level!r}")
 
     # See docs/open-topics/T0000-qlib-empty-slice-warnings.md

@@ -17,7 +17,7 @@ repos:
       - id: trailing-whitespace
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.17
+    rev: v0.15.18
     hooks:
       - id: ruff-check
         args: ["--fix"]
@@ -36,9 +36,14 @@ repos:
       additional_dependencies:
       - mdformat-gfm
       - mdformat-toc
+      # Allowlist of mdformat-managed docs: the READMEs + each research REPORT under docs/research/.
+      # Append each new research paper here when it lands. Verbatim docs (e.g. the
+      # decision log 02.phase1-decisions.md, whose option lists + "Picked (N)" conclusions mdformat
+      # would restructure) are intentionally left off so they stay as-is.
       files: |
         (?x)^(
             README\.md|
             docs/open-topics/README\.md|
-            docs/research/01\.binance-eea-spot-quant\.md
+            docs/research/01\.binance-eea-spot-quant\.md|
+            docs/research/02\.phase1-summary\.md
         )$

@@ -1,6 +1,5 @@
 ---
 status: open
-priority: low
 ---
 
 # Paper-trading harness before live

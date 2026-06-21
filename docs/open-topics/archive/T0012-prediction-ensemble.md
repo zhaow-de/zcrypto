@@ -1,9 +1,10 @@
 ---
-status: open
-priority: medium
+status: resolved
 ---
 
 # Prediction-ensemble (seed-averaged signal)
+
+> **Resolved (irrelevant now):** seed-ensembling was a variance-reduction / production-stability lever for a *selected* ML signal, but iter-27/29/33 (T0018) showed the ML cross-sectional selection is net-harmful OOS — gated no-selection equal-weight beats it — and the deployable strategy is no-ML (gated inverse-vol majors basket). Averaging N copies of a negative-OOS signal cannot rescue it, and there is no production ML recipe to ensemble.
 
 ## Context — what
 

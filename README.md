@@ -1,4 +1,4 @@
-![Version](https://img.shields.io/badge/version-v0.4.0-blue)
+![Version](https://img.shields.io/badge/version-v0.5.0-blue)
 ![GitHub License](https://img.shields.io/github/license/zhaow-de/zcrypto)
 ![Python Version from PEP 621 TOML](https://img.shields.io/python/required-version-toml?tomlFilePath=https://raw.githubusercontent.com/zhaow-de/zcrypto/develop/pyproject.toml)
 ![Coveralls](https://img.shields.io/coverallsCoverage/github/zhaow-de/zcrypto)
@@ -277,15 +277,29 @@ The **default cost model is calibrated realistic costs**: size-scaled slippage +
 
 ##### Built-in recipes
 
-| Recipe                      | Description                                                                                                                                                                                             |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `skeleton`                  | Naive baseline: `TopkDropoutStrategy` (topk=5), Alpha158 2-day label, no regime filter. Benchmark only — not a profitable strategy.                                                                     |
-| `steady`                    | Low-turnover book: `TopkDropoutStrategy` (topk=10, hold_thresh=5), 5-day label, stronger regularization. Validated but beats neither steady market.                                                     |
-| `regime_steady`             | `steady`'s model + book with a BTC-trend regime overlay (`RegimeGatedTopkStrategy`, binary 200-day SMA, vol-targeting off) and walk-forward holdout.                                                    |
-| `alpha360_steady`           | `steady`'s book + qlib's built-in `Alpha360` feature handler (~360 raw OHLCV factors) instead of Alpha158. A/B against `steady`.                                                                        |
-| `crossasset_steady`         | `steady`'s book + Alpha158 features + `CrossAssetProcessor`: BTC-anchored cross-asset features (relative strength, rolling beta, lead-lag, cointegration-deviation, cross-sectional momentum/vol rank). |
-| `funding_steady`            | `steady`'s book + perp-funding carry features (`FundingRateProcessor`): level, z-score, cross-sectional rank, moving average, rate-of-change. Isolation A/B vs `steady`.                                |
-| `funding_crossasset_steady` | `crossasset_steady`'s book + funding features stacked (`CrossAssetProcessor` then `FundingRateProcessor`). Stacking A/B vs `crossasset_steady`.                                                         |
+| Recipe                        | Description                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skeleton`                    | Naive baseline: `TopkDropoutStrategy` (topk=5), Alpha158 2-day label, no regime filter. Benchmark only — not a profitable strategy.                                                                     |
+| `steady`                      | Low-turnover book: `TopkDropoutStrategy` (topk=10, hold_thresh=5), 5-day label, stronger regularization. Validated but beats neither steady market.                                                     |
+| `linear_steady`               | `steady`'s book with a regularized linear model (Ridge, alpha=10) instead of LGBM (iter-27 model-axis test).                                                                                            |
+| `h1_steady`                   | `steady`'s book with a 1-day label (iter-28 label-horizon sweep).                                                                                                                                       |
+| `h10_steady`                  | `steady`'s book with a 10-day label (iter-28 label-horizon sweep).                                                                                                                                      |
+| `h20_steady`                  | `steady`'s book with a 20-day label (iter-28 label-horizon sweep).                                                                                                                                      |
+| `regime_steady`               | `steady`'s model + book with a BTC-trend regime overlay (`RegimeGatedTopkStrategy`, binary 200-day SMA, vol-targeting off) and walk-forward holdout.                                                    |
+| `regime_fast`                 | `steady`'s book + a faster binary 100-day-MA BTC-trend regime gate (iter-23 responsiveness sweep).                                                                                                      |
+| `regime_cross`                | `steady`'s book + a 50/200-day SMA golden-cross BTC-trend regime gate (iter-23 responsiveness sweep).                                                                                                   |
+| `regime_graded`               | `steady`'s book + a graded 200-day-MA BTC-trend regime gate (partial exposure in a ±5% chop band; iter-24 refinement).                                                                                  |
+| `regime_voltarget`            | `steady`'s book + a binary 200-day-MA gate with vol-targeting (exposure trimmed when BTC vol > 0.50; iter-24 refinement).                                                                               |
+| `regime_equalweight`          | No-selection baseline: hold the whole universe equal-weight (constant signal + topk=19) under the same regime gate as regime_voltarget (iter-29 selection-value test).                                  |
+| `regime_equalweight_majors`   | Gated equal-weight on the 10 large-cap majors (iter-30 universe A/B vs the broad regime_equalweight).                                                                                                   |
+| `regime_equalweight_top5`     | Gated equal-weight on the 5 mega-caps (iter-31 concentration A/B vs regime_equalweight_majors).                                                                                                         |
+| `regime_volweight_majors`     | Inverse-vol (risk-parity-lite) gated basket of the 10 majors (iter-32 A/B vs equal-weight).                                                                                                             |
+| `alpha360_steady`             | `steady`'s book + qlib's built-in `Alpha360` feature handler (~360 raw OHLCV factors) instead of Alpha158. A/B against `steady`.                                                                        |
+| `crossasset_steady`           | `steady`'s book + Alpha158 features + `CrossAssetProcessor`: BTC-anchored cross-asset features (relative strength, rolling beta, lead-lag, cointegration-deviation, cross-sectional momentum/vol rank). |
+| `funding_steady`              | `steady`'s book + perp-funding carry features (`FundingRateProcessor`): level, z-score, cross-sectional rank, moving average, rate-of-change. Isolation A/B vs `steady`.                                |
+| `regime_funding_voltarget`    | `funding_steady`'s book + a binary 200-day-MA regime gate with vol-targeting (iter-25 regime×funding stack test).                                                                                       |
+| `regime_crossasset_voltarget` | `crossasset_steady`'s book + a binary 200-day-MA regime gate with vol-targeting (iter-26 regime×cross-asset stack test).                                                                                |
+| `funding_crossasset_steady`   | `crossasset_steady`'s book + funding features stacked (`CrossAssetProcessor` then `FundingRateProcessor`). Stacking A/B vs `crossasset_steady`.                                                         |
 
 ##### Recipe fields: `feature_config`, `strategy_config`, and walk-forward knobs
 

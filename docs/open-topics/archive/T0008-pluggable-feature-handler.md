@@ -1,9 +1,10 @@
 ---
-status: partial
-priority: medium
+status: resolved
 ---
 
 # Pluggable feature handler
+
+> **Resolved (irrelevant now):** the `feature_config` seam shipped (iter-13) and was exercised end-to-end. The remaining next-steps (learned/embedding layers, more qlib built-in handlers) are all OHLCV-derived feature axes that iter-25/26/33 ruled out OOS (T0018, feature axis closed); the only live feature frontier — non-OHLCV data — already lives in T0010.
 
 ## Context — what
 

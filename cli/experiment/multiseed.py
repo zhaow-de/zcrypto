@@ -35,7 +35,10 @@ def summarize_seed_metrics(per_seed: list[dict]) -> dict:
     metrics = list(per_seed[0].keys())
     result = {}
     for m in metrics:
-        vals = [d[m] for d in per_seed]
+        # A degenerate window (e.g. a fully gated-to-cash regime arm) yields a constant return
+        # series -> Sharpe/PSR are 0/0 = nan/inf, which crashes statistics.stdev. Map any
+        # non-finite metric to 0.0 (an all-cash window has no risk-adjusted edge).
+        vals = [v if math.isfinite(v) else 0.0 for v in (d[m] for d in per_seed)]
         n = len(vals)
         mean = statistics.mean(vals)
         std = statistics.stdev(vals) if n > 1 else 0.0
@@ -164,6 +167,34 @@ def _holdout_context(recipe, data_dir, deterministic):
     )
 
 
+def _fit_predict(recipe, x_tr, y_tr, x_pe, *, seed, deterministic):
+    """Fit the recipe's model on the train matrices and predict the holdout rows.
+
+    LGBM (``model_config["class"] == "LGBModel"``) uses the existing per-seed bagging-RNG path
+    verbatim (the multi-seed determinism contract). Any other model is treated as an sklearn-style
+    regressor: imported from ``model_config["module_path"]`` and fit/predicted on the raw matrices
+    (deterministic models simply yield identical predictions across seeds).
+    """
+    import numpy as np
+
+    mc = recipe.model_config
+    if mc["class"] == "LGBModel":
+        import lightgbm as lgb
+
+        from cli.experiment.cpcv import _lgb_params
+
+        params, num_boost_round = _lgb_params(recipe, seed=seed, deterministic=deterministic)
+        booster = lgb.train(params, lgb.Dataset(x_tr.values, label=y_tr.values), num_boost_round=num_boost_round)
+        return booster.predict(x_pe.values)
+
+    import importlib
+
+    cls = getattr(importlib.import_module(mc["module_path"]), mc["class"])
+    model = cls(**mc.get("kwargs", {}))
+    model.fit(x_tr.values, y_tr.values)
+    return np.asarray(model.predict(x_pe.values))
+
+
 def _light_holdout(recipe, *, seed, deterministic, ctx):
     """Fit one LightGBM booster (varying only the bagging RNG via *seed*) and backtest.
 
@@ -172,21 +203,19 @@ def _light_holdout(recipe, *, seed, deterministic, ctx):
     qlib ``backtest()`` → return the daily ``report_df`` and the prediction ``signal``.
     Reuses the materialized matrices in *ctx*, so qlib.init / materialize happen once across the N seeds.
     """
-    import lightgbm as lgb
     import pandas as pd
     from qlib.backtest import backtest
 
-    from cli.experiment.cpcv import _lgb_params, _rows_on
+    from cli.experiment.cpcv import _rows_on
     from cli.experiment.scaffold import exchange_kwargs, strategy_config_with_signal
-
-    params, num_boost_round = _lgb_params(recipe, seed=seed, deterministic=deterministic)
 
     x_tr = _rows_on(ctx.learn_feat, ctx.train_dates)
     y_tr = _rows_on(ctx.learn_label, ctx.train_dates)
-    booster = lgb.train(params, lgb.Dataset(x_tr.values, label=y_tr.values), num_boost_round=num_boost_round)
-
     x_pe = _rows_on(ctx.infer_feat, ctx.predict_dates)
-    signal = pd.Series(booster.predict(x_pe.values), index=x_pe.index).sort_index()
+    signal = pd.Series(
+        _fit_predict(recipe, x_tr, y_tr, x_pe, seed=seed, deterministic=deterministic),
+        index=x_pe.index,
+    ).sort_index()
     dates = signal.index.get_level_values(0)
     pmd, _ = backtest(
         start_time=dates.min(),

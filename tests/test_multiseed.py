@@ -116,3 +116,54 @@ def test_run_holdout_seeds_aggregates(monkeypatch):
     assert [d["seed"] for d in out["per_seed"]] == [1, 2, 3, 4]
     assert out["summary"]["sharpe"]["n"] == 4
     assert abs(out["summary"]["sharpe"]["mean"] - 0.25) < 1e-9
+
+
+def test_summarize_seed_metrics_sanitizes_nonfinite():
+    """A fully gated-to-cash window yields a constant return series -> nan/inf Sharpe; the
+    aggregation must map non-finite values to 0.0 instead of crashing statistics.stdev."""
+    from cli.experiment.multiseed import summarize_seed_metrics
+
+    per_seed = [
+        {"sharpe": float("nan"), "ending": 10000.0},
+        {"sharpe": float("inf"), "ending": 10000.0},
+        {"sharpe": 0.0, "ending": 10000.0},
+    ]
+    out = summarize_seed_metrics(per_seed)
+    assert out["sharpe"]["mean"] == 0.0  # all three sanitized/zero -> 0.0
+    assert out["sharpe"]["std"] == 0.0
+    assert out["ending"]["mean"] == 10000.0
+
+
+def test_fit_predict_lgbm_branch_returns_predictions():
+    """LGBM recipe -> the existing lgb path; returns one prediction per holdout row."""
+    import numpy as np
+    import pandas as pd
+
+    from cli.experiment.multiseed import _fit_predict
+    from cli.experiment.recipes.base import resolve_recipe
+
+    rng = np.random.RandomState(0)
+    x_tr = pd.DataFrame(rng.rand(60, 6))
+    y_tr = pd.Series(rng.rand(60))
+    x_pe = pd.DataFrame(rng.rand(9, 6))
+    pred = _fit_predict(resolve_recipe("steady"), x_tr, y_tr, x_pe, seed=1, deterministic=True)
+    assert len(pred) == 9
+
+
+def test_fit_predict_generic_sklearn_branch_returns_predictions():
+    """A non-LGBM (sklearn-style) model_config -> importlib + fit/predict on matrices."""
+    from types import SimpleNamespace
+
+    import numpy as np
+    import pandas as pd
+
+    from cli.experiment.multiseed import _fit_predict
+
+    rng = np.random.RandomState(0)
+    x_tr = pd.DataFrame(rng.rand(60, 6))
+    y_tr = pd.Series(rng.rand(60))
+    x_pe = pd.DataFrame(rng.rand(9, 6))
+    recipe = SimpleNamespace(model_config={"class": "Ridge", "module_path": "sklearn.linear_model", "kwargs": {"alpha": 1.0}})
+    pred = _fit_predict(recipe, x_tr, y_tr, x_pe, seed=1, deterministic=True)
+    assert len(pred) == 9
+    assert np.isfinite(pred).all()
