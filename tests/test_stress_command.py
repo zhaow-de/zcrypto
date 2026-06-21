@@ -1,7 +1,10 @@
 import dataclasses
 import json
+import shutil
 from pathlib import Path
 
+import pandas as pd
+import pytest
 from typer.testing import CliRunner
 
 from cli.__main__ import app
@@ -9,12 +12,31 @@ from cli.__main__ import app
 runner = CliRunner()
 
 
+def _redis_up() -> bool:
+    try:
+        import redis
+
+        redis.Redis(host="localhost", port=6379, socket_connect_timeout=2).ping()
+        return True
+    except Exception:
+        return False
+
+
+def _make_daily_series(n: int = 5) -> "pd.Series":
+    """Return a tiny daily return Series with a DatetimeIndex."""
+    import pandas as pd
+
+    dates = pd.date_range("2022-01-03", periods=n, freq="B")
+    return pd.Series([0.001] * n, index=dates)
+
+
 def _fake_holdout(seen):
     # capture each window's (train, test) and return a fixed summary with sharpe + ls_sharpe.
     def _f(recipe, *, data_dir, seeds, deterministic=False):
         seen.append((recipe.segments["train"], recipe.segments["test"]))
+        daily = _make_daily_series()
         return {
-            "per_seed": [{"seed": 1, "sharpe": -0.5, "ls_sharpe": 0.4}],
+            "per_seed": [{"seed": 1, "sharpe": -0.5, "ls_sharpe": 0.4, "daily_long": daily, "daily_ls": daily}],
             "summary": {
                 "sharpe": {"mean": -0.5, "std": 0.0, "min": -0.5, "max": -0.5, "n": 1},
                 "ls_sharpe": {"mean": 0.4, "std": 0.0, "min": 0.4, "max": 0.4, "n": 1},
@@ -55,7 +77,7 @@ def test_stress_loops_all_windows_and_writes_summary(monkeypatch, tmp_path):
     seen = []
     _patch(monkeypatch, tmp_path, seen)
     out = tmp_path / "runs"
-    result = runner.invoke(app, ["stress", "--recipe", "steady", "--seeds", "1", "--out", str(out)])
+    result = runner.invoke(app, ["stress", "--recipe", "steady", "--seeds", "1", "--null", "", "--out", str(out)])
 
     assert result.exit_code == 0, result.stdout
     # 4 OOS windows, each trained from 2020 only on prior data
@@ -112,9 +134,125 @@ def test_stress_purge_scales_with_label_horizon(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cmd, "resolve_recipe", lambda name: _LongRecipe())
     out = tmp_path / "runs"
-    result = runner.invoke(app, ["stress", "--recipe", "h20_steady", "--seeds", "1", "--out", str(out)])
+    result = runner.invoke(app, ["stress", "--recipe", "h20_steady", "--seeds", "1", "--null", "", "--out", str(out)])
     assert result.exit_code == 0, result.stdout
     # every window's train_end must be >= 20 days before its test_start (purge >= horizon)
     for train, test in seen:
         gap = (dt.date.fromisoformat(test[0]) - dt.date.fromisoformat(train[1])).days
         assert gap >= 20, f"purge {gap}d < label horizon 20d (leak)"
+
+
+def test_stress_null_skip_when_empty(monkeypatch, tmp_path):
+    """--null '' skips the null path; existing keys still present, no null/delta keys."""
+    seen = []
+    _patch(monkeypatch, tmp_path, seen)
+    out = tmp_path / "runs"
+    result = runner.invoke(app, ["stress", "--recipe", "steady", "--seeds", "1", "--null", "", "--out", str(out)])
+
+    assert result.exit_code == 0, result.stdout
+    sj = sorted(out.glob("stress/steady/*/stress_summary.json"))
+    assert sj
+    data = json.loads(sj[-1].read_text())
+    w0 = data["windows"][0]
+    # null keys absent when --null ""
+    assert "null_sharpe_mean" not in w0
+    assert "delta_sharpe" not in w0
+    assert "delta_ci" not in w0
+    assert "deflated_sharpe" not in data["aggregate"]
+    assert "delta_mean_across_windows" not in data["aggregate"]
+
+
+def test_stress_null_benchmarking_unit(monkeypatch, tmp_path):
+    """With --null 'beta_null', per-window delta and CI are written; delta≈0 when cand==null."""
+    seen = []
+    _patch(monkeypatch, tmp_path, seen)
+    out = tmp_path / "runs"
+    result = runner.invoke(app, ["stress", "--recipe", "steady", "--seeds", "1", "--null", "beta_null", "--out", str(out)])
+
+    assert result.exit_code == 0, result.stdout
+    sj = sorted(out.glob("stress/steady/*/stress_summary.json"))
+    assert sj
+    data = json.loads(sj[-1].read_text())
+
+    for w in data["windows"]:
+        assert "null_sharpe_mean" in w
+        assert "delta_sharpe" in w
+        assert "delta_ci" in w
+        assert set(w["delta_ci"].keys()) >= {"lo", "hi", "se"}
+        # candidate == null (same fake_holdout), so delta ≈ 0
+        assert abs(w["delta_sharpe"]) < 1e-6, f"expected delta≈0 but got {w['delta_sharpe']}"
+
+    agg = data["aggregate"]
+    assert "delta_mean_across_windows" in agg
+    assert abs(agg["delta_mean_across_windows"]) < 1e-6
+    assert "deflated_sharpe" in agg
+
+    # trials.jsonl written at <out>/trials.jsonl
+    trials_path = out / "trials.jsonl"
+    assert trials_path.exists()
+    lines = [json.loads(ln) for ln in trials_path.read_text().splitlines() if ln.strip()]
+    assert len(lines) >= 1
+    assert lines[-1]["recipe"] == "steady"
+
+
+@pytest.mark.skipif(not _redis_up(), reason="needs redis (scripts/redis.sh start)")
+def test_stress_null_benchmark_real_beta_null(tmp_path, monkeypatch):
+    """Integration: stress --recipe beta_null --null beta_null -- delta_sharpe ≈ 0 every window.
+
+    The embedded fixture spans 2023-01-02..2024-06-28, so _TEST_STARTS is patched to two
+    windows that fit within that range and avoid the qlib backtest tail.
+    """
+    from importlib.resources import as_file, files
+
+    import cli.stress.command as cmd
+
+    # Two test windows within the fixture's 2023-01-02..2024-06-28 range.
+    monkeypatch.setattr(cmd, "_TEST_STARTS", ["2023-06-01", "2024-01-01"])
+
+    fixture_ref = files("cli.experiment").joinpath("data", "provider")
+    data_dir = tmp_path / "provider"
+    with as_file(fixture_ref) as src:
+        shutil.copytree(src, data_dir)
+
+    out = tmp_path / "runs"
+    result = runner.invoke(
+        app,
+        [
+            "stress",
+            "--recipe",
+            "beta_null",
+            "--null",
+            "beta_null",
+            "--seeds",
+            "2",
+            "--data-dir",
+            str(data_dir),
+            "--out",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    sj = sorted(out.glob("stress/beta_null/*/stress_summary.json"))
+    assert sj, "stress_summary.json not written"
+    data = json.loads(sj[-1].read_text())
+
+    for w in data["windows"]:
+        assert "null_sharpe_mean" in w
+        assert "delta_sharpe" in w
+        assert "delta_ci" in w
+        assert set(w["delta_ci"].keys()) >= {"lo", "hi", "se"}
+        # candidate == null: same recipe, same seeds, deterministic — delta must be ≈ 0
+        assert abs(w["delta_sharpe"]) < 1e-6, f"window {w['label']}: delta_sharpe={w['delta_sharpe']} not ≈ 0"
+
+    agg = data["aggregate"]
+    assert "delta_mean_across_windows" in agg
+    assert abs(agg["delta_mean_across_windows"]) < 1e-6
+    assert "deflated_sharpe" in agg
+
+    # trials.jsonl written at <out>/trials.jsonl
+    trials_path = out / "trials.jsonl"
+    assert trials_path.exists(), "trials.jsonl not written"
+    lines = [json.loads(ln) for ln in trials_path.read_text().splitlines() if ln.strip()]
+    assert len(lines) >= 1
+    assert lines[-1]["recipe"] == "beta_null"
