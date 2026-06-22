@@ -301,3 +301,168 @@ def test_membership_filter_none_is_backcompat():
     )
     assert set(w.keys()) == {"A", "B", "C", "D"}, f"no filter -> all names; got {set(w.keys())}"
     assert abs(sum(w.values()) - 1.0) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Per-asset trend-gating tests (Task 1, iter-35)
+# ---------------------------------------------------------------------------
+
+
+def _make_trend_stub(trend_window=None, membership_top_n=None):
+    """Build a VolWeightedRegimeStrategy stub without calling __init__ (no qlib needed).
+
+    Injects a 4-name vol panel with equal vols (equal weights) and sets trend_window.
+    Tests that need a trend filter inject _close_panel themselves.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = object.__new__(rg.VolWeightedRegimeStrategy)
+    s._base_risk_degree = 0.95
+    # 120 days starting 2024-09-01 so any test trade date in 2025-Jan has prior vol rows available.
+    dates = pd.date_range("2024-09-01", periods=120, freq="D")
+    s._vol_panel = pd.DataFrame(
+        {"A": [0.1] * 120, "B": [0.1] * 120, "C": [0.1] * 120, "D": [0.1] * 120},
+        index=dates,
+    )
+    s.membership_top_n = membership_top_n
+    s.membership_lookback_days = None
+    s._membership_schedule = None
+    s.trend_window = trend_window
+    s._close_panel = None  # injectable seam
+    return s
+
+
+def _make_close_panel(names, dates, values_dict):
+    """Build a synthetic close panel (MultiIndex: date x instrument)."""
+    tuples = [(d, n) for d in dates for n in names]
+    idx = pd.MultiIndex.from_tuples(tuples, names=["datetime", "instrument"])
+    data = [values_dict[n][i] for i, d in enumerate(dates) for n in names]
+    return pd.Series(data, index=idx, name="$close")
+
+
+def test_trend_filter_drops_below_sma_names():
+    """With trend_window=100 and injected close panel, only names with close > SMA survive."""
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_trend_stub(trend_window=100, membership_top_n=10)
+
+    # Inject membership active for the trade month (2024-12) so the gate genuinely fires:
+    # {A, B, C} are members; D is not (D is dropped by membership, B/C by the trend filter).
+    dec_ms = pd.Timestamp("2024-12-01")
+    s._membership_schedule = {dec_ms: ["A", "B", "C"]}
+
+    # Build a synthetic close panel:
+    # 110 days of history so SMA(100) is defined on the last day
+    # A: uptrend -> last close > SMA(100) -> survives
+    # B: flat then drops -> last close < SMA(100) -> dropped
+    # C: flat -> last close == SMA(100) -> dropped (≤ threshold)
+    n_days = 110
+    dates = pd.date_range("2024-09-01", periods=n_days, freq="D")
+
+    a_closes = [float(100 + i) for i in range(n_days)]  # rising -> last close > SMA
+    b_closes = [float(200 - i) for i in range(n_days)]  # falling -> last close < SMA
+    c_closes = [100.0] * n_days  # flat -> last close == SMA -> dropped
+
+    close_panel = pd.DataFrame({"A": a_closes, "B": b_closes, "C": c_closes}, index=dates)
+    s._close_panel = close_panel
+
+    trade_date = dates[-1]
+    score = pd.Series({"A": 0.5, "B": 0.5, "C": 0.5, "D": 0.5})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+    # Only A survives: in members AND close > SMA(100)
+    assert set(w.keys()) == {"A"}, f"expected only A; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9
+
+
+def test_trend_filter_intersects_with_membership():
+    """Held set = members ∩ {close > SMA}; a name above SMA but not a member is excluded."""
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_trend_stub(trend_window=5, membership_top_n=10)
+
+    # Membership: {A, B}; C not a member even though it may be above SMA.
+    # Trade date must be in Jan so the Jan membership key is picked up.
+    jan_ms = pd.Timestamp("2025-01-01")
+    s._membership_schedule = {jan_ms: ["A", "B"]}
+
+    # 10 days ending in mid-January 2025 so trade_date falls within the Jan membership window.
+    n_days = 10
+    dates = pd.date_range("2025-01-05", periods=n_days, freq="D")
+    a_closes = [float(100 + i) for i in range(n_days)]  # rising -> above SMA(5)
+    b_closes = [float(200 - i) for i in range(n_days)]  # falling -> below SMA(5)
+    c_closes = [float(100 + i) for i in range(n_days)]  # rising -> above SMA(5) but not a member
+
+    close_panel = pd.DataFrame({"A": a_closes, "B": b_closes, "C": c_closes}, index=dates)
+    s._close_panel = close_panel
+
+    trade_date = dates[-1]
+    score = pd.Series({"A": 0.5, "B": 0.5, "C": 0.5})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+    # A: member AND above SMA -> kept; B: member BUT below SMA -> dropped; C: above SMA but not member -> dropped
+    assert set(w.keys()) == {"A"}, f"expected only A; got {set(w.keys())}"
+
+
+def test_trend_filter_market_gate_disabled():
+    """When trend_window is set, get_risk_degree returns base * 1.0 (market BTC gate disabled)."""
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_trend_stub(trend_window=100)
+    # Inject a bearish BTC exposure series (would normally gate to 0.0)
+    idx = pd.date_range("2025-01-01", periods=2, freq="D")
+    s._exposure = pd.Series([0.0, 0.0], index=idx)  # BTC in full bear -> would zero exposure
+
+    class _Cal:
+        def __init__(self, d):
+            self._d = d
+
+        def get_trade_step(self):
+            return 0
+
+        def get_step_time(self, step, shift=0):
+            return (self._d, self._d)
+
+    import pytest
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _Cal(idx[0])), raising=False)
+    # trend_window set -> market gate disabled -> full base_risk_degree regardless of BTC
+    assert s.get_risk_degree(0) == 0.95, "market gate should be disabled when trend_window is set"
+    monkeypatch.undo()
+
+
+def test_trend_window_none_regression():
+    """trend_window=None -> generate_target_weight_position output identical to today's behaviour."""
+    from cli.experiment.strategies import regime as rg
+
+    # Build two identical stubs: one with trend_window explicitly None (new kwarg default), one without.
+    s1 = _make_trend_stub(trend_window=None, membership_top_n=None)
+    s2 = _make_trend_stub(trend_window=None, membership_top_n=None)
+
+    score = pd.Series({"A": 0.5, "B": 0.5, "C": 0.5, "D": 0.5})
+    trade_date = pd.Timestamp("2025-01-03")
+    w1 = s1.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+    w2 = s2.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+    assert w1 == w2
+    assert set(w1.keys()) == {"A", "B", "C", "D"}  # all names, no filtering
+
+
+def test_trend_filter_no_lookahead():
+    """SMA uses closes strictly on/before the trade date — no look-ahead."""
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_trend_stub(trend_window=3)
+
+    # 6 days of closes; trade_date is day index 4 (the 5th date).
+    # On days 0-4: A is below its 3d SMA (flat at 100).
+    # On day 5 (AFTER trade_date): A jumps to 1000 — if look-ahead is used, SMA would be 400, close > SMA.
+    # No look-ahead: only days 0-4 are used -> A flat at 100 -> close == SMA -> dropped.
+    dates = pd.date_range("2025-01-01", periods=6, freq="D")
+    a_closes = [100.0, 100.0, 100.0, 100.0, 100.0, 1000.0]
+    close_panel = pd.DataFrame({"A": a_closes}, index=dates)
+    s._close_panel = close_panel
+
+    trade_date = dates[4]  # 5th date; day 5 is future
+    score = pd.Series({"A": 0.5})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+    # A flat (close == SMA) -> dropped (≤ threshold) — no look-ahead into day 5
+    assert len(w) == 0 or w.get("A", 0.0) == 0.0, "look-ahead guard failed: future close must not affect SMA"
