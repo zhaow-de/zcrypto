@@ -4,7 +4,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 import urllib3.exceptions
 
-from cli.data.binance import HttpStatusError, _pool, _retryable_request, kline_checksum_url, kline_zip_url, parse_checksum_file
+from cli.data.binance import (
+    HttpStatusError,
+    _pool,
+    _retryable_request,
+    kline_checksum_url,
+    kline_zip_url,
+    metrics_url,
+    parse_checksum_file,
+)
 
 
 def test_kline_zip_url_shape():
@@ -74,3 +82,8 @@ def test_retryable_request_connection_error_retried():
         result = _retryable_request("GET", "http://x", timeout=30, attempts=3, base_delay=0.0)
     assert result is mock_ok
     assert m.call_count == 2
+
+
+def test_metrics_url_shape():
+    url = metrics_url("BTCUSDT", dt.date(2024, 1, 2))
+    assert url == "https://data.binance.vision/data/futures/um/daily/metrics/BTCUSDT/BTCUSDT-metrics-2024-01-02.zip"

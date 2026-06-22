@@ -15,8 +15,9 @@ import typer
 
 from cli.config import FetchConfig
 from cli.data import mirror
+from cli.data.basis import parse_basis_zip
 from cli.data.binance import Source
-from cli.data.config import FIELDS, SCHEMA_VERSION, SUPPORTED_INTERVALS
+from cli.data.config import DERIVATIVES_FIELDS, FIELDS, SCHEMA_VERSION, SUPPORTED_INTERVALS
 from cli.data.funding import daily_funding, parse_funding, perp_symbol
 from cli.data.index import (
     CalendarEntry,
@@ -32,6 +33,7 @@ from cli.data.index import (
 )
 from cli.data.klines import assert_no_internal_gaps, parse_kline_zip
 from cli.data.layout import DatasetPaths
+from cli.data.metrics import parse_metrics_zip
 from cli.data.qlib_writer import read_bin, write_bin, write_calendar, write_instruments
 from cli.data.snapshots import create_snapshot, prune_snapshots
 from cli.data.verify import verify_dataset
@@ -675,6 +677,105 @@ def _funding_for_pair(
     return out
 
 
+def _fetch_metrics_archive_cached(source: Source, perp: str, date: dt.date, mirror_root: Path) -> bytes | None:
+    """Daily metrics zip bytes for `perp`/`date`, mirror-cached.
+
+    Mirror hit → return cached bytes. Miss → fetch from source; a 404 (None) is not
+    persisted (a later run re-probes); otherwise bytes are saved to the mirror and returned.
+    """
+    mpath = mirror.metrics_mirror_path(mirror_root, perp, date)
+    cached = mirror.read_zip(mpath)
+    if cached is not None:
+        logger.debug("metrics mirror hit %s %s: %s", perp, date, mpath)
+        return cached
+    raw = source.fetch_metrics_archive(perp, date)
+    if raw is None:
+        return None
+    mirror.save_zip(mpath, raw)
+    return raw
+
+
+def _fetch_basis_archive_cached(source: Source, perp: str, date: dt.date, mirror_root: Path) -> bytes | None:
+    """Daily basis (premiumIndexKlines) zip bytes for `perp`/`date`, mirror-cached.
+
+    Mirror hit → return cached bytes. Miss → fetch from source; a 404 (None) is not
+    persisted; otherwise bytes are saved to the mirror and returned.
+    """
+    mpath = mirror.basis_mirror_path(mirror_root, perp, date)
+    cached = mirror.read_zip(mpath)
+    if cached is not None:
+        logger.debug("basis mirror hit %s %s: %s", perp, date, mpath)
+        return cached
+    raw = source.fetch_basis_archive(perp, date)
+    if raw is None:
+        return None
+    mirror.save_zip(mpath, raw)
+    return raw
+
+
+# Mapping from derivatives field name (storage) to the $-prefixed decoder output column.
+_DERIV_FIELD_COL: dict[str, str] = {
+    "oi": "$oi",
+    "oi_value": "$oi_value",
+    "ls_top": "$ls_top",
+    "ls_global": "$ls_global",
+    "taker_ratio": "$taker_ratio",
+    "basis": "$basis",
+}
+
+
+def _derivatives_for_pair(
+    source: Source, instrument: str, from_date: dt.date, to_date: dt.date, mirror_root: Path
+) -> dict[str, dict[dt.date, float]]:
+    """Daily derivatives values for `instrument` over [from_date, to_date].
+
+    Returns a dict keyed by storage field name (e.g. 'oi', 'basis'), each value being
+    a dict[date, float]. Dates absent from a map → NaN on write.
+
+    Mirrors the funding pattern: per-date perp mapping (PEPE→1000PEPEUSDT, MATIC→POL split),
+    404 → NaN for that date, log + continue. Archives are daily-keyed (not monthly).
+    """
+    # Initialise empty maps for all 6 derivatives fields.
+    out: dict[str, dict[dt.date, float]] = {f: {} for f in DERIVATIVES_FIELDS}
+
+    cur = from_date
+    while cur <= to_date:
+        perp = perp_symbol(instrument, cur)
+        if perp is None:
+            # Rename gap (e.g. MATIC→POL 2024-09-11/12) — no perp attributed; skip.
+            cur += dt.timedelta(days=1)
+            continue
+
+        # Metrics (5 fields: oi, oi_value, ls_top, ls_global, taker_ratio)
+        metrics_raw = _fetch_metrics_archive_cached(source, perp, cur, mirror_root)
+        if metrics_raw is not None:
+            try:
+                df = parse_metrics_zip(metrics_raw, perp, cur)
+                row = df.iloc[0]
+                for field, col in _DERIV_FIELD_COL.items():
+                    if col in row.index and col != "$basis":
+                        out[field][cur] = float(row[col])
+            except Exception as e:
+                logger.warning("%s %s: metrics parse error, skipping: %s", perp, cur, e)
+        else:
+            logger.debug("%s %s: metrics 404 — derivatives NaN for this date", perp, cur)
+
+        # Basis (1 field: basis)
+        basis_raw = _fetch_basis_archive_cached(source, perp, cur, mirror_root)
+        if basis_raw is not None:
+            try:
+                df = parse_basis_zip(basis_raw, perp, cur)
+                out["basis"][cur] = float(df.iloc[0]["$basis"])
+            except Exception as e:
+                logger.warning("%s %s: basis parse error, skipping: %s", perp, cur, e)
+        else:
+            logger.debug("%s %s: basis 404 — basis NaN for this date", perp, cur)
+
+        cur += dt.timedelta(days=1)
+
+    return out
+
+
 def _build_staging(
     out_dir: Path,
     staging: Path,
@@ -743,6 +844,15 @@ def _build_staging(
         fields_entries["funding"] = FieldEntry(
             bin=funding_rel, sha256=compute_sha256(staging / funding_rel), updated_at=utc_now_iso()
         )
+        # Derivatives (metrics + basis): daily-keyed, same alignment discipline as funding.
+        # Dates absent from a field map (no perp, rename gap, or 404) → NaN.
+        deriv_maps = _derivatives_for_pair(source, p.symbol, pair_from, pair_to, mirror_root)
+        for deriv_field in DERIVATIVES_FIELDS:
+            dmap = deriv_maps[deriv_field]
+            dvalues = [dmap.get(d, float("nan")) for d in df["date"].tolist()]
+            drel = f"features/{p.symbol.lower()}/{deriv_field}.day.bin"
+            write_bin(staging / drel, dvalues, start_index=start_idx)
+            fields_entries[deriv_field] = FieldEntry(bin=drel, sha256=compute_sha256(staging / drel), updated_at=utc_now_iso())
         pairs_entries[p.symbol] = PairEntry(
             base_asset=p.base,
             quote_asset=p.quote,
@@ -1321,6 +1431,13 @@ _FIELD_SYNTH: dict[str, float] = {
     # Funding has no value across a rename gap (the perp was halted), so NaN —
     # mirroring the price fields' suspension marker.
     "funding": _NAN,
+    # Derivatives fields (metrics + basis) also have no value during a rename gap.
+    "oi": _NAN,
+    "oi_value": _NAN,
+    "ls_top": _NAN,
+    "ls_global": _NAN,
+    "taker_ratio": _NAN,
+    "basis": _NAN,
 }
 
 

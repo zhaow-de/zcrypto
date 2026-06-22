@@ -44,6 +44,10 @@ class Source(Protocol):
 
     def fetch_funding_archive(self, perp: str, year: int, month: int) -> bytes | None: ...
 
+    def fetch_metrics_archive(self, perp: str, date: dt.date) -> bytes | None: ...
+
+    def fetch_basis_archive(self, perp: str, date: dt.date) -> bytes | None: ...
+
     def fetch_aggtrades_archive(self, symbol: str, date: dt.date) -> bytes: ...
 
     def fetch_aggtrades_checksum(self, symbol: str, date: dt.date) -> str | None: ...
@@ -100,6 +104,37 @@ def funding_archive_parts(perp: str, year: int, month: int) -> tuple[str, str]:
 
 def funding_url(perp: str, year: int, month: int) -> str:
     rel_dir, name = funding_archive_parts(perp, year, month)
+    return f"{BASE_URL}/data/{rel_dir}/{name}"
+
+
+def metrics_archive_parts(perp: str, date: dt.date) -> tuple[str, str]:
+    """(archive-relative dir, filename) for a daily futures metrics zip.
+
+    Single source of truth for the layout. URL path confirmed against data.binance.vision
+    on 2026-06-22: futures/um/daily/metrics/<PERP>/<PERP>-metrics-<YYYY-MM-DD>.zip
+    """
+    iso = date.strftime("%Y-%m-%d")
+    return f"futures/um/daily/metrics/{perp}", f"{perp}-metrics-{iso}.zip"
+
+
+def metrics_url(perp: str, date: dt.date) -> str:
+    rel_dir, name = metrics_archive_parts(perp, date)
+    return f"{BASE_URL}/data/{rel_dir}/{name}"
+
+
+def basis_archive_parts(perp: str, date: dt.date) -> tuple[str, str]:
+    """(archive-relative dir, filename) for a daily premiumIndexKlines (basis) zip.
+
+    Single source of truth for the layout. URL path confirmed against data.binance.vision
+    on 2026-06-22: futures/um/daily/premiumIndexKlines/<PERP>/1d/<PERP>-1d-<YYYY-MM-DD>.zip
+    Note: inner CSV and zip filename use '<PERP>-1d-<date>' (no 'premiumIndexKlines' in the name).
+    """
+    iso = date.strftime("%Y-%m-%d")
+    return f"futures/um/daily/premiumIndexKlines/{perp}/1d", f"{perp}-1d-{iso}.zip"
+
+
+def basis_url(perp: str, date: dt.date) -> str:
+    rel_dir, name = basis_archive_parts(perp, date)
     return f"{BASE_URL}/data/{rel_dir}/{name}"
 
 
@@ -222,6 +257,32 @@ class BinanceSource:
     def fetch_funding_archive(self, perp: str, year: int, month: int) -> bytes | None:  # pragma: no cover
         """Raw zip bytes for the monthly funding-rate archive, or None if the month has no archive (404)."""
         url = funding_url(perp, year, month)
+        try:
+            resp = _retryable_request(
+                "GET", url, timeout=self._fetch.http_timeout_get_secs, attempts=self._fetch.http_retry_attempts
+            )
+        except HttpStatusError as e:
+            if e.status == 404:
+                return None
+            raise
+        return resp.data
+
+    def fetch_metrics_archive(self, perp: str, date: dt.date) -> bytes | None:  # pragma: no cover
+        """Raw zip bytes for the daily futures metrics archive, or None if not found (404)."""
+        url = metrics_url(perp, date)
+        try:
+            resp = _retryable_request(
+                "GET", url, timeout=self._fetch.http_timeout_get_secs, attempts=self._fetch.http_retry_attempts
+            )
+        except HttpStatusError as e:
+            if e.status == 404:
+                return None
+            raise
+        return resp.data
+
+    def fetch_basis_archive(self, perp: str, date: dt.date) -> bytes | None:  # pragma: no cover
+        """Raw zip bytes for the daily premiumIndexKlines (basis) archive, or None if not found (404)."""
+        url = basis_url(perp, date)
         try:
             resp = _retryable_request(
                 "GET", url, timeout=self._fetch.http_timeout_get_secs, attempts=self._fetch.http_retry_attempts

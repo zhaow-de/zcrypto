@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from cli.data.config import SCHEMA_VERSION
+from cli.data.config import DERIVATIVES_FIELDS, SCHEMA_VERSION
 from cli.data.index import compute_sha256, load_index
 from cli.data.qlib_writer import read_bin
 
@@ -186,6 +186,15 @@ def verify_dataset(out_dir: Path, *, fail_on_gap: bool = False) -> VerifyReport:
                             first_d = expected_dates[start_idx + int(non_nan[0])]
                             last_d = expected_dates[start_idx + int(non_nan[-1])]
                             checks.append(f"{sym} funding: {first_d}..{last_d} ({non_nan.size}/{len(values)} days)")
+                    # Derivatives coverage: per-field report (informational, never a hard failure).
+                    if fname in DERIVATIVES_FIELDS:
+                        non_nan = np.nonzero(~np.isnan(values))[0]
+                        if non_nan.size == 0:
+                            checks.append(f"{sym} {fname}: no coverage (all NaN)")
+                        else:
+                            first_d = expected_dates[start_idx + int(non_nan[0])]
+                            last_d = expected_dates[start_idx + int(non_nan[-1])]
+                            checks.append(f"{sym} {fname}: {first_d}..{last_d} ({non_nan.size}/{len(values)} days)")
 
         # Report funding absent (no funding field registered in any interval) — expected for some coins, not a hard failure.
         if not any("funding" in e.fields for e in pair.intervals.values()):

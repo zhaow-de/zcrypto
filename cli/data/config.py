@@ -17,6 +17,18 @@ FIELDS: tuple[str, ...] = (
     "factor",
 )
 
+# Derivatives fields sourced from Binance futures archives (daily-keyed, spot↔perp map).
+# Written as separate .day.bin files alongside FIELDS and funding.day.bin.
+# NaN where a coin has no perp or before its perp launch.
+DERIVATIVES_FIELDS: tuple[str, ...] = (
+    "oi",
+    "oi_value",
+    "ls_top",
+    "ls_global",
+    "taker_ratio",
+    "basis",
+)
+
 SUPPORTED_INTERVALS = frozenset({"1d"})
 SNAPSHOT_KEEP = 7
 SCHEMA_VERSION = 2
