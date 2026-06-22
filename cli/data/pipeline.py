@@ -779,15 +779,18 @@ def _fetch_all_derivatives_concurrent(
             else:
                 _fetch_basis_archive_cached(source, perp, date, mirror_root)
         except Exception as e:
-            # Non-fatal: log and continue. The sequential loop will get a None → NaN.
-            logger.debug("derivatives pre-fetch %s %s %s: %s (skipping)", stream, perp, date, e)
+            # Best-effort pre-fetch: derivatives are NaN-able, so a failure here is non-fatal —
+            # the sequential loop retries this (perp, date) inline (bounded by the socket-timeout
+            # backstop) and falls back to NaN. A 404 is returned as None upstream (not raised), so
+            # anything caught here is an unexpected/persistent error worth surfacing at WARNING.
+            logger.warning("derivatives pre-fetch %s %s %s: skipping after error: %s", stream, perp, date, e)
 
     completed = 0
     with ThreadPoolExecutor(max_workers=fetch.fetch_concurrency, thread_name_prefix="zcrypto-deriv") as pool:
         futures = {pool.submit(_fetch_one, perp, date, stream): (perp, date, stream) for perp, date, stream in work}
         try:
             for fut in as_completed(futures):
-                fut.result()  # propagate unexpected exceptions
+                fut.result()  # _fetch_one swallows its own errors; this surfaces only executor-internal failures
                 completed += 1
                 if completed % log_every == 0 or completed == total:
                     logger.info(

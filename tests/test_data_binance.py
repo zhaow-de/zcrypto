@@ -18,6 +18,17 @@ from cli.data.binance import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _restore_socket_default_timeout():
+    """Constructing BinanceSource sets socket.setdefaulttimeout() process-wide (the stale-keepalive
+    hang backstop). Save/restore it so these tests never leak the global default into the rest of the suite."""
+    prev = socket.getdefaulttimeout()
+    try:
+        yield
+    finally:
+        socket.setdefaulttimeout(prev)
+
+
 def test_kline_zip_url_shape():
     url = kline_zip_url("BTCUSDT", "1d", dt.date(2024, 1, 2))
     assert url == ("https://data.binance.vision/data/spot/daily/klines/BTCUSDT/1d/BTCUSDT-1d-2024-01-02.zip")
