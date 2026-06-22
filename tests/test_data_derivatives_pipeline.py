@@ -11,14 +11,17 @@ from __future__ import annotations
 import datetime as dt
 import io
 import math
+import threading
 import zipfile
 from pathlib import Path
 
 import pytest
 
+from cli.config import FetchConfig
+from cli.data import mirror as _mirror
 from cli.data.index import load_index
 from cli.data.layout import DatasetPaths
-from cli.data.pipeline import download_pipeline, drop_pipeline, rename_pipeline
+from cli.data.pipeline import _fetch_all_derivatives_concurrent, download_pipeline, drop_pipeline, rename_pipeline
 from cli.data.qlib_writer import read_bin
 from cli.data.verify import verify_dataset
 from tests.data_fixtures import FakeSource
@@ -435,3 +438,113 @@ def test_rename_carries_derivatives_bins(tmp_path):
     new_dir = paths.data_dir / "features" / "newusdt"
     for field in ("oi", "oi_value", "ls_top", "ls_global", "taker_ratio", "basis"):
         assert (new_dir / f"{field}.day.bin").exists(), f"renamed NEW {field}.day.bin should exist"
+
+
+# ---------------------------------------------------------------------------
+# Test: concurrent derivatives pre-fetch populates the mirror
+# ---------------------------------------------------------------------------
+
+
+class _TrackingSource(FakeSource):
+    """FakeSource that counts calls to fetch_metrics_archive and fetch_basis_archive."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._lock = threading.Lock()
+        self.metrics_fetch_count = 0
+        self.basis_fetch_count = 0
+
+    def fetch_metrics_archive(self, perp: str, date: dt.date) -> bytes | None:
+        with self._lock:
+            self.metrics_fetch_count += 1
+        return super().fetch_metrics_archive(perp, date)
+
+    def fetch_basis_archive(self, perp: str, date: dt.date) -> bytes | None:
+        with self._lock:
+            self.basis_fetch_count += 1
+        return super().fetch_basis_archive(perp, date)
+
+
+def test_concurrent_derivatives_prefetch_populates_mirror(tmp_path):
+    """_fetch_all_derivatives_concurrent writes archives into the mirror so that the
+    sequential _derivatives_for_pair loop sees only mirror hits (no network calls there).
+
+    Approach: run _fetch_all_derivatives_concurrent with a tracking source, then verify
+    the mirror contains the expected files; run it again and confirm the source counters
+    do not increment (all hits served from the mirror).
+    """
+    start = dt.date(2024, 1, 1)
+    end = dt.date(2024, 1, 3)
+    paths = DatasetPaths(data_dir=tmp_path / "data", backup_dir=tmp_path / "bk")
+    mirror_root = _mirror.root_for(paths)
+
+    src = _TrackingSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    cur = start
+    all_dates: list[dt.date] = []
+    while cur <= end:
+        all_dates.append(cur)
+        src.add_metrics("BTCUSDT", cur)
+        src.add_basis("BTCUSDT", cur)
+        cur += dt.timedelta(days=1)
+
+    from cli.data.pipeline import _PerPair
+
+    plan = [_PerPair("BTCUSDT", "BTC", "USDT", start, end, True, None)]
+    fetch = FetchConfig()
+
+    # First pass: archives are fetched from source and written to the mirror.
+    _fetch_all_derivatives_concurrent(src, plan, fetch, mirror_root)
+
+    n_days = (end - start).days + 1
+    assert src.metrics_fetch_count == n_days, f"expected {n_days} metrics fetches, got {src.metrics_fetch_count}"
+    assert src.basis_fetch_count == n_days, f"expected {n_days} basis fetches, got {src.basis_fetch_count}"
+
+    # Verify mirror files exist for every date.
+    for d in all_dates:
+        m_path = _mirror.metrics_mirror_path(mirror_root, "BTCUSDT", d)
+        b_path = _mirror.basis_mirror_path(mirror_root, "BTCUSDT", d)
+        assert m_path.exists(), f"metrics mirror file missing for {d}"
+        assert b_path.exists(), f"basis mirror file missing for {d}"
+
+    # Second pass: all hits from mirror — source counters must not increment.
+    counts_before = (src.metrics_fetch_count, src.basis_fetch_count)
+    _fetch_all_derivatives_concurrent(src, plan, fetch, mirror_root)
+    assert src.metrics_fetch_count == counts_before[0], "second pass must not re-fetch metrics (mirror hit)"
+    assert src.basis_fetch_count == counts_before[1], "second pass must not re-fetch basis (mirror hit)"
+
+
+def test_download_pipeline_derivatives_served_from_mirror_in_sequential_loop(tmp_path):
+    """download_pipeline pre-fetches derivatives concurrently; _derivatives_for_pair
+    reads only from the mirror (no network calls during the sequential loop).
+
+    Verifies that the total source.fetch_metrics_archive calls equal the number of
+    derivatives dates (one per date, during the concurrent pre-fetch) — not doubled
+    (which would indicate the sequential loop also hit the network).
+    """
+    start = dt.date(2024, 1, 1)
+    end = dt.date(2024, 1, 3)
+
+    src = _TrackingSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    cur = start
+    while cur <= end:
+        src.add_kline("BTCUSDT", "1d", cur)
+        src.add_metrics("BTCUSDT", cur)
+        src.add_basis("BTCUSDT", cur)
+        cur += dt.timedelta(days=1)
+
+    pairs_file = tmp_path / "pairs.txt"
+    pairs_file.write_text("BTCUSDT\n")
+    paths = DatasetPaths(data_dir=tmp_path / "data", backup_dir=tmp_path / "bk")
+
+    download_pipeline(paths, pairs_file, "1d", start, end, src)
+    assert verify_dataset(paths.data_dir).ok
+
+    # _fetch_all_derivatives_concurrent fetches once per (perp, date);
+    # _derivatives_for_pair must get mirror hits → no additional source calls.
+    n_days = (end - start).days + 1
+    assert src.metrics_fetch_count == n_days, (
+        f"expected exactly {n_days} metrics fetches (pre-fetch only), got {src.metrics_fetch_count}"
+    )
+    assert src.basis_fetch_count == n_days, f"expected exactly {n_days} basis fetches (pre-fetch only), got {src.basis_fetch_count}"

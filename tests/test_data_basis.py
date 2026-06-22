@@ -99,18 +99,19 @@ def test_parse_basis_zip_takes_close_not_open():
 # ---------------------------------------------------------------------------
 
 
-def test_parse_basis_zip_missing_close_column_raises():
-    """A CSV missing the 'close' column raises ValueError."""
+def test_parse_basis_zip_wrong_column_count_raises():
+    """A CSV with the wrong number of columns raises ValueError."""
+    # 11-column row (missing one field): should be rejected as wrong column count
     bad_header = "open_time,open,high,low,volume,close_time,quote_volume,count,taker_buy_volume,taker_buy_quote_volume,ignore\n"
     row = _make_one_day_row(D)
-    # Drop the 'close' column (index 4) from the row
+    # Drop the 'close' column (index 4) from the row to produce an 11-col CSV
     row_without_close = row[:4] + row[5:]
     lines = [bad_header.rstrip("\n"), ",".join(str(x) for x in row_without_close)]
     csv_text = "\n".join(lines) + "\n"
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr(f"BTCUSDT-1d-{D}.csv", csv_text)
-    with pytest.raises(ValueError, match="missing column"):
+    with pytest.raises(ValueError, match="expected 12 columns"):
         parse_basis_zip(buf.getvalue(), "BTCUSDT", D)
 
 
@@ -130,3 +131,61 @@ def test_parse_basis_zip_multiple_files_raises():
         zf.writestr("b.csv", "x")
     with pytest.raises(ValueError, match="exactly one file"):
         parse_basis_zip(buf.getvalue(), "BTCUSDT", D)
+
+
+# ---------------------------------------------------------------------------
+# Headerless archive support (older Binance premiumIndexKlines archives)
+# ---------------------------------------------------------------------------
+
+
+def _make_headerless_basis_zip(date: dt.date, close: float) -> bytes:
+    """Pack a HEADERLESS kline row (no column-name header row) into a zip.
+
+    Older Binance premiumIndexKlines archives (e.g. 2020-07-16) contain raw positional
+    values with no header. The positional schema is:
+      [open_time, open, high, low, close, volume, close_time, quote_volume,
+       count, taker_buy_volume, taker_buy_quote_volume, ignore]
+    $basis = close (index 4).
+    """
+    import calendar
+
+    open_ms = int(calendar.timegm(date.timetuple())) * 1000
+    close_ms = open_ms + 86400000 - 1
+    row = f"{open_ms},0.00120492,0.00437548,-0.00266731,{close},0,{close_ms},0,17278,0,0,0\n"
+    inner_name = f"BTCUSDT-1d-{date}.csv"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(inner_name, row)
+    return buf.getvalue()
+
+
+def test_parse_basis_zip_headerless_returns_correct_close():
+    """Older headerless archives (no column-name row) parse correctly; $basis = close (col 4)."""
+    old_date = dt.date(2020, 7, 16)
+    expected_close = -0.00266731
+    zip_bytes = _make_headerless_basis_zip(old_date, expected_close)
+    df = parse_basis_zip(zip_bytes, "BTCUSDT", old_date)
+    assert len(df) == 1
+    assert df.index[0] == old_date
+    assert list(df.columns) == ["$basis"]
+    assert df.iloc[0]["$basis"] == pytest.approx(expected_close)
+
+
+def test_parse_basis_zip_headerless_does_not_confuse_open_with_close():
+    """Headerless archive: open (col 1) and close (col 4) are distinct; only close is returned."""
+    old_date = dt.date(2020, 7, 16)
+    # open=0.00120492, close=-0.00266731 — they must not be swapped
+    zip_bytes = _make_headerless_basis_zip(old_date, -0.00266731)
+    df = parse_basis_zip(zip_bytes, "BTCUSDT", old_date)
+    # Should be close (index 4), not open (index 1)
+    assert df.iloc[0]["$basis"] == pytest.approx(-0.00266731)
+    assert df.iloc[0]["$basis"] != pytest.approx(0.00120492)
+
+
+def test_parse_basis_zip_headered_still_works_after_headerless_fix():
+    """Headered (recent) archives continue to parse correctly after the headerless fix."""
+    zip_bytes = _make_basis_zip(D, [_make_one_day_row(D, close=0.00070818)])
+    df = parse_basis_zip(zip_bytes, "BTCUSDT", D)
+    assert len(df) == 1
+    assert df.index[0] == D
+    assert df.iloc[0]["$basis"] == pytest.approx(0.00070818)

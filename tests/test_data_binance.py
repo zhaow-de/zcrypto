@@ -1,10 +1,13 @@
 import datetime as dt
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
 import urllib3.exceptions
 
+from cli.config import FetchConfig
 from cli.data.binance import (
+    BinanceSource,
     HttpStatusError,
     _pool,
     _retryable_request,
@@ -13,6 +16,17 @@ from cli.data.binance import (
     metrics_url,
     parse_checksum_file,
 )
+
+
+@pytest.fixture(autouse=True)
+def _restore_socket_default_timeout():
+    """Constructing BinanceSource sets socket.setdefaulttimeout() process-wide (the stale-keepalive
+    hang backstop). Save/restore it so these tests never leak the global default into the rest of the suite."""
+    prev = socket.getdefaulttimeout()
+    try:
+        yield
+    finally:
+        socket.setdefaulttimeout(prev)
 
 
 def test_kline_zip_url_shape():
@@ -87,3 +101,31 @@ def test_retryable_request_connection_error_retried():
 def test_metrics_url_shape():
     url = metrics_url("BTCUSDT", dt.date(2024, 1, 2))
     assert url == "https://data.binance.vision/data/futures/um/daily/metrics/BTCUSDT/BTCUSDT-metrics-2024-01-02.zip"
+
+
+# ---------------------------------------------------------------------------
+# Stale-connection hang backstop: socket.setdefaulttimeout
+# ---------------------------------------------------------------------------
+
+
+def test_binance_source_sets_socket_default_timeout():
+    """BinanceSource sets a process-wide socket read timeout as a backstop against stale
+    keep-alive connections that would otherwise block ssl.read() indefinitely.
+
+    The faulthandler-pinned hang: ssl.read ← http.client._read_status ← urllib3 getresponse
+    ← _pool.request. urllib3's per-request timeout does NOT fire on the ssl.read() of the
+    HTTP status line when a pooled connection is reused after the server silently dropped it.
+    socket.setdefaulttimeout() is the backstop: it fires unconditionally and raises
+    socket.timeout (OSError subclass), caught by _retryable_request's OSError branch.
+
+    Assert that constructing BinanceSource with a given http_timeout_get_secs results in
+    socket.getdefaulttimeout() returning a value >= http_timeout_get_secs (the margin
+    above the configured timeout is an implementation detail, not a contract).
+    """
+    fetch = FetchConfig(http_timeout_get_secs=60)
+    BinanceSource(fetch=fetch)
+    timeout = socket.getdefaulttimeout()
+    assert timeout is not None, "socket.setdefaulttimeout must be set (not None) after BinanceSource init"
+    assert timeout >= fetch.http_timeout_get_secs, (
+        f"socket default timeout ({timeout}s) must be >= http_timeout_get_secs ({fetch.http_timeout_get_secs}s)"
+    )

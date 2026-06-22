@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import socket
 import time
 from typing import Protocol
 
@@ -218,6 +219,15 @@ class BinanceSource:
 
     def __init__(self, fetch: FetchConfig = FetchConfig()):
         self._fetch = fetch
+        # Backstop: set a process-wide socket read timeout so a stale keep-alive connection
+        # can never block indefinitely. urllib3's per-request timeout is not enforced on the
+        # ssl.read() of the HTTP status line when a pooled connection is reused after the
+        # server has silently dropped it (faulthandler-confirmed hang: ssl.read ←
+        # http.client._read_status ← urllib3 getresponse ← _pool.request). The socket-level
+        # default timeout fires unconditionally and raises socket.timeout (an OSError subclass),
+        # which _retryable_request catches (OSError branch) and retries on a fresh connection.
+        # Margin of 10 s above http_timeout_get_secs so normal transfers are never cut short.
+        socket.setdefaulttimeout(fetch.http_timeout_get_secs + 10)
 
     def fetch_exchange_info(self) -> list[dict]:  # pragma: no cover
         resp = _retryable_request(
