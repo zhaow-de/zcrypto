@@ -160,6 +160,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         membership_top_n: int | None = None,
         membership_lookback_days: int | None = None,
         trend_window: int | None = None,
+        compose_market_gate: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -177,6 +178,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.membership_top_n = membership_top_n
         self.membership_lookback_days = membership_lookback_days
         self.trend_window = trend_window
+        self.compose_market_gate = compose_market_gate
         self._membership_schedule: dict | None = None  # lazy; injectable for tests
         self._close_panel: pd.DataFrame | None = None  # lazy; injectable for tests
         self._exposure = self._build_exposure()
@@ -213,8 +215,9 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         return close.unstack(level="instrument").sort_index()
 
     def _mult_for(self, date) -> float:
-        # Per-asset trend mode: disable the market BTC gate; the per-asset filter governs.
-        if getattr(self, "trend_window", None) is not None:
+        # Per-asset trend replace mode: disable the market BTC gate; the per-asset filter governs.
+        # In compose mode (compose_market_gate=True), the gate stays active alongside the per-asset filter.
+        if getattr(self, "trend_window", None) is not None and not getattr(self, "compose_market_gate", False):
             return 1.0
         date = pd.Timestamp(date).normalize()
         exp = self._exposure

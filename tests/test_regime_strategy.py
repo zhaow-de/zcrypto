@@ -466,3 +466,161 @@ def test_trend_filter_no_lookahead():
     w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
     # A flat (close == SMA) -> dropped (≤ threshold) — no look-ahead into day 5
     assert len(w) == 0 or w.get("A", 0.0) == 0.0, "look-ahead guard failed: future close must not affect SMA"
+
+
+# ---------------------------------------------------------------------------
+# compose_market_gate tests (Task 1, iter-37)
+# ---------------------------------------------------------------------------
+
+
+def _make_compose_stub(trend_window=None, compose_market_gate=False):
+    """Build a VolWeightedRegimeStrategy stub for compose_market_gate tests.
+
+    Inherits _make_trend_stub layout; adds compose_market_gate and _exposure injection.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_trend_stub(trend_window=trend_window)
+    s.compose_market_gate = compose_market_gate
+    # Default to a bullish exposure; tests that need bearish override this.
+    idx = pd.date_range("2025-01-01", periods=2, freq="D")
+    s._exposure = pd.Series([1.0, 1.0], index=idx)
+    return s
+
+
+def test_compose_mode_bearish_market_cashes_regardless_of_per_asset_trend():
+    """compose_market_gate=True: bearish BTC exposure zeros get_risk_degree (market gate active)."""
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_compose_stub(trend_window=100, compose_market_gate=True)
+    # Override to bearish
+    idx = pd.date_range("2025-01-01", periods=2, freq="D")
+    s._exposure = pd.Series([0.0, 0.0], index=idx)
+
+    class _Cal:
+        def __init__(self, d):
+            self._d = d
+
+        def get_trade_step(self):
+            return 0
+
+        def get_step_time(self, step, shift=0):
+            return (self._d, self._d)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _Cal(idx[0])), raising=False)
+    # compose mode + bearish -> market gate fires -> risk_degree == 0.0
+    assert s.get_risk_degree(0) == 0.0, "compose mode must honour market gate in a BTC-bear"
+    monkeypatch.undo()
+
+
+def test_compose_mode_bullish_market_per_asset_filter_still_drops_below_sma():
+    """compose_market_gate=True: bullish market + per-asset filter active; below-SMA names dropped."""
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_compose_stub(trend_window=100, compose_market_gate=True)
+    # Bullish market exposure (gate passes)
+    idx = pd.date_range("2025-01-01", periods=2, freq="D")
+    s._exposure = pd.Series([1.0, 1.0], index=idx)
+
+    # Build a close panel: 110 days; A rising (above SMA), B falling (below SMA)
+    n_days = 110
+    dates = pd.date_range("2024-09-01", periods=n_days, freq="D")
+    a_closes = [float(100 + i) for i in range(n_days)]  # rising -> above SMA(100)
+    b_closes = [float(200 - i) for i in range(n_days)]  # falling -> below SMA(100)
+    s._close_panel = pd.DataFrame({"A": a_closes, "B": b_closes}, index=dates)
+
+    trade_date = dates[-1]
+    score = pd.Series({"A": 0.5, "B": 0.5})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+    # In bullish market: per-asset filter active -> only A (above SMA) kept
+    assert set(w.keys()) == {"A"}, f"expected only A after per-asset filter; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9
+
+
+def test_replace_mode_regression_bearish_market_ignored():
+    """compose_market_gate=False (default): market gate disabled even with bearish BTC exposure."""
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_compose_stub(trend_window=100, compose_market_gate=False)
+    # Bearish market exposure
+    idx = pd.date_range("2025-01-01", periods=2, freq="D")
+    s._exposure = pd.Series([0.0, 0.0], index=idx)
+
+    class _Cal:
+        def __init__(self, d):
+            self._d = d
+
+        def get_trade_step(self):
+            return 0
+
+        def get_step_time(self, step, shift=0):
+            return (self._d, self._d)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _Cal(idx[0])), raising=False)
+    # replace mode (compose_market_gate=False) -> gate disabled -> full base risk degree
+    assert s.get_risk_degree(0) == 0.95, "replace mode must ignore market gate"
+    monkeypatch.undo()
+
+
+def test_replace_mode_regression_above_sma_coin_held_in_bear():
+    """compose_market_gate=False: a coin above its own SMA is held even with bearish BTC exposure."""
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_compose_stub(trend_window=100, compose_market_gate=False)
+    # Bearish market (irrelevant in replace mode)
+    idx = pd.date_range("2025-01-01", periods=2, freq="D")
+    s._exposure = pd.Series([0.0, 0.0], index=idx)
+
+    # A is above its SMA; with replace mode the market gate is disabled, so A should be held.
+    n_days = 110
+    dates = pd.date_range("2024-09-01", periods=n_days, freq="D")
+    a_closes = [float(100 + i) for i in range(n_days)]  # rising -> above SMA(100)
+    s._close_panel = pd.DataFrame({"A": a_closes}, index=dates)
+
+    trade_date = dates[-1]
+    score = pd.Series({"A": 0.5})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+    # A above SMA; replace mode ignores bear market -> A is held
+    assert "A" in w, f"replace mode: above-SMA coin must be held in bear market; got {w}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9
+
+
+def test_trend_window_none_compose_flag_ignored_regression():
+    """trend_window=None: compose_market_gate has no effect (market gate governs via _exposure)."""
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    # Build two stubs: trend_window=None, one with compose_market_gate=True, one False.
+    # Both should behave identically: the market gate (from _exposure) is active.
+    s1 = _make_compose_stub(trend_window=None, compose_market_gate=True)
+    s2 = _make_compose_stub(trend_window=None, compose_market_gate=False)
+
+    idx = pd.date_range("2025-01-01", periods=2, freq="D")
+    # Set same bullish exposure for both
+    s1._exposure = pd.Series([0.8, 0.8], index=idx)
+    s2._exposure = pd.Series([0.8, 0.8], index=idx)
+
+    class _Cal:
+        def __init__(self, d):
+            self._d = d
+
+        def get_trade_step(self):
+            return 0
+
+        def get_step_time(self, step, shift=0):
+            return (self._d, self._d)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _Cal(idx[0])), raising=False)
+    rd1 = s1.get_risk_degree(0)
+    rd2 = s2.get_risk_degree(0)
+    monkeypatch.undo()
+    assert rd1 == rd2, f"trend_window=None: compose flag must not alter risk_degree ({rd1} vs {rd2})"
+    assert abs(rd1 - 0.95 * 0.8) < 1e-9
