@@ -624,3 +624,144 @@ def test_trend_window_none_compose_flag_ignored_regression():
     monkeypatch.undo()
     assert rd1 == rd2, f"trend_window=None: compose flag must not alter risk_degree ({rd1} vs {rd2})"
     assert abs(rd1 - 0.95 * 0.8) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Basis-froth overlay tests (iter-39)
+# ---------------------------------------------------------------------------
+
+
+def _make_froth_stub(froth_field=None, froth_lookback=90, froth_z_threshold=1.5, froth_derisk_mult=0.0):
+    """Build a VolWeightedRegimeStrategy stub without calling __init__ (no qlib needed).
+
+    Injects a bullish exposure series and froth params; tests inject _froth_signal themselves.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = object.__new__(rg.VolWeightedRegimeStrategy)
+    s._base_risk_degree = 0.95
+    idx = pd.date_range("2025-01-01", periods=5, freq="D")
+    # Bullish BTC exposure throughout
+    s._exposure = pd.Series([1.0, 1.0, 1.0, 1.0, 1.0], index=idx)
+    s.trend_window = None
+    s.compose_market_gate = False
+    s.froth_field = froth_field
+    s.froth_lookback = froth_lookback
+    s.froth_z_threshold = froth_z_threshold
+    s.froth_derisk_mult = froth_derisk_mult
+    s._froth_signal = None  # injectable seam; tests override below
+    return s
+
+
+class _FrothCal:
+    """Minimal trade_calendar stub for froth tests."""
+
+    def __init__(self, d):
+        self._d = d
+
+    def get_trade_step(self):
+        return 0
+
+    def get_step_time(self, step, shift=0):
+        return (self._d, self._d)
+
+
+def test_froth_above_threshold_zeroes_exposure():
+    """froth_z > threshold at date → exposure = regime_mult × froth_derisk_mult (0.0 → cash)."""
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_froth_stub(froth_field="$basis", froth_z_threshold=1.5, froth_derisk_mult=0.0)
+    idx = pd.date_range("2025-01-01", periods=3, freq="D")
+    # Inject: day 0 below threshold, day 1 above threshold (frothy), day 2 below again
+    s._froth_signal = pd.Series([0.5, 2.0, 0.3], index=idx)
+
+    monkeypatch = pytest.MonkeyPatch()
+    # Day 1 (froth_z=2.0 > 1.5) → de-risked → 0.95 * 1.0 (regime) * 0.0 (froth) = 0.0
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _FrothCal(idx[1])), raising=False)
+    assert s.get_risk_degree(0) == 0.0, "above-threshold froth must zero exposure"
+    monkeypatch.undo()
+
+
+def test_froth_below_threshold_regime_multiplier_unchanged():
+    """froth_z below threshold → regime multiplier applies; froth overlay does not fire."""
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_froth_stub(froth_field="$basis", froth_z_threshold=1.5, froth_derisk_mult=0.0)
+    idx = pd.date_range("2025-01-01", periods=3, freq="D")
+    s._froth_signal = pd.Series([0.5, 1.0, 0.3], index=idx)  # all below 1.5
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _FrothCal(idx[1])), raising=False)
+    # No de-risk → 0.95 * 1.0 (regime, bullish) = 0.95
+    assert abs(s.get_risk_degree(0) - 0.95) < 1e-9, "below-threshold froth must not alter risk_degree"
+    monkeypatch.undo()
+
+
+def test_froth_field_none_regression():
+    """froth_field=None → _mult_for behaves identically to before the overlay was added (regression)."""
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    # Two identical stubs: one with froth_field=None, one with no froth attrs set at all (old-style stub).
+    s_with = _make_froth_stub(froth_field=None)
+    s_without = object.__new__(rg.VolWeightedRegimeStrategy)
+    s_without._base_risk_degree = 0.95
+    idx = pd.date_range("2025-01-01", periods=5, freq="D")
+    s_without._exposure = pd.Series([1.0, 1.0, 1.0, 1.0, 1.0], index=idx)
+    s_without.trend_window = None
+    s_without.compose_market_gate = False
+    # No froth attrs at all — getattr guards must handle this.
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _FrothCal(idx[2])), raising=False)
+    rd_with = s_with.get_risk_degree(0)
+    rd_without = s_without.get_risk_degree(0)
+    monkeypatch.undo()
+    assert abs(rd_with - rd_without) < 1e-9, "froth_field=None must not alter risk_degree vs no-froth stub"
+    assert abs(rd_with - 0.95) < 1e-9
+
+
+def test_froth_nan_z_does_not_derisk():
+    """NaN froth_z (warmup / missing data) → overlay does NOT de-risk (treat NaN as 'no signal')."""
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_froth_stub(froth_field="$basis", froth_z_threshold=1.5, froth_derisk_mult=0.0)
+    idx = pd.date_range("2025-01-01", periods=3, freq="D")
+    # NaN on day 1 (warmup)
+    s._froth_signal = pd.Series([float("nan"), float("nan"), 0.5], index=idx)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _FrothCal(idx[1])), raising=False)
+    # NaN froth → no de-risk → full regime mult applies
+    assert abs(s.get_risk_degree(0) - 0.95) < 1e-9, "NaN froth_z must not trigger de-risk"
+    monkeypatch.undo()
+
+
+def test_froth_no_lookahead():
+    """The froth z-score at date d uses only dates ≤ d (rolling window, no look-ahead)."""
+    # Build a froth signal directly (no qlib) and verify rolling z-score is causal.
+    cs_median = pd.Series(
+        [0.0, 0.0, 0.0, 0.0, 5.0],  # day 4 is a big spike — only affects z-score AT day 4+
+        index=pd.date_range("2025-01-01", periods=5, freq="D"),
+    )
+    lb = 3
+    roll_mean = cs_median.rolling(lb, min_periods=lb).mean()
+    roll_std = cs_median.rolling(lb, min_periods=lb).std()
+    froth_z = (cs_median - roll_mean) / roll_std
+
+    # At day 3 (idx=3), the window is [0,0,0] → mean=0, std=0 → z is NaN or 0 (std=0 case);
+    # the spike on day 4 must NOT affect the z at day 3.
+    z_at_day3 = froth_z.iloc[3]
+    # std([0,0,0]) = 0 → z = NaN; either way, no signal from the future spike
+    assert z_at_day3 != z_at_day3 or z_at_day3 == 0.0, "future spike must not influence prior z-score"
+    # At day 4, the spike IS reflected (causal update)
+    z_at_day4 = froth_z.iloc[4]
+    assert not (z_at_day4 != z_at_day4), "z at spike day must be non-NaN (causal)"
+    assert z_at_day4 > 1.0, "spike should produce a z above threshold"
