@@ -706,3 +706,23 @@ def test_tsmom_voltarget_w200_is_tsmom_at_200d_window():
     assert r.segments == bn.segments
     assert r.fee_preset == bn.fee_preset == "vip2_bnb"
     assert r.label_horizon_days == bn.label_horizon_days
+
+
+def test_tsmom_compose_is_tsmom_plus_compose_flag():
+    r = resolve_recipe("tsmom_compose")
+    t100 = resolve_recipe("tsmom_voltarget")
+    bn = resolve_recipe("beta_null")
+    assert r.name == "tsmom_compose"
+    # composes per-asset selection (trend_window) WITH the market gate (compose flag)
+    assert r.strategy_config["kwargs"]["trend_window"] == 100
+    assert r.strategy_config["kwargs"]["compose_market_gate"] is True
+    # the ONLY change vs tsmom_voltarget is the compose flag (replace-mode default is False/absent)
+    assert t100.strategy_config["kwargs"].get("compose_market_gate", False) is False
+    r_kw = {k: v for k, v in r.strategy_config["kwargs"].items() if k != "compose_market_gate"}
+    t_kw = {k: v for k, v in t100.strategy_config["kwargs"].items() if k != "compose_market_gate"}
+    assert r_kw == t_kw
+    # non-lever fields still match the beta_null book
+    assert r.universe == bn.universe
+    assert r.segments == bn.segments
+    assert r.fee_preset == bn.fee_preset == "vip2_bnb"
+    assert r.label_horizon_days == bn.label_horizon_days
