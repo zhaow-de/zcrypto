@@ -39,6 +39,12 @@ recipe are the apparatus for the variants below.
   (not adopted), but it's the **first non-negative** derivatives signal and the **most promising** (vs basis's
   clear −0.18/−0.21). Spec `00038`; the `oi_divergence`/`_apply_cross_sectional_tilt(sign=+1)` machinery is
   reusable. **The shelve-derivatives kill-condition is NOT met** — OI-divergence is a live thread to refine.
+- iter-42: **directional** OI-divergence (`oi_div_directional`: confirmation = `oi_chg` for up-price coins,
+  NaN/neutral for down-price — stops up-weighting confirmed downtrends) is **NEUTRAL (+0.010, ~tied with
+  iter-41)**. It *validated* the directional hypothesis — 2023 improved to −0.086 (from −0.33) — but 2025
+  worsened, so net unchanged. **Cross-iteration:** OI-confirmation **consistently helps 2024** (+0.31/+0.41)
+  but is flat/negative in 2023/2025 → a real **strong-bull-regime** effect, not all-weather. Spec `00039`;
+  the directional form supersedes iter-41's symmetric one. Still no CI-clearing edge.
 
 ## Suggested next steps
 

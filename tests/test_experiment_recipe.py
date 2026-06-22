@@ -843,3 +843,49 @@ def test_oi_divergence_tilt_non_lever_fields_match_beta_null():
     assert oi.reference_instruments == bn.reference_instruments
     assert oi.handler_kwargs == bn.handler_kwargs
     assert oi.feature_config == bn.feature_config
+
+
+def test_oi_divergence_tilt_directional_defaults_false():
+    """iter-41 oi_divergence_tilt recipe: oi_div_directional absent/defaults to False (back-compat)."""
+    sc = resolve_recipe("oi_divergence_tilt").strategy_config
+    assert sc["kwargs"].get("oi_div_directional", False) is False
+
+
+# --- oi_divergence_directional recipe: beta_null + directional OI-div tilt (iter-42 Stage-2) ---
+
+_OI_DIV_DIRECTIONAL_KEYS = {"oi_divergence", "oi_div_directional", "oi_div_lookback", "oi_div_tilt_k"}
+
+
+def test_oi_divergence_directional_resolves():
+    r = resolve_recipe("oi_divergence_directional")
+    assert r.name == "oi_divergence_directional"
+
+
+def test_oi_divergence_directional_params():
+    sc = resolve_recipe("oi_divergence_directional").strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["oi_divergence"] is True
+    assert sc["kwargs"]["oi_div_directional"] is True
+    assert sc["kwargs"]["oi_div_lookback"] == 14
+    assert sc["kwargs"]["oi_div_tilt_k"] == 1.0
+
+
+def test_oi_divergence_directional_only_oi_div_keys_differ_from_beta_null():
+    """The ONLY strategy-kwargs delta vs beta_null is the four oi-div keys (drift guard)."""
+    od_kw = resolve_recipe("oi_divergence_directional").strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in od_kw.items() if k not in _OI_DIV_DIRECTIONAL_KEYS} == bn_kw
+
+
+def test_oi_divergence_directional_non_lever_fields_match_beta_null():
+    od, bn = resolve_recipe("oi_divergence_directional"), resolve_recipe("beta_null")
+    assert od.universe == bn.universe
+    assert od.segments == bn.segments
+    assert od.fee_preset == bn.fee_preset
+    assert od.label_horizon_days == bn.label_horizon_days
+    assert od.account == bn.account
+    assert od.benchmark == bn.benchmark
+    assert od.reference_instruments == bn.reference_instruments
+    assert od.handler_kwargs == bn.handler_kwargs
+    assert od.feature_config == bn.feature_config

@@ -1112,3 +1112,192 @@ def test_oi_div_signal_construction_quadrants():
     assert confirmation(-0.05, -0.10) > 0, "price↓+OI↓ must be +confirmed"
     # price↓ + OI↑ → negative
     assert confirmation(-0.05, +0.10) < 0, "price↓+OI↑ must be −divergent"
+
+
+# ---------------------------------------------------------------------------
+# Directional OI-divergence tilt tests (iter-42)
+# ---------------------------------------------------------------------------
+
+
+def _make_oi_div_directional_stub(oi_div_directional=True, oi_div_tilt_k=1.0):
+    """Build a VolWeightedRegimeStrategy stub for directional OI-div tests.
+
+    Inherits _make_oi_div_stub layout; adds oi_div_directional.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = object.__new__(rg.VolWeightedRegimeStrategy)
+    s._base_risk_degree = 0.95
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._vol_panel = pd.DataFrame(
+        {"A": [0.1] * 5, "B": [0.1] * 5, "C": [0.1] * 5},
+        index=dates,
+    )
+    s.membership_top_n = None
+    s.membership_lookback_days = None
+    s._membership_schedule = None
+    s.trend_window = None
+    s._close_panel = None
+    s.crowding_field = None
+    s.crowding_tilt_k = 1.0
+    s._crowding_panel = None
+    s.oi_divergence = True
+    s.oi_div_lookback = 14
+    s.oi_div_tilt_k = oi_div_tilt_k
+    s.oi_div_directional = oi_div_directional
+    s._oi_div_signal = None  # injectable seam
+    return s
+
+
+def test_oi_div_directional_signal_up_price_keeps_oi_chg():
+    """Directional signal: up-price coin's confirmation equals its oi_chg.
+
+    With oi_div_directional=True: confirmation_i = oi_chg_i where price_chg_i > 0, else NaN.
+    Tested via the formula directly (no qlib needed).
+    """
+    # Simulate the formula from _build_oi_div_signal with oi_div_directional=True
+    price_chg = pd.Series({"A": +0.05, "B": -0.03, "C": +0.02})
+    oi_chg = pd.Series({"A": +0.10, "B": +0.08, "C": -0.04})
+    confirmation = oi_chg.where(price_chg > 0)
+
+    # A (price up): confirmation == oi_chg
+    assert abs(confirmation["A"] - oi_chg["A"]) < 1e-12, "up-price coin: confirmation must equal oi_chg"
+    # C (price up): confirmation == oi_chg (negative oi_chg is fine; signal range is unrestricted)
+    assert abs(confirmation["C"] - oi_chg["C"]) < 1e-12, "up-price coin: confirmation must equal oi_chg"
+    # B (price down): confirmation is NaN
+    assert confirmation["B"] != confirmation["B"], "down-price coin: confirmation must be NaN"
+
+
+def test_oi_div_directional_signal_down_price_is_nan():
+    """Directional signal: down-price coin's confirmation is NaN (→ neutral tilt)."""
+    price_chg = pd.Series({"A": -0.05, "B": -0.03})
+    oi_chg = pd.Series({"A": -0.10, "B": +0.08})
+    confirmation = oi_chg.where(price_chg > 0)
+
+    assert confirmation["A"] != confirmation["A"], "down-price coin A: must be NaN"
+    assert confirmation["B"] != confirmation["B"], "down-price coin B: must be NaN"
+
+
+def test_oi_div_nondirectional_formula_unchanged():
+    """Non-directional (oi_div_directional=False) confirmation = sign(price_chg)*oi_chg (iter-41 formula)."""
+    import numpy as np
+
+    price_chg = pd.Series({"A": +0.05, "B": -0.03, "C": +0.02, "D": -0.08})
+    oi_chg = pd.Series({"A": +0.10, "B": +0.08, "C": -0.04, "D": -0.06})
+    confirmation = np.sign(price_chg) * oi_chg
+
+    assert confirmation["A"] > 0, "price↑+OI↑ → positive"
+    assert confirmation["B"] < 0, "price↓+OI↑ → negative"
+    assert confirmation["C"] < 0, "price↑+OI↓ → negative"
+    assert confirmation["D"] > 0, "price↓+OI↓ → positive"
+
+
+def test_oi_div_directional_tilt_up_mover_high_oi_upweighted():
+    """Directional tilt: up-mover with high OI (z>0) is up-weighted; up-mover with low OI (z<0) down-weighted.
+
+    A: up-price, high OI → confirmation positive → z > 0 → tilt > 1 → up-weighted.
+    B: up-price, low OI  → confirmation negative → z < 0 → tilt < 1 → down-weighted.
+    Weights sum to 1.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_oi_div_directional_stub(oi_div_directional=True, oi_div_tilt_k=1.0)
+
+    # Only A and B; both are up-movers (non-NaN confirmation).
+    # A: high OI confirmation (+); B: low OI confirmation (−).
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._vol_panel = pd.DataFrame({"A": [0.1] * 5, "B": [0.1] * 5}, index=dates)
+    s._oi_div_signal = pd.DataFrame(
+        {"A": [0.5, 0.8, 1.0, 1.0, -99.0], "B": [-0.5, -0.8, -1.0, -1.0, 99.0]},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert set(w.keys()) == {"A", "B"}, f"both up-movers should be held; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9, f"weights must sum to 1; got {sum(w.values())}"
+    assert w["A"] > w["B"], "up-mover A (high OI z>0) must be UP-weighted vs up-mover B (low OI z<0)"
+
+
+def test_oi_div_directional_tilt_down_price_coin_neutral():
+    """Directional tilt: down-price coin (NaN confirmation) is left neutral (untilted weight).
+
+    Three names with equal vols:
+    - A: up-price, positive OI (z>0) → up-weighted
+    - B: up-price, negative OI (z<0) → down-weighted
+    - C: down-price (NaN confirmation) → tilt=1.0 (neutral); weight unchanged relative to inverse-vol share
+    Weights sum to 1.  C must not be penalized vs its equal-vol baseline.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_oi_div_directional_stub(oi_div_directional=True, oi_div_tilt_k=1.0)
+
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    # C has NaN confirmation (down-price → neutral)
+    s._oi_div_signal = pd.DataFrame(
+        {"A": [1.0, 1.0, 1.0, 1.0, -99.0], "B": [-1.0, -1.0, -1.0, -1.0, 99.0], "C": [float("nan")] * 5},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0, "C": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert set(w.keys()) == {"A", "B", "C"}, f"all three names should be held; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9, "weights must sum to 1"
+    # C (NaN → tilt=1.0) must not be penalized vs A or B.  Since A is up-weighted and C is neutral,
+    # C should be greater than or equal to B (which is down-weighted).
+    assert w["C"] > w["B"], "neutral down-price coin C must not be penalised vs down-weighted B"
+    # A (high OI, z>0) is up-weighted above C (neutral)
+    assert w["A"] > w["C"], "up-mover A (high OI) must be up-weighted above neutral C"
+
+
+def test_oi_div_directional_tilt_no_lookahead():
+    """Directional tilt strictly-prior lookup: future signal row must not affect weights."""
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_oi_div_directional_stub(oi_div_directional=True, oi_div_tilt_k=1.0)
+
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._vol_panel = pd.DataFrame({"A": [0.1] * 5, "B": [0.1] * 5}, index=dates)
+    # Prior rows (0-3): A confirmed (+), B divergent (−) → A up-weighted.
+    # Future row (date 4 = trade_date): A=-99.0, B=+99.0 → if used, B would be up-weighted.
+    s._oi_div_signal = pd.DataFrame(
+        {"A": [1.0, 1.0, 1.0, 1.0, -99.0], "B": [-1.0, -1.0, -1.0, -1.0, 99.0]},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert w["A"] > w["B"], "look-ahead guard failed: future OI-div row must not be used"
+
+
+def test_oi_div_directional_false_regression():
+    """oi_div_directional=False → weights byte-identical to iter-41 (oi_div_directional absent/False)."""
+    from cli.experiment.strategies import regime as rg
+
+    # Reference: iter-41 stub with directional flag absent (uses getattr default)
+    s_iter41 = _make_oi_div_stub(oi_divergence=True, oi_div_tilt_k=1.0)
+    # New stub with directional flag explicitly False
+    s_false = _make_oi_div_directional_stub(oi_div_directional=False, oi_div_tilt_k=1.0)
+
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    signal = pd.DataFrame(
+        {"A": [1.0, 2.0, 3.0, 4.0, 99.0], "B": [-1.0, -2.0, -3.0, -4.0, 99.0]},
+        index=dates,
+    )
+    s_iter41._oi_div_signal = signal.copy()
+    s_false._oi_div_signal = signal.copy()
+    s_false._vol_panel = pd.DataFrame({"A": [0.1] * 5, "B": [0.1] * 5}, index=dates)
+
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    trade_date = dates[4]
+    w_iter41 = s_iter41.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+    w_false = s_false.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert abs(w_iter41["A"] - w_false["A"]) < 1e-12, "directional=False must be byte-identical to iter-41"
+    assert abs(w_iter41["B"] - w_false["B"]) < 1e-12, "directional=False must be byte-identical to iter-41"

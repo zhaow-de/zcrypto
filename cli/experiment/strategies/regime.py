@@ -170,6 +170,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         oi_divergence: bool = False,
         oi_div_lookback: int = 14,
         oi_div_tilt_k: float = 1.0,
+        oi_div_directional: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -197,6 +198,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.oi_divergence = oi_divergence
         self.oi_div_lookback = oi_div_lookback
         self.oi_div_tilt_k = oi_div_tilt_k
+        self.oi_div_directional = oi_div_directional
         self._membership_schedule: dict | None = None  # lazy; injectable for tests
         self._close_panel: pd.DataFrame | None = None  # lazy; injectable for tests
         self._froth_signal: pd.Series | None = None  # lazy; injectable for tests
@@ -262,10 +264,12 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
     def _build_oi_div_signal(self) -> pd.DataFrame:
         """Build the OI-price-divergence confirmation panel (wide: date × instrument).
 
-        Per coin: confirmation = sign(price_chg) * oi_chg, where price_chg and oi_chg are
-        the L-day fractional change (L = oi_div_lookback).  Positive = confirmed (price↑+OI↑
-        or price↓+OI↓); negative = divergent (price↑+OI↓ or price↓+OI↑).  NaN where $oi is
-        NaN (no perp data / warmup period).
+        Per coin:
+        - non-directional (default): confirmation = sign(price_chg) * oi_chg; positive =
+          confirmed (price↑+OI↑ or price↓+OI↓); negative = divergent.  NaN where $oi is NaN.
+        - directional (oi_div_directional=True): confirmation = oi_chg where price_chg > 0,
+          else NaN.  Down-price coins contribute NaN so the tilt's NaN→1.0 rule leaves them
+          neutral/untilted — only up-movers with OI confirmation are weighted.
         """
         from qlib.data import D
 
@@ -275,6 +279,9 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         L = getattr(self, "oi_div_lookback", 14)
         price_chg = close_wide / close_wide.shift(L) - 1
         oi_chg = oi_wide / oi_wide.shift(L) - 1
+        if getattr(self, "oi_div_directional", False):
+            # confirmation = oi_chg where price rose; NaN elsewhere (down-price → neutral tilt)
+            return oi_chg.where(price_chg > 0)
         # confirmation = sign(price_chg) * oi_chg; NaN where oi is NaN (or within warmup)
         return np.sign(price_chg) * oi_chg
 
