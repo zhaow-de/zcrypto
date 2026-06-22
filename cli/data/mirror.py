@@ -12,7 +12,13 @@ import datetime as dt
 import os
 from pathlib import Path
 
-from cli.data.binance import aggtrades_archive_parts, funding_archive_parts, kline_archive_parts
+from cli.data.binance import (
+    aggtrades_archive_parts,
+    basis_archive_parts,
+    funding_archive_parts,
+    kline_archive_parts,
+    metrics_archive_parts,
+)
 from cli.data.layout import DatasetPaths
 
 
@@ -44,6 +50,26 @@ def funding_mirror_path(root: Path, perp: str, year: int, month: int) -> Path:
     """
     rel_dir, name = funding_archive_parts(perp, year, month)
     return root / rel_dir / str(year) / name
+
+
+def metrics_mirror_path(root: Path, perp: str, date: dt.date) -> Path:
+    """Local path for a daily futures metrics zip: ``<root>/<archive-dir>/<YYYY>/<file>.zip``.
+
+    Reuses ``metrics_archive_parts`` — the same builder the remote URL uses — so the local
+    layout cannot drift from the remote one.
+    """
+    rel_dir, name = metrics_archive_parts(perp, date)
+    return root / rel_dir / str(date.year) / name
+
+
+def basis_mirror_path(root: Path, perp: str, date: dt.date) -> Path:
+    """Local path for a daily premiumIndexKlines (basis) zip: ``<root>/<archive-dir>/<YYYY>/<file>.zip``.
+
+    Reuses ``basis_archive_parts`` — the same builder the remote URL uses — so the local
+    layout cannot drift from the remote one.
+    """
+    rel_dir, name = basis_archive_parts(perp, date)
+    return root / rel_dir / str(date.year) / name
 
 
 def aggtrades_mirror_path(root: Path, symbol: str, date: dt.date) -> Path:

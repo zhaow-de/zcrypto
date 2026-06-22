@@ -31,6 +31,43 @@ def synthetic_funding_zip(perp: str, year: int, month: int) -> bytes:
     return buf.getvalue()
 
 
+def synthetic_metrics_zip(perp: str, date: dt.date) -> bytes:
+    """Synthetic Binance daily metrics zip (one row — last-of-day snapshot).
+
+    Uses uniform default values; callers only need the fields to be present and non-NaN.
+    """
+    header = (
+        "create_time,symbol,sum_open_interest,sum_open_interest_value,"
+        "count_toptrader_long_short_ratio,sum_toptrader_long_short_ratio,"
+        "count_long_short_ratio,sum_taker_long_short_vol_ratio\n"
+    )
+    ts = f"{date} 23:55:00"
+    row = f"{ts},{perp},80000.0,3500000000.0,1.1,1.2,1.1,1.0\n"
+    csv_text = header + row
+    inner = f"{perp}-metrics-{date}.csv"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(inner, csv_text)
+    return buf.getvalue()
+
+
+def synthetic_basis_zip(perp: str, date: dt.date) -> bytes:
+    """Synthetic Binance daily premiumIndexKlines zip (one 1d candle row).
+
+    Uses a small positive basis value; callers only need the field to be present and non-NaN.
+    """
+    header = "open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_buy_volume,taker_buy_quote_volume,ignore\n"
+    open_ms = int(dt.datetime(date.year, date.month, date.day, tzinfo=dt.timezone.utc).timestamp()) * 1000
+    close_ms = open_ms + 86400000 - 1
+    row = f"{open_ms},0.0007,0.001,-0.0001,0.0007,0,{close_ms},0,100,0,0,0\n"
+    csv_text = header + row
+    inner = f"{perp}-1d-{date}.csv"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(inner, csv_text)
+    return buf.getvalue()
+
+
 def synthetic_kline_csv(date: dt.date, *, base_price: float = 100.0, base_vol: float = 50.0, precision: str = "ms") -> str:
     """One Binance-shaped 12-column 1d kline CSV row for the given UTC date.
 
@@ -84,6 +121,10 @@ class FakeSource:
         self._aggtrades: dict[tuple[str, dt.date], bytes] = {}
         # (symbol, date) -> sha256_hex, only for entries registered with a checksum
         self._aggtrades_checksum: dict[tuple[str, dt.date], str] = {}
+        # (perp, date) -> zip_bytes for daily metrics archives
+        self._metrics: dict[tuple[str, dt.date], bytes] = {}
+        # (perp, date) -> zip_bytes for daily basis (premiumIndexKlines) archives
+        self._basis: dict[tuple[str, dt.date], bytes] = {}
 
     def add_pair(self, symbol: str, base: str, quote: str, status: str = "TRADING") -> None:
         self.exchange_info.append({"symbol": symbol, "baseAsset": base, "quoteAsset": quote, "status": status})
@@ -128,6 +169,20 @@ class FakeSource:
         """
         self._funding[(perp, year, month)] = raw if raw is not None else synthetic_funding_zip(perp, year, month)
 
+    def add_metrics(self, perp: str, date: dt.date, *, raw: bytes | None = None) -> None:
+        """Register a synthetic daily metrics archive for `perp` / `date`.
+
+        If `raw` is omitted, `synthetic_metrics_zip` is used (one last-of-day row with default values).
+        """
+        self._metrics[(perp, date)] = raw if raw is not None else synthetic_metrics_zip(perp, date)
+
+    def add_basis(self, perp: str, date: dt.date, *, raw: bytes | None = None) -> None:
+        """Register a synthetic daily basis (premiumIndexKlines) archive for `perp` / `date`.
+
+        If `raw` is omitted, `synthetic_basis_zip` is used (one 1d candle with a small positive basis).
+        """
+        self._basis[(perp, date)] = raw if raw is not None else synthetic_basis_zip(perp, date)
+
     # Source protocol
     def fetch_exchange_info(self) -> list[dict]:
         return list(self.exchange_info)
@@ -145,6 +200,12 @@ class FakeSource:
 
     def fetch_funding_archive(self, perp: str, year: int, month: int) -> bytes | None:
         return self._funding.get((perp, year, month))
+
+    def fetch_metrics_archive(self, perp: str, date: dt.date) -> bytes | None:
+        return self._metrics.get((perp, date))
+
+    def fetch_basis_archive(self, perp: str, date: dt.date) -> bytes | None:
+        return self._basis.get((perp, date))
 
     def fetch_aggtrades_archive(self, symbol: str, date: dt.date) -> bytes:
         return self._aggtrades[(symbol, date)]
