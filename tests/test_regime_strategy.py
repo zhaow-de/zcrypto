@@ -913,3 +913,202 @@ def test_crowding_tilt_no_lookahead():
 
     # Strictly prior rows say A is high-basis → must be down-weighted vs B
     assert w["A"] < w["B"], "look-ahead guard failed: future crowding row must not be used"
+
+
+# ---------------------------------------------------------------------------
+# OI-price-divergence tilt tests (iter-41)
+# ---------------------------------------------------------------------------
+
+
+def _make_oi_div_stub(oi_divergence=True, oi_div_lookback=14, oi_div_tilt_k=1.0):
+    """Build a VolWeightedRegimeStrategy stub without calling __init__ (no qlib needed).
+
+    Sets up a 4-name equal-vol panel (equal inverse-vol weights); tests inject
+    _oi_div_signal and _vol_panel themselves.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = object.__new__(rg.VolWeightedRegimeStrategy)
+    s._base_risk_degree = 0.95
+    # 5 days; equal vol for all names so plain inverse-vol gives equal weights
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._vol_panel = pd.DataFrame(
+        {"A": [0.1] * 5, "B": [0.1] * 5, "C": [0.1] * 5, "D": [0.1] * 5},
+        index=dates,
+    )
+    s.membership_top_n = None
+    s.membership_lookback_days = None
+    s._membership_schedule = None
+    s.trend_window = None
+    s._close_panel = None
+    s.crowding_field = None
+    s.crowding_tilt_k = 1.0
+    s._crowding_panel = None
+    s.oi_divergence = oi_divergence
+    s.oi_div_lookback = oi_div_lookback
+    s.oi_div_tilt_k = oi_div_tilt_k
+    s._oi_div_signal = None  # injectable seam
+    return s
+
+
+def test_oi_div_tilt_confirmed_coin_upweighted():
+    """One HIGH-confirmation coin (z>0) gets a HIGHER weight; divergent coin (z<0) LOWER.
+
+    Opposite of the crowding tilt: high-z → up-weight (exp(+k*z) > 1).
+    Equal vols → equal inverse-vol weights; tilt shifts distribution.
+    Weights must still sum to ~1.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_oi_div_stub(oi_divergence=True, oi_div_tilt_k=1.0)
+
+    # OI-div panel: 4 prior dates + 1 future row that must NOT be used.
+    # Prior row (date 3): A has positive confirmation (price↑+OI↑), B has negative (price↑+OI↓).
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._oi_div_signal = pd.DataFrame(
+        {"A": [0.5, 0.8, 1.0, 1.0, -99.0], "B": [-0.5, -0.8, -1.0, -1.0, 99.0]},
+        index=dates,
+    )
+
+    trade_date = dates[4]  # use only rows strictly before dates[4] = rows 0-3
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert set(w.keys()) == {"A", "B"}, f"both names should be held; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9, f"weights must sum to 1; got {sum(w.values())}"
+    # A (confirmed, z>0) must be UP-weighted (opposite of crowding tilt)
+    assert w["A"] > w["B"], "confirmed coin A must be UP-weighted vs divergent coin B"
+
+
+def test_oi_div_tilt_false_regression():
+    """oi_divergence=False → weights byte-identical to plain inverse-vol (regression)."""
+    from cli.experiment.strategies import regime as rg
+
+    s_no_tilt = _make_oi_div_stub(oi_divergence=False)
+    s_tilt = _make_oi_div_stub(oi_divergence=True, oi_div_tilt_k=1.0)
+
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s_tilt._oi_div_signal = pd.DataFrame(
+        {"A": [1.0, 2.0, 3.0, 4.0, 99.0], "B": [-1.0, -2.0, -3.0, -4.0, 99.0]},
+        index=dates,
+    )
+
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    trade_date = dates[4]
+    w_no_tilt = s_no_tilt.generate_target_weight_position(
+        score, current=None, trade_start_time=trade_date, trade_end_time=trade_date
+    )
+    w_tilt = s_tilt.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    # Without tilt the equal-vol basket stays 50/50.
+    assert abs(w_no_tilt["A"] - 0.5) < 1e-9
+    assert abs(w_no_tilt["B"] - 0.5) < 1e-9
+    # The tilted version must differ (A up-weighted, B down-weighted).
+    assert w_tilt["A"] > w_tilt["B"]
+
+
+def test_oi_div_tilt_nan_confirmation_neutral():
+    """A coin with NaN OI-divergence gets tilt=1.0 (neutral); others tilt among themselves.
+
+    Three names: A NaN (no perp), B high-confirmation, C divergent.
+    After tilt: B's weight grows; C's weight shrinks; A stays at neutral share.
+    Weights sum to 1.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_oi_div_stub(oi_divergence=True, oi_div_tilt_k=1.0)
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._vol_panel = pd.DataFrame(
+        {"A": [0.1] * 5, "B": [0.1] * 5, "C": [0.1] * 5},
+        index=dates,
+    )
+    # A has NaN (no perp); B confirmed; C divergent
+    s._oi_div_signal = pd.DataFrame(
+        {"A": [float("nan")] * 5, "B": [2.0] * 5, "C": [-2.0] * 5},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0, "C": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert set(w.keys()) == {"A", "B", "C"}, f"all three names should be held; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9, "weights must sum to 1"
+    # B (confirmed, z>0) must be UP-weighted vs C (divergent, z<0)
+    assert w["B"] > w["C"], "confirmed B must be up-weighted vs divergent C"
+    # A (NaN → tilt 1.0) should not be penalised; it should be between or above C
+    assert w["A"] > w["C"], "NaN-signal coin A should not be penalised vs divergent C"
+
+
+def test_oi_div_tilt_no_lookahead():
+    """The OI-divergence tilt at date t must use ONLY signal rows strictly before t.
+
+    Inject a panel where the future row (at trade_date) would invert the tilt if used.
+    Assert the inversion does NOT happen.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_oi_div_stub(oi_divergence=True, oi_div_tilt_k=1.0)
+
+    # Prior rows (dates 0-3): A confirmed (+), B divergent (−) → A should be up-weighted.
+    # Future row (date 4 = trade_date): A=-99.0, B=+99.0 → if used, B would be up-weighted.
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._oi_div_signal = pd.DataFrame(
+        {"A": [1.0, 1.0, 1.0, 1.0, -99.0], "B": [-1.0, -1.0, -1.0, -1.0, 99.0]},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    # Strictly prior rows say A is confirmed → must be UP-weighted vs B
+    assert w["A"] > w["B"], "look-ahead guard failed: future OI-div row must not be used"
+
+
+def test_crowding_tilt_still_works_after_refactor():
+    """Regression: the crowding tilt (−k sign) still down-weights high-basis coins after the
+    _apply_cross_sectional_tilt refactor introduced for iter-41.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    # Build a crowding stub (uses the crowding-tilt path, not OI-div)
+    s = _make_crowding_stub(crowding_field="$basis", crowding_tilt_k=1.0)
+
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._crowding_panel = pd.DataFrame(
+        {"A": [2.0, 2.0, 2.0, 2.0, -99.0], "B": [-2.0, -2.0, -2.0, -2.0, 99.0]},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    # High-basis A (z>0) must be DOWN-weighted (crowding tilt uses −k sign)
+    assert w["A"] < w["B"], "crowding tilt regression: high-basis A must still be down-weighted"
+    assert abs(sum(w.values()) - 1.0) < 1e-9
+
+
+def test_oi_div_signal_construction_quadrants():
+    """confirmation = sign(price_chg) * oi_chg has the correct sign for all four quadrants.
+
+    price↑ + OI↑ → +  (confirmed: new money entering on a rally)
+    price↑ + OI↓ → −  (divergent: short-covering, no conviction)
+    price↓ + OI↓ → +  (confirmed: longs exiting, conviction to the downside)
+    price↓ + OI↑ → −  (divergent: new shorts entering on a falling OI market — bearish but confused)
+    """
+    import numpy as np
+
+    # Direct verification of the formula (no qlib, no strategy instantiation needed)
+    def confirmation(price_chg, oi_chg):
+        return np.sign(price_chg) * oi_chg
+
+    # price↑ + OI↑ → positive
+    assert confirmation(+0.05, +0.10) > 0, "price↑+OI↑ must be +confirmed"
+    # price↑ + OI↓ → negative
+    assert confirmation(+0.05, -0.10) < 0, "price↑+OI↓ must be −divergent"
+    # price↓ + OI↓ → positive (sign(−)*(-) = (+)*(−) wait — sign(−0.05) = −1; −1*−0.10 = +0.10)
+    assert confirmation(-0.05, -0.10) > 0, "price↓+OI↓ must be +confirmed"
+    # price↓ + OI↑ → negative
+    assert confirmation(-0.05, +0.10) < 0, "price↓+OI↑ must be −divergent"

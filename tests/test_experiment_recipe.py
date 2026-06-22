@@ -804,3 +804,42 @@ def test_basis_tilt_non_lever_fields_match_beta_null():
     assert bt.reference_instruments == bn.reference_instruments
     assert bt.handler_kwargs == bn.handler_kwargs
     assert bt.feature_config == bn.feature_config
+
+
+# --- oi_divergence_tilt recipe: beta_null + OI-price-divergence tilt (iter-41 Stage-2) ---
+
+_OI_DIV_KEYS = {"oi_divergence", "oi_div_lookback", "oi_div_tilt_k"}
+
+
+def test_oi_divergence_tilt_resolves():
+    r = resolve_recipe("oi_divergence_tilt")
+    assert r.name == "oi_divergence_tilt"
+
+
+def test_oi_divergence_tilt_oi_div_params():
+    sc = resolve_recipe("oi_divergence_tilt").strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["oi_divergence"] is True
+    assert sc["kwargs"]["oi_div_lookback"] == 14
+    assert sc["kwargs"]["oi_div_tilt_k"] == 1.0
+
+
+def test_oi_divergence_tilt_only_oi_div_keys_differ_from_beta_null():
+    """The ONLY strategy-kwargs delta vs beta_null is the three oi-div keys (drift guard)."""
+    oi_kw = resolve_recipe("oi_divergence_tilt").strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in oi_kw.items() if k not in _OI_DIV_KEYS} == bn_kw
+
+
+def test_oi_divergence_tilt_non_lever_fields_match_beta_null():
+    oi, bn = resolve_recipe("oi_divergence_tilt"), resolve_recipe("beta_null")
+    assert oi.universe == bn.universe
+    assert oi.segments == bn.segments
+    assert oi.fee_preset == bn.fee_preset
+    assert oi.label_horizon_days == bn.label_horizon_days
+    assert oi.account == bn.account
+    assert oi.benchmark == bn.benchmark
+    assert oi.reference_instruments == bn.reference_instruments
+    assert oi.handler_kwargs == bn.handler_kwargs
+    assert oi.feature_config == bn.feature_config
