@@ -724,6 +724,84 @@ _DERIV_FIELD_COL: dict[str, str] = {
 }
 
 
+def _fetch_all_derivatives_concurrent(
+    source: Source,
+    plan: list[_PerPair],
+    fetch: FetchConfig,
+    mirror_root: Path,
+) -> None:
+    """Pre-fetch all derivatives (metrics + basis) archives into the mirror concurrently.
+
+    Iterates the full per-pair derivatives date range (matching exactly what _build_staging
+    passes to _derivatives_for_pair), applies the perp_symbol mapping per date, and submits
+    both the metrics and basis fetches for every non-None (perp, date) to a bounded thread
+    pool. Mirror hits are no-ops; 404s are skipped silently (non-fatal — they become NaN in
+    the bin). This ensures _derivatives_for_pair's _fetch_*_archive_cached calls are all
+    mirror hits and do no network I/O in the sequential loop, eliminating the hang surface.
+
+    Per-pair range used:
+      - is_new=True  → [p.effective_from, p.effective_to]  (new pair, no prior data)
+      - is_new=False → [p.existing_from,  p.effective_to]  (extended pair, merges old+new)
+    This matches pair_from/pair_to in _build_staging exactly.
+    """
+    # Collect distinct (perp, date) pairs for both streams across all pairs.
+    work: list[tuple[str, dt.date, str]] = []  # (perp, date, stream)
+    seen: set[tuple[str, dt.date, str]] = set()
+
+    for p in plan:
+        from_date = p.effective_from if p.is_new else (p.existing_from or p.effective_from)
+        cur = from_date
+        while cur <= p.effective_to:
+            perp = perp_symbol(p.symbol, cur)
+            if perp is not None:
+                for stream in ("metrics", "basis"):
+                    key = (perp, cur, stream)
+                    if key not in seen:
+                        seen.add(key)
+                        work.append(key)
+            cur += dt.timedelta(days=1)
+
+    if not work:
+        return
+
+    total = len(work)
+    log_every = fetch.fetch_progress_log_interval
+    logger.info(
+        "pre-fetching %d derivatives (perp, date) archive(s) concurrently (max_workers=%d)",
+        total,
+        fetch.fetch_concurrency,
+    )
+
+    def _fetch_one(perp: str, date: dt.date, stream: str) -> None:
+        try:
+            if stream == "metrics":
+                _fetch_metrics_archive_cached(source, perp, date, mirror_root)
+            else:
+                _fetch_basis_archive_cached(source, perp, date, mirror_root)
+        except Exception as e:
+            # Non-fatal: log and continue. The sequential loop will get a None → NaN.
+            logger.debug("derivatives pre-fetch %s %s %s: %s (skipping)", stream, perp, date, e)
+
+    completed = 0
+    with ThreadPoolExecutor(max_workers=fetch.fetch_concurrency, thread_name_prefix="zcrypto-deriv") as pool:
+        futures = {pool.submit(_fetch_one, perp, date, stream): (perp, date, stream) for perp, date, stream in work}
+        try:
+            for fut in as_completed(futures):
+                fut.result()  # propagate unexpected exceptions
+                completed += 1
+                if completed % log_every == 0 or completed == total:
+                    logger.info(
+                        "derivatives pre-fetch progress: %d/%d (%.1f%%)",
+                        completed,
+                        total,
+                        100.0 * completed / total,
+                    )
+        except BaseException:
+            for f in futures:
+                f.cancel()
+            raise
+
+
 def _derivatives_for_pair(
     source: Source, instrument: str, from_date: dt.date, to_date: dt.date, mirror_root: Path
 ) -> dict[str, dict[dt.date, float]]:
@@ -1036,6 +1114,10 @@ def _download_apply(
     fetched = _fetch_all_concurrent(
         source, non_empty, plan.interval, fetch, mirror.root_for(paths), allow_interior_gaps=allow_interior_gaps
     )
+    # Pre-fetch all derivatives archives concurrently into the mirror BEFORE _build_staging,
+    # so the sequential per-pair loop in _derivatives_for_pair sees only mirror hits (no
+    # network I/O there — the hang surface is eliminated).
+    _fetch_all_derivatives_concurrent(source, plan.per_pair, fetch, mirror.root_for(paths))
     new_rows_per_sym: dict[str, _pd.DataFrame] = {
         p.symbol: fetched.get(p.symbol, _pd.DataFrame(columns=["date"] + list(FIELDS))) for p in plan.per_pair
     }
@@ -1200,6 +1282,8 @@ def _backfill_apply(
     for p in carry_over:
         new_rows_per_sym[p.symbol] = _pd.DataFrame(columns=["date"] + list(FIELDS))
 
+    # Pre-fetch all derivatives archives concurrently before _build_staging.
+    _fetch_all_derivatives_concurrent(source, all_pairs, fetch, mirror.root_for(paths))
     _build_staging(paths.data_dir, staging, all_pairs, new_rows_per_sym, existing, interval, source, mirror.root_for(paths))
 
 
