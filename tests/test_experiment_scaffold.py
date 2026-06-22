@@ -137,7 +137,14 @@ def test_phase_a_regime_steady_runs_and_gate_engages(tmp_path):
     shutil.copytree(PROVIDER, data_dir)
     out_dir = tmp_path / "out"
 
-    recipe = dataclasses.replace(resolve_recipe("regime_steady"), segments=_FIXTURE_SEGMENTS)
+    # Use a fixture-appropriate 20-day MA (not the production 200-day) for the e2e run too, for the same
+    # reason as the exposure assertion above: on a ~544-day fixture a 200-day gate stays risk-off across
+    # the entire downtrend test window, collapsing the strategy to constant cash so strategy_absolute's
+    # information_ratio is 0/0 = NaN. A 20-day gate engages partially, yielding finite metrics while still
+    # exercising the gate wiring. This guards wiring, not the production hyperparameter.
+    base = resolve_recipe("regime_steady")
+    sc = {**base.strategy_config, "kwargs": {**base.strategy_config["kwargs"], "regime_ma_window": 20}}
+    recipe = dataclasses.replace(base, segments=_FIXTURE_SEGMENTS, strategy_config=sc)
     result = run_experiment(recipe, data_dir=data_dir, out_dir=out_dir, refresh_cache=True)
 
     for key in ["strategy_absolute", "excess_return_with_cost", "excess_return_without_cost"]:
@@ -316,7 +323,7 @@ def test_multiseed_distribution_shape(tmp_path):
     """run_holdout_seeds returns per_seed of length N with seed key + summary with mean/std/min/max keys."""
     import json
 
-    from cli.experiment.multiseed import run_holdout_seeds
+    from cli.experiment.multiseed import holdout_seeds_json_safe, run_holdout_seeds
 
     data_dir = tmp_path / "provider"
     shutil.copytree(PROVIDER, data_dir)
@@ -339,12 +346,16 @@ def test_multiseed_distribution_shape(tmp_path):
             assert stat_key in stats, f"summary[{metric}] missing key {stat_key}"
             assert math.isfinite(stats[stat_key]), f"summary[{metric}][{stat_key}] not finite"
 
-    # JSON round-trip (mirrors command.py writing holdout_seeds.json): all floats serialise cleanly.
+    # JSON round-trip (mirrors command.py writing holdout_seeds.json via holdout_seeds_json_safe):
+    # the non-scalar daily-return Series are stripped so the artifact serialises cleanly.
     artifact_path = tmp_path / "holdout_seeds.json"
-    artifact_path.write_text(json.dumps(result, indent=2))
+    artifact_path.write_text(json.dumps(holdout_seeds_json_safe(result), indent=2))
     loaded = json.loads(artifact_path.read_text())
     assert len(loaded["per_seed"]) == 3
     assert set(loaded["summary"]) >= {"ending_value", "sharpe", "psr", "max_drawdown"}
+    # the in-memory result keeps the daily Series (used by the bootstrap); the artifact must not carry them
+    assert "daily_long" in result["per_seed"][0] and "daily_ls" in result["per_seed"][0]
+    assert "daily_long" not in loaded["per_seed"][0] and "daily_ls" not in loaded["per_seed"][0]
 
 
 def test_default_single_seed_no_holdout_seeds_artifact(tmp_path):

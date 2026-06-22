@@ -304,3 +304,17 @@ def run_holdout_seeds(recipe, *, data_dir, seeds, deterministic=False) -> dict:
     summary = summarize_seed_metrics([{k: v for k, v in d.items() if k != "seed"} for d in per_seed])
     logger.info("holdout-seeds-aggregated", extra={"n_seeds": len(per_seed), "summary": summary})
     return {"per_seed": per_seed, "summary": summary}
+
+
+def holdout_seeds_json_safe(result: dict) -> dict:
+    """JSON-serializable view of :func:`run_holdout_seeds` output for ``holdout_seeds.json``.
+
+    The per-seed rows carry the ``daily_long`` / ``daily_ls`` pandas Series (kept in-memory for the
+    paired bootstrap in ``stress``); those are not JSON-serializable and don't belong in the artifact.
+    This drops every non-scalar field, leaving the scalar metric distribution (``seed``, ``ending_value``,
+    ``sharpe``, ``psr``, ``max_drawdown``, ``ls_sharpe``, ``ls_ending``) and the ``summary`` unchanged.
+    """
+    return {
+        "per_seed": [{k: v for k, v in row.items() if isinstance(v, (int, float))} for row in result["per_seed"]],
+        "summary": result["summary"],
+    }

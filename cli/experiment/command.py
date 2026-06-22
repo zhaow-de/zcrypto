@@ -259,10 +259,12 @@ def experiment(
 
     # --- holdout_seeds.json (only when --seeds N > 1) ------------------------
     if seeds > 1:
-        from cli.experiment.multiseed import run_holdout_seeds
+        from cli.experiment.multiseed import holdout_seeds_json_safe, run_holdout_seeds
 
         holdout_seeds_result = run_holdout_seeds(recipe, data_dir=data_dir, seeds=seeds, deterministic=deterministic)
-        (bundle / "holdout_seeds.json").write_text(json.dumps(holdout_seeds_result, indent=2))
+        # The per-seed rows carry non-serializable daily-return Series (used in-memory by the bootstrap);
+        # write only the scalar metric distribution to the artifact.
+        (bundle / "holdout_seeds.json").write_text(json.dumps(holdout_seeds_json_safe(holdout_seeds_result), indent=2))
         logger.info("holdout-seeds", extra={"n_seeds": seeds, "summary": holdout_seeds_result["summary"]})
 
     # --- human summary -------------------------------------------------------
