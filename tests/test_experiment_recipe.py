@@ -726,3 +726,43 @@ def test_tsmom_compose_is_tsmom_plus_compose_flag():
     assert r.segments == bn.segments
     assert r.fee_preset == bn.fee_preset == "vip2_bnb"
     assert r.label_horizon_days == bn.label_horizon_days
+
+
+# --- basis_froth recipe: beta_null + basis-froth de-risk overlay (iter-39 Stage-2) ---
+
+_FROTH_KEYS = {"froth_field", "froth_lookback", "froth_z_threshold", "froth_derisk_mult"}
+
+
+def test_basis_froth_resolves():
+    r = resolve_recipe("basis_froth")
+    assert r.name == "basis_froth"
+
+
+def test_basis_froth_froth_params():
+    sc = resolve_recipe("basis_froth").strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["froth_field"] == "$basis"
+    assert sc["kwargs"]["froth_lookback"] == 90
+    assert sc["kwargs"]["froth_z_threshold"] == 1.5
+    assert sc["kwargs"]["froth_derisk_mult"] == 0.0
+
+
+def test_basis_froth_only_froth_keys_differ_from_beta_null():
+    """The ONLY strategy-kwargs delta vs beta_null is the four froth keys (drift guard)."""
+    bf_kw = resolve_recipe("basis_froth").strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in bf_kw.items() if k not in _FROTH_KEYS} == bn_kw
+
+
+def test_basis_froth_non_lever_fields_match_beta_null():
+    bf, bn = resolve_recipe("basis_froth"), resolve_recipe("beta_null")
+    assert bf.universe == bn.universe
+    assert bf.segments == bn.segments
+    assert bf.fee_preset == bn.fee_preset
+    assert bf.label_horizon_days == bn.label_horizon_days
+    assert bf.account == bn.account
+    assert bf.benchmark == bn.benchmark
+    assert bf.reference_instruments == bn.reference_instruments
+    assert bf.handler_kwargs == bn.handler_kwargs
+    assert bf.feature_config == bn.feature_config
