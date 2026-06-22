@@ -33,21 +33,28 @@ recipe are the apparatus for the variants below.
   proxy (keeps running) rather than a contrarian-reversal one at the daily horizon. Spec `00037`. **So
   `$basis` is exhausted across BOTH forms (timing gate + cross-sectional tilt).** The reusable `crowding_*`
   tilt + `froth_*` overlay remain available for `$oi`/`$ls_*` variants.
+- iter-41: **OI-price divergence** as a cross-sectional confirmation tilt (`oi_divergence_tilt`: up-weight
+  coins where price + OI move together, down-weight weak price↑/OI↓ rallies) is **NEUTRAL** — mean delta
+  **+0.008** (helped 2024 +0.41, hurt 2023 −0.33; per-window CIs straddle 0). Doesn't clear the success bar
+  (not adopted), but it's the **first non-negative** derivatives signal and the **most promising** (vs basis's
+  clear −0.18/−0.21). Spec `00038`; the `oi_divergence`/`_apply_cross_sectional_tilt(sign=+1)` machinery is
+  reusable. **The shelve-derivatives kill-condition is NOT met** — OI-divergence is a live thread to refine.
 
 ## Suggested next steps
 
-- **Cross-sectional basis/funding crowding TILT (the immediate next, iter-40):** rank the universe by
-  `$basis` (and/or `$funding`) per rebalance and re-weight the basket toward the under-crowded
-  (backwardated / low-funding) names and away from over-crowded (high-premium / high-funding) ones — the
-  orientation's core derivatives-positioning form. A *selection/weighting* signal, NOT a market-timing
-  gate (which iter-39 showed fails). A/B vs `beta_null`'s inverse-vol weighting.
-- **OI-price divergence:** rally on falling OI = weak (fade) / rally on rising OI = confirmed (trend) —
-  a price×OI joint signal, as a tilt or a per-asset filter.
+- **Refine OI-divergence (the live thread, the immediate next):** iter-41's OI-divergence tilt is NEUTRAL
+  (+0.008; helped 2024, hurt 2023) — the most promising probe. Sweep `oi_div_lookback` / `oi_div_tilt_k`,
+  **regime-condition** it (the 2024-helps / 2023-hurts split suggests a bull/bear dependence — e.g. apply the
+  tilt only when the BTC-200d gate is risk-on), or combine the confirmation score with price momentum. Reuses
+  the `oi_divergence` machinery. A/B vs `beta_null`.
 - **Graded / sign variants of the froth signal:** a *graded* de-risk scale (not binary cash), and the
-  *backwardation* side (low/negative basis → risk-on) — cheap variants of the now-built `froth_*` overlay.
+  *backwardation* side (low/negative basis → risk-on) — cheap variants of the `froth_*` overlay. (Lower
+  priority — basis was refuted in both forms.)
 - **`$taker_ratio` / long-short contrarian:** extreme taker buy/sell or top-trader L/S as a contrarian tilt.
 - **Honesty caveat:** funding is **decaying** (orientation: full-sample Sharpe ~6.4 → negative by 2025), so
-  prefer `$basis` / `$oi` as the fresher probes; read cost-adjusted OOS verdicts, not gross.
-- **Kill condition (parked — human ratifies):** if the cross-sectional tilt AND OI-divergence both fail to
-  beat the null, treat derivatives-positioning as a dead Channel-A sub-bet and redirect to BTC→alt lead-lag
-  (`T0020`) — a high-stakes pivot for an attended session, not the loop.
+  prefer `$oi` / `$basis` as the fresher probes; read cost-adjusted OOS verdicts, not gross.
+- **Kill condition (parked — human ratifies), updated after iter-41:** `$basis` is refuted in both forms, but
+  OI-divergence is **neutral/promising, not failed**, so the shelve-call is **NOT yet triggered**. Only if the
+  *refined* OI-divergence (regime-conditioned / tuned) also fails to clear the bar would
+  "shelve derivatives-positioning and redirect to BTC→alt lead-lag (`T0020`)" be evidenced — a high-stakes
+  pivot for an attended session, not the loop.
