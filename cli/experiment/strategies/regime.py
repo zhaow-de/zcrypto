@@ -159,6 +159,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         vol_lookback=30,
         membership_top_n: int | None = None,
         membership_lookback_days: int | None = None,
+        trend_window: int | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -175,7 +176,9 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.vol_lookback = vol_lookback
         self.membership_top_n = membership_top_n
         self.membership_lookback_days = membership_lookback_days
+        self.trend_window = trend_window
         self._membership_schedule: dict | None = None  # lazy; injectable for tests
+        self._close_panel: pd.DataFrame | None = None  # lazy; injectable for tests
         self._exposure = self._build_exposure()
         self._vol_panel = self._build_vol_panel()
 
@@ -202,7 +205,17 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         # Trailing realized vol per name (rolling std of daily returns). Each row d uses closes <= d.
         return wide.pct_change().rolling(self.weight_vol_lookback).std()
 
+    def _build_close_panel(self) -> pd.DataFrame:
+        """Lazily fetch the per-asset close panel (wide: date × instrument)."""
+        from qlib.data import D
+
+        close = D.features(self.weight_universe, ["$close"], freq="day")["$close"]
+        return close.unstack(level="instrument").sort_index()
+
     def _mult_for(self, date) -> float:
+        # Per-asset trend mode: disable the market BTC gate; the per-asset filter governs.
+        if getattr(self, "trend_window", None) is not None:
+            return 1.0
         date = pd.Timestamp(date).normalize()
         exp = self._exposure
         if date in exp.index:
@@ -240,12 +253,35 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         _, date = self.trade_calendar.get_step_time(step)
         return self._base_risk_degree * self._mult_for(date)
 
+    def _trend_above_sma(self, names: list[str], trade_date) -> list[str]:
+        """Return the subset of *names* whose close at *trade_date* is strictly above
+        their own ``trend_window``-day SMA. Uses data on/before *trade_date* only (no look-ahead).
+        """
+        tw = getattr(self, "trend_window", None)
+        if tw is None:
+            return names
+        t = pd.Timestamp(trade_date).normalize()
+        # Build/fetch the close panel (injectable seam for tests).
+        if self._close_panel is None:
+            self._close_panel = self._build_close_panel()
+        cp = self._close_panel
+        # Restrict to on-or-before trade date (no look-ahead).
+        cp_prior = cp.loc[cp.index <= t]
+        if len(cp_prior) < tw:
+            return names  # insufficient history -> no filtering (matches warmup convention)
+        sma = cp_prior.rolling(tw).mean().iloc[-1]  # SMA row at (or just before) trade date
+        last_close = cp_prior.iloc[-1]  # close at (or most recent before) trade date
+        return [n for n in names if n in last_close.index and last_close[n] > sma.get(n, float("nan"))]
+
     def generate_target_weight_position(self, score, current, trade_start_time, trade_end_time):
         names = list(score.index)
         if getattr(self, "membership_top_n", None) is not None:
             members = self._members_for(trade_start_time)
             if members is not None:
                 names = [n for n in names if n in members]
+        # Per-asset trend filter: drop names whose close is ≤ their own SMA(trend_window).
+        if getattr(self, "trend_window", None) is not None:
+            names = self._trend_above_sma(names, trade_start_time)
         t = pd.Timestamp(trade_start_time).normalize()
         vp = self._vol_panel
         prior = vp.loc[vp.index < t]  # NO LOOK-AHEAD: strictly-prior vol row only

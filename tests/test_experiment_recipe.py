@@ -641,3 +641,50 @@ def test_beta_null_non_lever_fields_match_steady():
     assert r.handler_kwargs == st.handler_kwargs
     assert r.feature_config == st.feature_config
     assert r.label_horizon_days == st.label_horizon_days
+
+
+# --- tsmom_voltarget recipe: beta_null + per-asset TSMOM gate (iter-35 Stage-1) ---
+
+
+def test_tsmom_voltarget_resolves_and_has_trend_window():
+    r = resolve_recipe("tsmom_voltarget")
+    assert r.name == "tsmom_voltarget"
+    sc = r.strategy_config
+    assert sc["kwargs"]["trend_window"] == 100
+
+
+def test_tsmom_voltarget_frozen_params_match_beta_null():
+    r = resolve_recipe("tsmom_voltarget")
+    sc = r.strategy_config
+    # frozen params inherited from beta_null
+    assert sc["kwargs"]["vol_target"] == 0.50
+    assert sc["kwargs"]["weight_vol_lookback"] == 30
+    assert sc["kwargs"]["membership_top_n"] == 10
+    assert sc["kwargs"]["membership_lookback_days"] == 30
+    # market gate params still present (strategy ignores them when trend_window is set)
+    assert sc["kwargs"]["regime_mode"] == "binary"
+    assert sc["kwargs"]["regime_ma_window"] == 200
+    assert sc["kwargs"]["regime_benchmark"] == "BTCUSDT"
+    # model
+    assert r.model_config["class"] == "DummyRegressor"
+    assert r.model_config["module_path"] == "sklearn.dummy"
+    # fee / label
+    assert r.fee_preset == "vip2_bnb"
+    assert r.label_horizon_days == 6
+
+
+def test_tsmom_voltarget_universe_matches_beta_null():
+    r, bn = resolve_recipe("tsmom_voltarget"), resolve_recipe("beta_null")
+    assert r.universe == bn.universe
+    assert tuple(r.strategy_config["kwargs"]["weight_universe"]) == bn.universe
+
+
+def test_tsmom_voltarget_non_lever_fields_match_beta_null():
+    r, bn = resolve_recipe("tsmom_voltarget"), resolve_recipe("beta_null")
+    assert r.segments == bn.segments
+    assert r.account == bn.account
+    assert r.benchmark == bn.benchmark
+    assert r.fee_preset == bn.fee_preset
+    assert r.handler_kwargs == bn.handler_kwargs
+    assert r.feature_config == bn.feature_config
+    assert r.label_horizon_days == bn.label_horizon_days
