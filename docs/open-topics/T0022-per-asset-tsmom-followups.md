@@ -35,6 +35,14 @@ those out is what licenses the high-stakes "shelve per-asset gating" call (parke
   The next test is whether per-asset selection adds value **on top of** the market gate (compose, not
   replace — iter-37). The anti-whipsaw filter and intraday-vol levers below remain, but their prior dropped
   (the 200d failure is slow-exit, not whipsaw).
+- iter-37: **compose** (`tsmom_compose` — per-asset selection ON TOP of the market gate) is a **wash** —
+  mean delta −0.110. Composing fixed the catastrophe (the gate's bear defense is preserved: 2022 = 0.000),
+  but per-asset *selection* within the non-bear basket adds no reliable edge (helped 2024 +0.17, hurt 2023
+  −0.25 / 2025 −0.36; CIs straddle 0). **Per-asset TSMOM is now exhausted across replace AND compose** — it
+  does not beat the passive-beta null in any form. The remaining levers below (anti-whipsaw, intraday-vol)
+  have a very low prior, since *selection itself* — not just the window/whipsaw — is what fails to add edge.
+  **Recommendation: shelve this sub-channel; redirect Stage-1 EV to derivatives-positioning / BTC→alt
+  lead-lag** (a high-stakes pivot for an attended session).
 
 ## Suggested next steps
 
