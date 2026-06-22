@@ -548,3 +548,50 @@ def test_download_pipeline_derivatives_served_from_mirror_in_sequential_loop(tmp
         f"expected exactly {n_days} metrics fetches (pre-fetch only), got {src.metrics_fetch_count}"
     )
     assert src.basis_fetch_count == n_days, f"expected exactly {n_days} basis fetches (pre-fetch only), got {src.basis_fetch_count}"
+
+
+def test_build_does_not_reprobe_404_dates_inline(tmp_path):
+    """A date missing from the source (404) is attempted once by the concurrent pre-fetch; the
+    sequential build (_derivatives_for_pair) must NOT re-probe it inline — it reads the mirror only
+    (fetch_on_miss=False), so the miss → NaN with zero extra network calls.
+
+    Guards the 4th-bug fix: re-probing 404-only dates inline made the build crawl on
+    stale-connection timeouts (~minutes per pair).
+    """
+    start = dt.date(2024, 1, 1)
+    end = dt.date(2024, 1, 3)
+    missing = dt.date(2024, 1, 2)  # klines present, but NO metrics/basis archive (a 404)
+
+    src = _TrackingSource()
+    src.add_pair("BTCUSDT", "BTC", "USDT")
+    cur = start
+    while cur <= end:
+        src.add_kline("BTCUSDT", "1d", cur)
+        if cur != missing:
+            src.add_metrics("BTCUSDT", cur)
+            src.add_basis("BTCUSDT", cur)
+        cur += dt.timedelta(days=1)
+
+    pairs_file = tmp_path / "pairs.txt"
+    pairs_file.write_text("BTCUSDT\n")
+    paths = DatasetPaths(data_dir=tmp_path / "data", backup_dir=tmp_path / "bk")
+
+    download_pipeline(paths, pairs_file, "1d", start, end, src)
+    assert verify_dataset(paths.data_dir).ok
+
+    # The pre-fetch attempts all 3 dates once (the missing one → None, not cached). The sequential
+    # build must add ZERO calls — even for the missing date (no inline re-probe). Without the fix the
+    # build would re-probe the 404 date, pushing the count to n_days + 1.
+    n_days = (end - start).days + 1
+    assert src.metrics_fetch_count == n_days, (
+        f"build re-probed a 404 date inline: expected {n_days} metrics fetches (pre-fetch only), got {src.metrics_fetch_count}"
+    )
+    assert src.basis_fetch_count == n_days, (
+        f"build re-probed a 404 date inline: expected {n_days} basis fetches, got {src.basis_fetch_count}"
+    )
+
+    # The missing date (index 1) is NaN; present dates (0, 2) are non-NaN.
+    feat_dir = paths.data_dir / "features" / "btcusdt"
+    _, oi_vals = read_bin(feat_dir / "oi.day.bin")
+    assert math.isnan(oi_vals[1]), "the 404 date must be NaN"
+    assert not math.isnan(oi_vals[0]) and not math.isnan(oi_vals[2]), "present dates must be non-NaN"

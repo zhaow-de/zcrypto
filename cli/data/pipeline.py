@@ -677,17 +677,26 @@ def _funding_for_pair(
     return out
 
 
-def _fetch_metrics_archive_cached(source: Source, perp: str, date: dt.date, mirror_root: Path) -> bytes | None:
+def _fetch_metrics_archive_cached(
+    source: Source, perp: str, date: dt.date, mirror_root: Path, *, fetch_on_miss: bool = True
+) -> bytes | None:
     """Daily metrics zip bytes for `perp`/`date`, mirror-cached.
 
     Mirror hit → return cached bytes. Miss → fetch from source; a 404 (None) is not
     persisted (a later run re-probes); otherwise bytes are saved to the mirror and returned.
+
+    `fetch_on_miss=False` makes this a pure mirror read: a miss returns None WITHOUT any
+    network I/O. The build phase (`_derivatives_for_pair`) uses this — the concurrent pre-fetch
+    has already attempted every date, so a miss there means a real 404 (→ NaN), and re-probing
+    inline would crawl on stale-connection timeouts.
     """
     mpath = mirror.metrics_mirror_path(mirror_root, perp, date)
     cached = mirror.read_zip(mpath)
     if cached is not None:
         logger.debug("metrics mirror hit %s %s: %s", perp, date, mpath)
         return cached
+    if not fetch_on_miss:
+        return None
     raw = source.fetch_metrics_archive(perp, date)
     if raw is None:
         return None
@@ -695,17 +704,23 @@ def _fetch_metrics_archive_cached(source: Source, perp: str, date: dt.date, mirr
     return raw
 
 
-def _fetch_basis_archive_cached(source: Source, perp: str, date: dt.date, mirror_root: Path) -> bytes | None:
+def _fetch_basis_archive_cached(
+    source: Source, perp: str, date: dt.date, mirror_root: Path, *, fetch_on_miss: bool = True
+) -> bytes | None:
     """Daily basis (premiumIndexKlines) zip bytes for `perp`/`date`, mirror-cached.
 
     Mirror hit → return cached bytes. Miss → fetch from source; a 404 (None) is not
     persisted; otherwise bytes are saved to the mirror and returned.
+
+    `fetch_on_miss=False` makes this a pure mirror read (see `_fetch_metrics_archive_cached`).
     """
     mpath = mirror.basis_mirror_path(mirror_root, perp, date)
     cached = mirror.read_zip(mpath)
     if cached is not None:
         logger.debug("basis mirror hit %s %s: %s", perp, date, mpath)
         return cached
+    if not fetch_on_miss:
+        return None
     raw = source.fetch_basis_archive(perp, date)
     if raw is None:
         return None
@@ -779,10 +794,10 @@ def _fetch_all_derivatives_concurrent(
             else:
                 _fetch_basis_archive_cached(source, perp, date, mirror_root)
         except Exception as e:
-            # Best-effort pre-fetch: derivatives are NaN-able, so a failure here is non-fatal —
-            # the sequential loop retries this (perp, date) inline (bounded by the socket-timeout
-            # backstop) and falls back to NaN. A 404 is returned as None upstream (not raised), so
-            # anything caught here is an unexpected/persistent error worth surfacing at WARNING.
+            # Best-effort pre-fetch: derivatives are NaN-able, so a failure here is non-fatal — the
+            # sequential build reads the mirror ONLY (fetch_on_miss=False), so a date missing here
+            # simply becomes NaN (no inline re-probe). A 404 is returned as None upstream (not raised),
+            # so anything caught here is an unexpected/persistent error worth surfacing at WARNING.
             logger.warning("derivatives pre-fetch %s %s %s: skipping after error: %s", stream, perp, date, e)
 
     completed = 0
@@ -827,8 +842,10 @@ def _derivatives_for_pair(
             cur += dt.timedelta(days=1)
             continue
 
-        # Metrics (5 fields: oi, oi_value, ls_top, ls_global, taker_ratio)
-        metrics_raw = _fetch_metrics_archive_cached(source, perp, cur, mirror_root)
+        # Metrics (5 fields: oi, oi_value, ls_top, ls_global, taker_ratio). Mirror-read-only:
+        # the concurrent pre-fetch already attempted every date, so a miss is a real 404 → NaN.
+        # (Re-probing inline here would crawl on stale-connection timeouts — see fetch_on_miss.)
+        metrics_raw = _fetch_metrics_archive_cached(source, perp, cur, mirror_root, fetch_on_miss=False)
         if metrics_raw is not None:
             try:
                 df = parse_metrics_zip(metrics_raw, perp, cur)
@@ -841,8 +858,8 @@ def _derivatives_for_pair(
         else:
             logger.debug("%s %s: metrics 404 — derivatives NaN for this date", perp, cur)
 
-        # Basis (1 field: basis)
-        basis_raw = _fetch_basis_archive_cached(source, perp, cur, mirror_root)
+        # Basis (1 field: basis). Mirror-read-only, same rationale as metrics above.
+        basis_raw = _fetch_basis_archive_cached(source, perp, cur, mirror_root, fetch_on_miss=False)
         if basis_raw is not None:
             try:
                 df = parse_basis_zip(basis_raw, perp, cur)
