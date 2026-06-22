@@ -688,3 +688,21 @@ def test_tsmom_voltarget_non_lever_fields_match_beta_null():
     assert r.handler_kwargs == bn.handler_kwargs
     assert r.feature_config == bn.feature_config
     assert r.label_horizon_days == bn.label_horizon_days
+
+
+def test_tsmom_voltarget_w200_is_tsmom_at_200d_window():
+    r = resolve_recipe("tsmom_voltarget_w200")
+    t100 = resolve_recipe("tsmom_voltarget")
+    bn = resolve_recipe("beta_null")
+    assert r.name == "tsmom_voltarget_w200"
+    # the ONLY change vs tsmom_voltarget is the trend window (100 -> 200)
+    assert r.strategy_config["kwargs"]["trend_window"] == 200
+    assert t100.strategy_config["kwargs"]["trend_window"] == 100
+    r_kw = {k: v for k, v in r.strategy_config["kwargs"].items() if k != "trend_window"}
+    t_kw = {k: v for k, v in t100.strategy_config["kwargs"].items() if k != "trend_window"}
+    assert r_kw == t_kw
+    # non-lever fields still match the beta_null book
+    assert r.universe == bn.universe
+    assert r.segments == bn.segments
+    assert r.fee_preset == bn.fee_preset == "vip2_bnb"
+    assert r.label_horizon_days == bn.label_horizon_days
