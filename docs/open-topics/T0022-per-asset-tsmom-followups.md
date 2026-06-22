@@ -28,6 +28,13 @@ those out is what licenses the high-stakes "shelve per-asset gating" call (parke
   bear-year whipsaw. The reusable `trend_window` mode on `VolWeightedRegimeStrategy` + the `tsmom_voltarget`
   recipe are merged and ready to parameterize. The market gate's parsimony (one clean BTC signal, full
   cash in a market bear) beat per-asset granularity.
+- iter-36: per-asset **200d** (`tsmom_voltarget_w200`, same window as the market gate) **also loses, worse**
+  — mean delta −0.499, with a catastrophic 2022 (−1.66 long-only Sharpe) because a per-asset 200d SMA holds
+  individual alts *into* the crash (each alt's slow SMA lags BTC's). So per-asset trend gating fails at BOTH
+  speeds (100d whipsaws, 200d slow-exits): **replacing** the market gate with per-asset gating is refuted.
+  The next test is whether per-asset selection adds value **on top of** the market gate (compose, not
+  replace — iter-37). The anti-whipsaw filter and intraday-vol levers below remain, but their prior dropped
+  (the 200d failure is slow-exit, not whipsaw).
 
 ## Suggested next steps
 
