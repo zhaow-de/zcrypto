@@ -167,6 +167,9 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         froth_derisk_mult: float = 0.0,
         crowding_field: str | None = None,
         crowding_tilt_k: float = 1.0,
+        oi_divergence: bool = False,
+        oi_div_lookback: int = 14,
+        oi_div_tilt_k: float = 1.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -191,10 +194,14 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.froth_derisk_mult = froth_derisk_mult
         self.crowding_field = crowding_field
         self.crowding_tilt_k = crowding_tilt_k
+        self.oi_divergence = oi_divergence
+        self.oi_div_lookback = oi_div_lookback
+        self.oi_div_tilt_k = oi_div_tilt_k
         self._membership_schedule: dict | None = None  # lazy; injectable for tests
         self._close_panel: pd.DataFrame | None = None  # lazy; injectable for tests
         self._froth_signal: pd.Series | None = None  # lazy; injectable for tests
         self._crowding_panel: pd.DataFrame | None = None  # lazy; injectable for tests
+        self._oi_div_signal: pd.DataFrame | None = None  # lazy; injectable for tests
         self._exposure = self._build_exposure()
         self._vol_panel = self._build_vol_panel()
 
@@ -251,6 +258,48 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
 
         raw = D.features(self.weight_universe, [self.crowding_field], freq="day")[self.crowding_field]
         return raw.unstack(level="instrument").sort_index()
+
+    def _build_oi_div_signal(self) -> pd.DataFrame:
+        """Build the OI-price-divergence confirmation panel (wide: date × instrument).
+
+        Per coin: confirmation = sign(price_chg) * oi_chg, where price_chg and oi_chg are
+        the L-day fractional change (L = oi_div_lookback).  Positive = confirmed (price↑+OI↑
+        or price↓+OI↓); negative = divergent (price↑+OI↓ or price↓+OI↑).  NaN where $oi is
+        NaN (no perp data / warmup period).
+        """
+        from qlib.data import D
+
+        df = D.features(self.weight_universe, ["$close", "$oi"], freq="day")
+        close_wide = df["$close"].unstack(level="instrument").sort_index()
+        oi_wide = df["$oi"].unstack(level="instrument").sort_index()
+        L = getattr(self, "oi_div_lookback", 14)
+        price_chg = close_wide / close_wide.shift(L) - 1
+        oi_chg = oi_wide / oi_wide.shift(L) - 1
+        # confirmation = sign(price_chg) * oi_chg; NaN where oi is NaN (or within warmup)
+        return np.sign(price_chg) * oi_chg
+
+    @staticmethod
+    def _apply_cross_sectional_tilt(w: pd.Series, signal_row: pd.Series, k: float, sign: float) -> pd.Series:
+        """Apply a multiplicative cross-sectional tilt to weights.
+
+        z-scores ``signal_row`` across the names in ``w``; applies ``exp(sign * k * z)`` as a
+        multiplicative tilt; NaN signal → neutral tilt 1.0; renormalizes the result.
+        Returns ``w`` unchanged if fewer than 2 valid signal values or std is 0.
+        """
+        row = signal_row.reindex(w.index)
+        valid = row.dropna()
+        if len(valid) < 2:
+            return w
+        std = valid.std(ddof=0)
+        if std == 0:
+            return w
+        z = (row - valid.mean()) / std  # NaN for names not in valid stays NaN
+        tilt = np.exp(sign * k * z).fillna(1.0)  # NaN signal → neutral tilt 1.0
+        w = w * tilt
+        total = w.sum()
+        if total > 0:
+            w = w / total
+        return w
 
     def _mult_for(self, date) -> float:
         # Per-asset trend replace mode: disable the market BTC gate; the per-asset filter governs.
@@ -348,7 +397,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         prior = vp.loc[vp.index < t]  # NO LOOK-AHEAD: strictly-prior vol row only
         vols = prior.iloc[-1].reindex(names) if len(prior) else pd.Series(index=names, dtype="float64")
         w = inverse_vol_weights(vols)
-        # Crowding tilt: multiplicative cross-sectional re-weighting (no look-ahead).
+        # Crowding tilt: down-weight high-basis coins (−k sign → exp(−k*z)).
         if getattr(self, "crowding_field", None) is not None and len(w) > 0:
             # Lazily build (or use injected) crowding panel.
             if self._crowding_panel is None:
@@ -356,16 +405,18 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
             cp = self._crowding_panel
             cp_prior = cp.loc[cp.index < t]  # STRICTLY prior — same discipline as vol lookup
             if len(cp_prior) > 0:
-                row = cp_prior.iloc[-1].reindex(w.index)
-                valid = row.dropna()
-                if len(valid) >= 2:
-                    std = valid.std(ddof=0)
-                    if std > 0:
-                        z = (row - valid.mean()) / std  # NaN for missing names stays NaN
-                        k = getattr(self, "crowding_tilt_k", 1.0)
-                        tilt = np.exp(-k * z).fillna(1.0)  # NaN crowding → neutral tilt 1.0
-                        w = w * tilt
-                        total = w.sum()
-                        if total > 0:
-                            w = w / total
+                row = cp_prior.iloc[-1]
+                k = getattr(self, "crowding_tilt_k", 1.0)
+                w = self._apply_cross_sectional_tilt(w, row, k, sign=-1.0)
+        # OI-divergence tilt: up-weight confirmed-trend coins (+k sign → exp(+k*z)).
+        if getattr(self, "oi_divergence", False) and len(w) > 0:
+            # Lazily build (or use injected) OI-divergence signal panel.
+            if self._oi_div_signal is None:
+                self._oi_div_signal = self._build_oi_div_signal()
+            op = self._oi_div_signal
+            op_prior = op.loc[op.index < t]  # STRICTLY prior — no look-ahead
+            if len(op_prior) > 0:
+                row = op_prior.iloc[-1]
+                k = getattr(self, "oi_div_tilt_k", 1.0)
+                w = self._apply_cross_sectional_tilt(w, row, k, sign=+1.0)
         return {k: float(v) for k, v in w.items() if v > 0}
