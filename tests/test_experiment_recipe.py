@@ -766,3 +766,41 @@ def test_basis_froth_non_lever_fields_match_beta_null():
     assert bf.reference_instruments == bn.reference_instruments
     assert bf.handler_kwargs == bn.handler_kwargs
     assert bf.feature_config == bn.feature_config
+
+
+# --- basis_tilt recipe: beta_null + cross-sectional crowding-weighting tilt (iter-40 Stage-2) ---
+
+_CROWDING_KEYS = {"crowding_field", "crowding_tilt_k"}
+
+
+def test_basis_tilt_resolves():
+    r = resolve_recipe("basis_tilt")
+    assert r.name == "basis_tilt"
+
+
+def test_basis_tilt_crowding_params():
+    sc = resolve_recipe("basis_tilt").strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["crowding_field"] == "$basis"
+    assert sc["kwargs"]["crowding_tilt_k"] == 1.0
+
+
+def test_basis_tilt_only_crowding_keys_differ_from_beta_null():
+    """The ONLY strategy-kwargs delta vs beta_null is the two crowding keys (drift guard)."""
+    bt_kw = resolve_recipe("basis_tilt").strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in bt_kw.items() if k not in _CROWDING_KEYS} == bn_kw
+
+
+def test_basis_tilt_non_lever_fields_match_beta_null():
+    bt, bn = resolve_recipe("basis_tilt"), resolve_recipe("beta_null")
+    assert bt.universe == bn.universe
+    assert bt.segments == bn.segments
+    assert bt.fee_preset == bn.fee_preset
+    assert bt.label_horizon_days == bn.label_horizon_days
+    assert bt.account == bn.account
+    assert bt.benchmark == bn.benchmark
+    assert bt.reference_instruments == bn.reference_instruments
+    assert bt.handler_kwargs == bn.handler_kwargs
+    assert bt.feature_config == bn.feature_config
