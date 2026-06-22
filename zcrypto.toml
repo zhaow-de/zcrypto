@@ -10,9 +10,11 @@ backup_dir = "../zcrypto-data"
 # CLI flags instead.
 [zcrypto.fetch]
 
-# Max parallel HTTP fetches in `zcrypto data download`. Gentle by default to
-# avoid hammering data.binance.vision.
-fetch_concurrency = 8
+# Max parallel HTTP fetches in `zcrypto data download`. Moderate — high enough to make the
+# multi-year derivatives backfill tractable, low enough to avoid hammering data.binance.vision.
+# (Raised from the original gentle default of 8; safe at 16 now that the stale-keep-alive read
+# can't hang — see the socket-timeout backstop in cli/data/binance.py.)
+fetch_concurrency = 16
 
 # Socket timeout (seconds) for HEAD / small-body (~kB) requests against
 # data.binance.vision and api.binance.com. urllib defaults to unbounded — a
