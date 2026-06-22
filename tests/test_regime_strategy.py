@@ -765,3 +765,151 @@ def test_froth_no_lookahead():
     z_at_day4 = froth_z.iloc[4]
     assert not (z_at_day4 != z_at_day4), "z at spike day must be non-NaN (causal)"
     assert z_at_day4 > 1.0, "spike should produce a z above threshold"
+
+
+# ---------------------------------------------------------------------------
+# Cross-sectional crowding-tilt tests (iter-40)
+# ---------------------------------------------------------------------------
+
+
+def _make_crowding_stub(crowding_field=None, crowding_tilt_k=1.0):
+    """Build a VolWeightedRegimeStrategy stub without calling __init__ (no qlib needed).
+
+    Sets up a 4-name equal-vol panel; tests inject _crowding_panel themselves.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = object.__new__(rg.VolWeightedRegimeStrategy)
+    s._base_risk_degree = 0.95
+    # 5 days; equal vol for all names so plain inverse-vol gives equal weights
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._vol_panel = pd.DataFrame(
+        {"A": [0.1] * 5, "B": [0.1] * 5, "C": [0.1] * 5, "D": [0.1] * 5},
+        index=dates,
+    )
+    s.membership_top_n = None
+    s.membership_lookback_days = None
+    s._membership_schedule = None
+    s.trend_window = None
+    s._close_panel = None
+    s.crowding_field = crowding_field
+    s.crowding_tilt_k = crowding_tilt_k
+    s._crowding_panel = None  # injectable seam
+    return s
+
+
+def test_crowding_tilt_high_basis_downweighted():
+    """One HIGH-prior-basis coin (z>0) gets a lower weight; LOW-basis coin gets higher weight.
+
+    Equal vols → equal inverse-vol weights; tilt shifts distribution: high-basis down, low-basis up.
+    Weights must still sum to ~1.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_crowding_stub(crowding_field="$basis", crowding_tilt_k=1.0)
+
+    # Crowding panel: 4 dates of prior data + 1 future row that must NOT be used.
+    # On day 3 (the last prior row for trade_date=day 4): A=2.0 (high basis), B=-2.0 (low/backwardated).
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._crowding_panel = pd.DataFrame(
+        {"A": [1.0, 1.5, 2.0, 2.0, 99.0], "B": [-1.0, -1.5, -2.0, -2.0, 99.0]},
+        index=dates,
+    )
+
+    trade_date = dates[4]  # use only rows strictly before dates[4] = rows 0-3
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert set(w.keys()) == {"A", "B"}, f"both names should be held; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9, f"weights must sum to 1; got {sum(w.values())}"
+    assert w["A"] < w["B"], "high-basis coin A must be down-weighted vs low-basis coin B"
+
+
+def test_crowding_tilt_none_regression():
+    """crowding_field=None → weights byte-identical to plain inverse-vol (regression)."""
+    from cli.experiment.strategies import regime as rg
+
+    s_no_tilt = _make_crowding_stub(crowding_field=None)
+    s_tilt = _make_crowding_stub(crowding_field="$basis", crowding_tilt_k=1.0)
+
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s_tilt._crowding_panel = pd.DataFrame(
+        {"A": [1.0, 2.0, 3.0, 4.0, 99.0], "B": [-1.0, -2.0, -3.0, -4.0, 99.0]},
+        index=dates,
+    )
+
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    trade_date = dates[4]
+    w_no_tilt = s_no_tilt.generate_target_weight_position(
+        score, current=None, trade_start_time=trade_date, trade_end_time=trade_date
+    )
+    w_tilt = s_tilt.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    # With crowding_field=None the tilt must NOT be applied; equal-vol basket stays 50/50.
+    assert abs(w_no_tilt["A"] - 0.5) < 1e-9
+    assert abs(w_no_tilt["B"] - 0.5) < 1e-9
+    # The tilted version must differ (A down-weighted, B up-weighted).
+    assert w_tilt["A"] < w_tilt["B"]
+
+
+def test_crowding_tilt_nan_crowding_neutral():
+    """A coin with NaN crowding gets tilt=1.0 (neutral); the other coins tilt among themselves.
+
+    Three names: A NaN, B high-basis, C low-basis. After tilt:
+    - A's weight stays proportional to 1.0 (tilt factor 1.0)
+    - B's weight shrinks; C's weight grows
+    - sum is still 1.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_crowding_stub(crowding_field="$basis", crowding_tilt_k=1.0)
+    # 4-name equal vol panel for A, B, C (override the 4-name stub to 3 names)
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._vol_panel = pd.DataFrame(
+        {"A": [0.1] * 5, "B": [0.1] * 5, "C": [0.1] * 5},
+        index=dates,
+    )
+    # A has NaN crowding; B high-basis; C low-basis
+    s._crowding_panel = pd.DataFrame(
+        {"A": [float("nan")] * 5, "B": [2.0] * 5, "C": [-2.0] * 5},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0, "C": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert set(w.keys()) == {"A", "B", "C"}, f"all three names should be held; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9, "weights must sum to 1"
+    # B (high-basis, z>0) must be down-weighted vs C (low-basis, z<0)
+    assert w["B"] < w["C"], "high-basis B must be down-weighted vs low-basis C"
+    # A (NaN → tilt 1.0) should be between B and C (or equal to plain inverse-vol share before renorm)
+    # The key check: A's contribution is not reduced due to its own NaN (tilt is 1.0, neutral)
+    # After renorm, A > B is reasonable since B was shrunk and A was kept at its neutral share.
+    assert w["A"] > w["B"], "NaN-crowding coin A should not be penalised vs high-basis B"
+
+
+def test_crowding_tilt_no_lookahead():
+    """The tilt at date t must use ONLY crowding rows strictly before t.
+
+    Inject a panel with a future row (at trade_date itself) that would invert the tilt if used.
+    Assert the inversion does NOT happen.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_crowding_stub(crowding_field="$basis", crowding_tilt_k=1.0)
+
+    # Prior rows (dates 0-3): A high-basis, B low-basis → A should be down-weighted.
+    # Future row (date 4 = trade_date): A=-99.0, B=+99.0 → if used, would make A up-weighted.
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._crowding_panel = pd.DataFrame(
+        {"A": [2.0, 2.0, 2.0, 2.0, -99.0], "B": [-2.0, -2.0, -2.0, -2.0, 99.0]},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    # Strictly prior rows say A is high-basis → must be down-weighted vs B
+    assert w["A"] < w["B"], "look-ahead guard failed: future crowding row must not be used"

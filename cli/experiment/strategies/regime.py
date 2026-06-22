@@ -165,6 +165,8 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         froth_lookback: int = 90,
         froth_z_threshold: float = 1.5,
         froth_derisk_mult: float = 0.0,
+        crowding_field: str | None = None,
+        crowding_tilt_k: float = 1.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -187,9 +189,12 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.froth_lookback = froth_lookback
         self.froth_z_threshold = froth_z_threshold
         self.froth_derisk_mult = froth_derisk_mult
+        self.crowding_field = crowding_field
+        self.crowding_tilt_k = crowding_tilt_k
         self._membership_schedule: dict | None = None  # lazy; injectable for tests
         self._close_panel: pd.DataFrame | None = None  # lazy; injectable for tests
         self._froth_signal: pd.Series | None = None  # lazy; injectable for tests
+        self._crowding_panel: pd.DataFrame | None = None  # lazy; injectable for tests
         self._exposure = self._build_exposure()
         self._vol_panel = self._build_vol_panel()
 
@@ -239,6 +244,13 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         roll_mean = cs_median.rolling(lb, min_periods=lb).mean()
         roll_std = cs_median.rolling(lb, min_periods=lb).std()
         return (cs_median - roll_mean) / roll_std  # rolling z-score; early rows → NaN
+
+    def _build_crowding_panel(self) -> pd.DataFrame:
+        """Lazily fetch the per-asset crowding-field panel (wide: date × instrument)."""
+        from qlib.data import D
+
+        raw = D.features(self.weight_universe, [self.crowding_field], freq="day")[self.crowding_field]
+        return raw.unstack(level="instrument").sort_index()
 
     def _mult_for(self, date) -> float:
         # Per-asset trend replace mode: disable the market BTC gate; the per-asset filter governs.
@@ -336,4 +348,24 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         prior = vp.loc[vp.index < t]  # NO LOOK-AHEAD: strictly-prior vol row only
         vols = prior.iloc[-1].reindex(names) if len(prior) else pd.Series(index=names, dtype="float64")
         w = inverse_vol_weights(vols)
+        # Crowding tilt: multiplicative cross-sectional re-weighting (no look-ahead).
+        if getattr(self, "crowding_field", None) is not None and len(w) > 0:
+            # Lazily build (or use injected) crowding panel.
+            if self._crowding_panel is None:
+                self._crowding_panel = self._build_crowding_panel()
+            cp = self._crowding_panel
+            cp_prior = cp.loc[cp.index < t]  # STRICTLY prior — same discipline as vol lookup
+            if len(cp_prior) > 0:
+                row = cp_prior.iloc[-1].reindex(w.index)
+                valid = row.dropna()
+                if len(valid) >= 2:
+                    std = valid.std(ddof=0)
+                    if std > 0:
+                        z = (row - valid.mean()) / std  # NaN for missing names stays NaN
+                        k = getattr(self, "crowding_tilt_k", 1.0)
+                        tilt = np.exp(-k * z).fillna(1.0)  # NaN crowding → neutral tilt 1.0
+                        w = w * tilt
+                        total = w.sum()
+                        if total > 0:
+                            w = w / total
         return {k: float(v) for k, v in w.items() if v > 0}

@@ -27,6 +27,12 @@ recipe are the apparatus for the variants below.
 - iter-39: basis as a **binary market-timing de-risk gate** (cross-sectional median `$basis` z > 1.5 → cash,
   composed on `beta_null`) is **refuted** (mean delta −0.208; hurts in the 2024/2025 bull years; the
   BTC-200d gate already handles the bear, so the overlay only adds harmful de-risking). Spec `00036`.
+- iter-40: basis as a **cross-sectional crowding TILT** (down-weight high-`$basis` coins, `w *= exp(−k·z)`,
+  composed on the inverse-vol basket) is **also refuted** (mean delta −0.183; worst in the 2024 bull −0.44).
+  Down-weighting crowded coins underperformed inverse-vol — high basis behaves like a **demand/momentum**
+  proxy (keeps running) rather than a contrarian-reversal one at the daily horizon. Spec `00037`. **So
+  `$basis` is exhausted across BOTH forms (timing gate + cross-sectional tilt).** The reusable `crowding_*`
+  tilt + `froth_*` overlay remain available for `$oi`/`$ls_*` variants.
 
 ## Suggested next steps
 
