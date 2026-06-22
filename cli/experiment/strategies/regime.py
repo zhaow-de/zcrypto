@@ -161,6 +161,10 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         membership_lookback_days: int | None = None,
         trend_window: int | None = None,
         compose_market_gate: bool = False,
+        froth_field: str | None = None,
+        froth_lookback: int = 90,
+        froth_z_threshold: float = 1.5,
+        froth_derisk_mult: float = 0.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -179,8 +183,13 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.membership_lookback_days = membership_lookback_days
         self.trend_window = trend_window
         self.compose_market_gate = compose_market_gate
+        self.froth_field = froth_field
+        self.froth_lookback = froth_lookback
+        self.froth_z_threshold = froth_z_threshold
+        self.froth_derisk_mult = froth_derisk_mult
         self._membership_schedule: dict | None = None  # lazy; injectable for tests
         self._close_panel: pd.DataFrame | None = None  # lazy; injectable for tests
+        self._froth_signal: pd.Series | None = None  # lazy; injectable for tests
         self._exposure = self._build_exposure()
         self._vol_panel = self._build_vol_panel()
 
@@ -214,17 +223,54 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         close = D.features(self.weight_universe, ["$close"], freq="day")["$close"]
         return close.unstack(level="instrument").sort_index()
 
+    def _build_froth_signal(self) -> pd.Series:
+        """Cross-sectional median basis z-score over the weight universe.
+
+        Reads ``froth_field`` from D.features, takes the per-date median across instruments,
+        and computes a rolling z-score over ``froth_lookback`` days.  Each row d uses only
+        dates ≤ d (rolling window, no look-ahead).  Returns a date-indexed Series of z-scores.
+        """
+        from qlib.data import D
+
+        raw = D.features(self.weight_universe, [self.froth_field], freq="day")[self.froth_field]
+        wide = raw.unstack(level="instrument").sort_index()  # date × instrument
+        cs_median = wide.median(axis=1)  # cross-sectional median per date
+        lb = getattr(self, "froth_lookback", 90)
+        roll_mean = cs_median.rolling(lb, min_periods=lb).mean()
+        roll_std = cs_median.rolling(lb, min_periods=lb).std()
+        return (cs_median - roll_mean) / roll_std  # rolling z-score; early rows → NaN
+
     def _mult_for(self, date) -> float:
         # Per-asset trend replace mode: disable the market BTC gate; the per-asset filter governs.
         # In compose mode (compose_market_gate=True), the gate stays active alongside the per-asset filter.
         if getattr(self, "trend_window", None) is not None and not getattr(self, "compose_market_gate", False):
-            return 1.0
-        date = pd.Timestamp(date).normalize()
-        exp = self._exposure
-        if date in exp.index:
-            return float(exp.loc[date])
-        prior = exp.loc[:date]
-        return float(prior.iloc[-1]) if len(prior) else 1.0
+            m = 1.0
+        else:
+            date_ts = pd.Timestamp(date).normalize()
+            exp = self._exposure
+            if date_ts in exp.index:
+                m = float(exp.loc[date_ts])
+            else:
+                prior = exp.loc[:date_ts]
+                m = float(prior.iloc[-1]) if len(prior) else 1.0
+
+        # Basis-froth overlay: if froth_z > threshold → de-risk by froth_derisk_mult.
+        if getattr(self, "froth_field", None) is not None:
+            # Lazily build (or use injected) froth signal.
+            if self._froth_signal is None:
+                self._froth_signal = self._build_froth_signal()
+            froth_z_series = self._froth_signal
+            date_ts = pd.Timestamp(date).normalize()
+            # Carry-forward: use the latest value ≤ date (same convention as _exposure lookup).
+            prior_froth = froth_z_series.loc[froth_z_series.index <= date_ts]
+            if len(prior_froth):
+                z = prior_froth.iloc[-1]
+                threshold = getattr(self, "froth_z_threshold", 1.5)
+                derisk_mult = getattr(self, "froth_derisk_mult", 0.0)
+                if not (z != z) and z > threshold:  # NaN check: NaN != NaN is True
+                    m *= derisk_mult
+
+        return m
 
     def _members_for(self, date) -> set[str] | None:
         """Return the set of liquidity-member symbols for *date*, or None if no filter is set."""
