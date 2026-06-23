@@ -1375,3 +1375,72 @@ def test_beta_null_confirm5_non_lever_fields_match_beta_null():
     assert c5.reference_instruments == bn.reference_instruments
     assert c5.handler_kwargs == bn.handler_kwargs
     assert c5.feature_config == bn.feature_config
+
+
+# --- beta_null_confirm2/3/10 recipes: iter-54 anti-whipsaw confirm-days N-sweep ---
+
+_CONFIRM_KEY = "regime_confirm_days"
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_days",
+    [
+        ("beta_null_confirm2", 2),
+        ("beta_null_confirm3", 3),
+        ("beta_null_confirm10", 10),
+    ],
+)
+def test_beta_null_confirm_sweep_resolves(recipe_name, expected_days):
+    r = resolve_recipe(recipe_name)
+    assert r.name == recipe_name
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_days",
+    [
+        ("beta_null_confirm2", 2),
+        ("beta_null_confirm3", 3),
+        ("beta_null_confirm10", 10),
+    ],
+)
+def test_beta_null_confirm_sweep_confirm_days_param(recipe_name, expected_days):
+    sc = resolve_recipe(recipe_name).strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"][_CONFIRM_KEY] == expected_days
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_days",
+    [
+        ("beta_null_confirm2", 2),
+        ("beta_null_confirm3", 3),
+        ("beta_null_confirm10", 10),
+    ],
+)
+def test_beta_null_confirm_sweep_only_confirm_key_differs_from_beta_null(recipe_name, expected_days):
+    """The ONLY strategy-kwargs delta vs beta_null is regime_confirm_days (drift guard)."""
+    variant_kw = resolve_recipe(recipe_name).strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in variant_kw.items() if k != _CONFIRM_KEY} == bn_kw
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_days",
+    [
+        ("beta_null_confirm2", 2),
+        ("beta_null_confirm3", 3),
+        ("beta_null_confirm10", 10),
+    ],
+)
+def test_beta_null_confirm_sweep_non_lever_fields_match_beta_null(recipe_name, expected_days):
+    variant, bn = resolve_recipe(recipe_name), resolve_recipe("beta_null")
+    assert variant.universe == bn.universe
+    assert variant.segments == bn.segments
+    assert variant.fee_preset == bn.fee_preset
+    assert variant.label_horizon_days == bn.label_horizon_days
+    assert variant.account == bn.account
+    assert variant.benchmark == bn.benchmark
+    assert variant.reference_instruments == bn.reference_instruments
+    assert variant.handler_kwargs == bn.handler_kwargs
+    assert variant.feature_config == bn.feature_config
