@@ -171,6 +171,8 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         oi_div_lookback: int = 14,
         oi_div_tilt_k: float = 1.0,
         oi_div_directional: bool = False,
+        oi_div_strong_trend_only: bool = False,
+        oi_div_strong_trend_margin: float = 0.25,
         smart_money: bool = False,
         smart_money_tilt_k: float = 1.0,
         **kwargs,
@@ -201,6 +203,8 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.oi_div_lookback = oi_div_lookback
         self.oi_div_tilt_k = oi_div_tilt_k
         self.oi_div_directional = oi_div_directional
+        self.oi_div_strong_trend_only = oi_div_strong_trend_only
+        self.oi_div_strong_trend_margin = oi_div_strong_trend_margin
         self.smart_money = smart_money
         self.smart_money_tilt_k = smart_money_tilt_k
         self._membership_schedule: dict | None = None  # lazy; injectable for tests
@@ -209,6 +213,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self._crowding_panel: pd.DataFrame | None = None  # lazy; injectable for tests
         self._oi_div_signal: pd.DataFrame | None = None  # lazy; injectable for tests
         self._smart_money_signal: pd.DataFrame | None = None  # lazy; injectable for tests
+        self._strong_trend_signal: pd.Series | None = None  # lazy; injectable for tests
         self._exposure = self._build_exposure()
         self._vol_panel = self._build_vol_panel()
 
@@ -306,6 +311,21 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         smart_div = ls_top_wide / ls_global_wide
         # Guard: zero denominator produces inf; replace any non-finite value with NaN.
         return smart_div.replace([float("inf"), float("-inf")], float("nan"))
+
+    def _build_strong_trend_signal(self) -> pd.Series:
+        """Build the BTC pct-above-200d SMA series (date-indexed).
+
+        pct_above = $close / rolling_mean(regime_ma_window) − 1.
+        The rolling mean at date d uses closes ≤ d (causal; no look-ahead).
+        Returns a date-indexed Series of floats (NaN during warmup).
+        """
+        from qlib.data import D
+
+        close = D.features([self.regime_benchmark], ["$close"], freq="day")["$close"].droplevel(0)
+        close = close.astype("float64").sort_index()
+        window = getattr(self, "regime_ma_window", 200)
+        sma = close.rolling(window).mean()
+        return close / sma - 1
 
     @staticmethod
     def _apply_cross_sectional_tilt(w: pd.Series, signal_row: pd.Series, k: float, sign: float) -> pd.Series:
@@ -439,15 +459,31 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
                 w = self._apply_cross_sectional_tilt(w, row, k, sign=-1.0)
         # OI-divergence tilt: up-weight confirmed-trend coins (+k sign → exp(+k*z)).
         if getattr(self, "oi_divergence", False) and len(w) > 0:
-            # Lazily build (or use injected) OI-divergence signal panel.
-            if self._oi_div_signal is None:
-                self._oi_div_signal = self._build_oi_div_signal()
-            op = self._oi_div_signal
-            op_prior = op.loc[op.index < t]  # STRICTLY prior — no look-ahead
-            if len(op_prior) > 0:
-                row = op_prior.iloc[-1]
-                k = getattr(self, "oi_div_tilt_k", 1.0)
-                w = self._apply_cross_sectional_tilt(w, row, k, sign=+1.0)
+            # Strong-trend gate: skip the tilt unless BTC is sufficiently above its 200d SMA.
+            _apply_oi_tilt = True
+            if getattr(self, "oi_div_strong_trend_only", False):
+                # Lazily build (or use injected) strong-trend signal.
+                if self._strong_trend_signal is None:
+                    self._strong_trend_signal = self._build_strong_trend_signal()
+                st_sig = self._strong_trend_signal
+                st_prior = st_sig.loc[st_sig.index < t]  # STRICTLY prior — no look-ahead
+                if len(st_prior) == 0:
+                    _apply_oi_tilt = False  # warmup: no prior data → skip tilt
+                else:
+                    pct_above = st_prior.iloc[-1]
+                    margin = getattr(self, "oi_div_strong_trend_margin", 0.25)
+                    # NaN (warmup row) or not above margin → skip tilt
+                    _apply_oi_tilt = bool(pct_above == pct_above and pct_above > margin)
+            if _apply_oi_tilt:
+                # Lazily build (or use injected) OI-divergence signal panel.
+                if self._oi_div_signal is None:
+                    self._oi_div_signal = self._build_oi_div_signal()
+                op = self._oi_div_signal
+                op_prior = op.loc[op.index < t]  # STRICTLY prior — no look-ahead
+                if len(op_prior) > 0:
+                    row = op_prior.iloc[-1]
+                    k = getattr(self, "oi_div_tilt_k", 1.0)
+                    w = self._apply_cross_sectional_tilt(w, row, k, sign=+1.0)
         # Smart-money tilt: up-weight coins where top-traders are more long than the crowd (+k sign).
         if getattr(self, "smart_money", False) and len(w) > 0:
             # Lazily build (or use injected) smart-money signal panel.
