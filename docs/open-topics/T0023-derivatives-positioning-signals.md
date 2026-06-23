@@ -50,6 +50,12 @@ recipe are the apparatus for the variants below.
   — the smart-money-long coins were the laggards (retail crowded the momentum winners). Account positioning
   adds no edge. Spec `00040`. **Scorecard (5 signals):** basis ×2 (−0.21/−0.18 dead), OI ×2 (+0.008/+0.010
   neutral/bull-only), L/S (−0.066) — no clear edge; OI's 2024 effect is the lone positive.
+- iter-44: **strong-trend-gated** OI tilt (apply only when BTC >25% above 200d) **backfired** (−0.014, worse
+  than ungated +0.010) — the gate cut the 2024 benefit (excluded early-2024) more than it shaved the
+  2023/2025 drags. OI-confirmation is **not robustly gateable**. Spec `00041`. **Single-factor derivatives
+  sweep COMPLETE (6 signals): no robust edge; best ~neutral (directional OI +0.010). Shelve-call now
+  well-evidenced (parked).** Next genuinely-untried reversible angle: an **ML model combining all the
+  derivatives fields as features** (vs hand-crafted single-factor tilts) — `$taker_ratio` folds in as one feature.
 
 ## Suggested next steps
 
