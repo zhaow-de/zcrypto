@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import io
+import socket
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -124,6 +125,10 @@ def fetch_1h_klines(
         return df.sort_values(["symbol", "timestamp_open_utc"]).reset_index(drop=True)
 
     fetch = FetchConfig()
+
+    # Backstop: set a process-wide socket read timeout to cut a stale keep-alive ssl.read hang.
+    # Mirrors BinanceSource.__init__ in cli/data/binance.py — see comment there for full rationale.
+    socket.setdefaulttimeout(fetch.http_timeout_get_secs + 10)
 
     # Build (symbol, date) work list.
     work: list[tuple[str, dt.date]] = []

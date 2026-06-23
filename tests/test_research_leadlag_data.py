@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 import io
+import socket
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
@@ -15,8 +16,22 @@ from unittest.mock import MagicMock, call, patch
 import pandas as pd
 import pytest
 
+from cli.config import FetchConfig
 from cli.data.binance import HttpStatusError, _pool
 from cli.research.leadlag.data import _CONTRACT_COLS, fetch_1h_klines, parse_1h_kline_zip
+
+
+@pytest.fixture(autouse=True)
+def _restore_socket_default_timeout():
+    """fetch_1h_klines calls socket.setdefaulttimeout() process-wide (the stale-keepalive
+    hang backstop). Save/restore it so these tests never leak the global default into the
+    rest of the suite. Mirrors the same fixture in test_data_binance.py."""
+    prev = socket.getdefaulttimeout()
+    try:
+        yield
+    finally:
+        socket.setdefaulttimeout(prev)
+
 
 # ---------------------------------------------------------------------------
 # Helpers: synthetic 1h kline zip builders
@@ -374,3 +389,34 @@ class TestFetch1hKlinesCache:
             fetch_1h_klines(symbols, self._DATE_A, self._DATE_A, cache_path=cache)
 
         assert Path(cache).exists(), "cache file must be written after first fetch"
+
+
+# ---------------------------------------------------------------------------
+# fetch_1h_klines: socket-timeout backstop for stale-keepalive hang
+# ---------------------------------------------------------------------------
+
+
+class TestFetch1hKlinesSocketBackstop:
+    """Verify that fetch_1h_klines sets the process-wide socket default timeout
+    (the stale-keepalive ssl.read hang backstop) on the fetch path."""
+
+    _DATE = dt.date(2024, 3, 1)
+
+    def test_fetch_sets_socket_default_timeout(self, tmp_path):
+        """fetch_1h_klines must call socket.setdefaulttimeout(http_timeout_get_secs + 10)
+        before the concurrent fetch loop so that stale keep-alive connections can never
+        hang indefinitely in ssl.read. Mirrors BinanceSource.__init__ in cli/data/binance.py."""
+        symbols = ["BTCUSDT"]
+        cache = str(tmp_path / "1h.parquet")
+        expected_timeout = FetchConfig().http_timeout_get_secs + 10
+
+        raw = _make_1h_kline_zip(self._DATE, "BTCUSDT")
+        mock_resp = MagicMock(status=200)
+        mock_resp.data = raw
+
+        with patch.object(_pool, "request", return_value=mock_resp):
+            fetch_1h_klines(symbols, self._DATE, self._DATE, cache_path=cache)
+
+        assert socket.getdefaulttimeout() == expected_timeout, (
+            f"socket.getdefaulttimeout() should be {expected_timeout} after fetch, got {socket.getdefaulttimeout()}"
+        )
