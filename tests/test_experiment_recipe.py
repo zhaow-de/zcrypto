@@ -927,3 +927,61 @@ def test_smart_money_tilt_non_lever_fields_match_beta_null():
     assert sm.reference_instruments == bn.reference_instruments
     assert sm.handler_kwargs == bn.handler_kwargs
     assert sm.feature_config == bn.feature_config
+
+
+# --- oi_div_strong_trend recipe: beta_null + strong-trend-gated directional OI-div tilt (iter-44) ---
+
+_OI_DIV_STRONG_TREND_KEYS = {
+    "oi_divergence",
+    "oi_div_directional",
+    "oi_div_lookback",
+    "oi_div_tilt_k",
+    "oi_div_strong_trend_only",
+    "oi_div_strong_trend_margin",
+}
+
+
+def test_oi_div_strong_trend_resolves():
+    r = resolve_recipe("oi_div_strong_trend")
+    assert r.name == "oi_div_strong_trend"
+
+
+def test_oi_div_strong_trend_params():
+    sc = resolve_recipe("oi_div_strong_trend").strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["oi_divergence"] is True
+    assert sc["kwargs"]["oi_div_directional"] is True
+    assert sc["kwargs"]["oi_div_lookback"] == 14
+    assert sc["kwargs"]["oi_div_tilt_k"] == 1.0
+    assert sc["kwargs"]["oi_div_strong_trend_only"] is True
+    assert sc["kwargs"]["oi_div_strong_trend_margin"] == 0.25
+
+
+def test_oi_div_strong_trend_only_six_keys_differ_from_beta_null():
+    """The ONLY strategy-kwargs delta vs beta_null is the six oi-div keys (drift guard)."""
+    st_kw = resolve_recipe("oi_div_strong_trend").strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in st_kw.items() if k not in _OI_DIV_STRONG_TREND_KEYS} == bn_kw
+
+
+def test_oi_div_strong_trend_non_lever_fields_match_beta_null():
+    st, bn = resolve_recipe("oi_div_strong_trend"), resolve_recipe("beta_null")
+    assert st.universe == bn.universe
+    assert st.segments == bn.segments
+    assert st.fee_preset == bn.fee_preset
+    assert st.label_horizon_days == bn.label_horizon_days
+    assert st.account == bn.account
+    assert st.benchmark == bn.benchmark
+    assert st.reference_instruments == bn.reference_instruments
+    assert st.handler_kwargs == bn.handler_kwargs
+    assert st.feature_config == bn.feature_config
+
+
+def test_oi_divergence_directional_still_resolves_without_strong_trend_keys():
+    """iter-42 recipe is unchanged: strong-trend keys are absent (default False/0.25)."""
+    od = resolve_recipe("oi_divergence_directional")
+    assert od.name == "oi_divergence_directional"
+    kw = od.strategy_config["kwargs"]
+    assert kw.get("oi_div_strong_trend_only", False) is False
+    assert "oi_div_strong_trend_margin" not in kw
