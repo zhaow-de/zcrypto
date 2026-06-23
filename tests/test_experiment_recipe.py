@@ -985,3 +985,66 @@ def test_oi_divergence_directional_still_resolves_without_strong_trend_keys():
     kw = od.strategy_config["kwargs"]
     assert kw.get("oi_div_strong_trend_only", False) is False
     assert "oi_div_strong_trend_margin" not in kw
+
+
+# --- derivatives_steady recipe: steady book + DerivativesProcessor (iter-45 Stage-2) ---
+
+
+def test_derivatives_steady_resolves():
+    r = resolve_recipe("derivatives_steady")
+    assert r.name == "derivatives_steady"
+
+
+def test_derivatives_steady_wires_processor_and_matches_steady_book():
+    import dataclasses
+
+    from cli.experiment.recipes.base import resolve_recipe
+
+    ds = resolve_recipe("derivatives_steady")
+    steady = resolve_recipe("steady")
+    # DerivativesProcessor is prepended first, before RobustZScoreNorm.
+    assert _infer_classes(ds)[0] == "DerivativesProcessor"
+    assert _infer_classes(ds)[1] == "RobustZScoreNorm"
+    # Book matches steady except name + infer_processors (clean A/B isolation).
+    assert dataclasses.replace(ds, name="steady", handler_kwargs=steady.handler_kwargs) == steady
+
+
+def test_derivatives_steady_processor_module_path():
+    ds = resolve_recipe("derivatives_steady")
+    proc = ds.handler_kwargs["infer_processors"][0]
+    assert proc["class"] == "DerivativesProcessor"
+    assert proc["module_path"] == "cli.experiment.features.derivatives"
+
+
+def test_derivatives_steady_learn_processors_match_steady():
+    ds = resolve_recipe("derivatives_steady")
+    steady = resolve_recipe("steady")
+    assert ds.handler_kwargs["learn_processors"] == steady.handler_kwargs["learn_processors"]
+
+
+def test_derivatives_steady_model_config_matches_steady():
+    ds = resolve_recipe("derivatives_steady")
+    steady = resolve_recipe("steady")
+    assert ds.model_config == steady.model_config
+
+
+def test_derivatives_steady_strategy_config_matches_steady():
+    ds = resolve_recipe("derivatives_steady")
+    steady = resolve_recipe("steady")
+    assert ds.strategy_config == steady.strategy_config
+
+
+def test_derivatives_steady_non_lever_fields_match_steady():
+    ds = resolve_recipe("derivatives_steady")
+    steady = resolve_recipe("steady")
+    assert ds.universe == steady.universe
+    assert ds.segments == steady.segments
+    assert ds.fee_preset == steady.fee_preset
+    assert ds.account == steady.account
+    assert ds.benchmark == steady.benchmark
+    assert ds.reference_instruments == steady.reference_instruments
+    assert ds.feature_config == steady.feature_config
+    assert ds.label_horizon_days == steady.label_horizon_days
+    assert ds.feature_lookback_days == steady.feature_lookback_days
+    assert ds.cv_n_groups == steady.cv_n_groups
+    assert ds.cv_test_groups == steady.cv_test_groups
