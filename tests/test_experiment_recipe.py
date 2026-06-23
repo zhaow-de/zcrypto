@@ -889,3 +889,41 @@ def test_oi_divergence_directional_non_lever_fields_match_beta_null():
     assert od.reference_instruments == bn.reference_instruments
     assert od.handler_kwargs == bn.handler_kwargs
     assert od.feature_config == bn.feature_config
+
+
+# --- smart_money_tilt recipe: beta_null + smart-money L/S divergence tilt (iter-43 Stage-2) ---
+
+_SMART_MONEY_KEYS = {"smart_money", "smart_money_tilt_k"}
+
+
+def test_smart_money_tilt_resolves():
+    r = resolve_recipe("smart_money_tilt")
+    assert r.name == "smart_money_tilt"
+
+
+def test_smart_money_tilt_params():
+    sc = resolve_recipe("smart_money_tilt").strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["smart_money"] is True
+    assert sc["kwargs"]["smart_money_tilt_k"] == 1.0
+
+
+def test_smart_money_tilt_only_smart_money_keys_differ_from_beta_null():
+    """The ONLY strategy-kwargs delta vs beta_null is the two smart-money keys (drift guard)."""
+    sm_kw = resolve_recipe("smart_money_tilt").strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in sm_kw.items() if k not in _SMART_MONEY_KEYS} == bn_kw
+
+
+def test_smart_money_tilt_non_lever_fields_match_beta_null():
+    sm, bn = resolve_recipe("smart_money_tilt"), resolve_recipe("beta_null")
+    assert sm.universe == bn.universe
+    assert sm.segments == bn.segments
+    assert sm.fee_preset == bn.fee_preset
+    assert sm.label_horizon_days == bn.label_horizon_days
+    assert sm.account == bn.account
+    assert sm.benchmark == bn.benchmark
+    assert sm.reference_instruments == bn.reference_instruments
+    assert sm.handler_kwargs == bn.handler_kwargs
+    assert sm.feature_config == bn.feature_config
