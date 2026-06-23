@@ -1,5 +1,5 @@
 ---
-status: partial
+status: resolved
 ---
 
 # BTC→altcoin lead-lag (intraday cross-coin predictability)
@@ -43,12 +43,18 @@ market-neutral spread.
   liquid majors at 1–6h — they're efficiently priced. The probe is trustworthy (adversarial review:
   no look-ahead, sound stats). **The multi-week harness build was correctly NOT triggered.**
 
-## Done so far
+## Resolution — REFUTED (both universes, 1–6h)
 
-- iter-51 (spec `00045`, PR pending): built the reusable offline lead-lag probe (`cli/research/leadlag/`:
-  1h fetcher-reader + pre-registered predictive-regression study + GO/NO-GO) and ran it on the 10 majors
-  → **NO-GO**. The expensive intraday-harness build (1h ingestion → harness → signal → OOS) is gated off.
-  The probe machinery is reusable for the residual variants below.
+- iter-51 (PR #104): the offline lead-lag probe (`cli/research/leadlag/`) on the **10 liquid majors** → **NO-GO**
+  (0/40 cells positive-and-significant; weak negative IC; sign-flip; econ −4.7 bps).
+- iter-52: the same probe on a **14-coin less-liquid mid-cap universe** (the diffusion hypothesis's best
+  shot) → **NO-GO too** (0/40 cells; best IC ~−0.05; econ −3.7 bps). Universe-parametrized + a socket-timeout
+  backstop hardening landed.
+- **Conclusion:** the BTC→alt intraday lead-lag does **not** exist at 1–6h over 2023–2025 for either liquid
+  or less-liquid alts — the slow-diffusion hypothesis is refuted; the multi-week intraday-harness build is
+  not justified. The only untested sliver (15m sub-hourly) is implausible given negative IC at 1–6h on both
+  universes and would need an even-higher-cost harness — not worth pursuing. **Topic resolved.** The reusable
+  probe (`cli/research/leadlag/`) remains for any future intraday signal study.
 
 ## Suggested next steps
 

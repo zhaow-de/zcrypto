@@ -22,11 +22,14 @@ import pandas as pd
 import pytest
 
 from cli.research.leadlag.study import (
+    _ALL_MAJORS,
+    _MIDCAP_ALTS,
     analyze,
     build_returns_panel,
     deflated_ic,
     preregister_grid,
     run_cell,
+    select_universe,
     verdict,
 )
 
@@ -673,3 +676,70 @@ class TestLookAheadAssertion:
         # Should not raise
         result = run_cell(panel, "BTCUSDT", k=1, h=1)
         assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# select_universe — iter-52 parametrization
+# ---------------------------------------------------------------------------
+
+
+class TestSelectUniverse:
+    def test_majors_predictors_and_symbols(self):
+        """select_universe('majors') returns _DEFAULT_PREDICTORS, _ALL_MAJORS, and the default out_dir."""
+        predictors, symbols, out_dir, cache_path = select_universe("majors")
+        assert predictors == ("BTCUSDT", "ETHUSDT")
+        assert symbols == _ALL_MAJORS
+        assert out_dir == ".tmp/leadlag"
+
+    def test_midcap_predictors(self):
+        """select_universe('midcap') returns BTC/ETH as predictors."""
+        predictors, symbols, out_dir, cache_path = select_universe("midcap")
+        assert predictors == ("BTCUSDT", "ETHUSDT")
+
+    def test_midcap_out_dir_distinct(self):
+        """select_universe('midcap') uses a distinct out_dir from the majors default."""
+        _, _, out_dir_majors, _ = select_universe("majors")
+        _, _, out_dir_midcap, _ = select_universe("midcap")
+        assert out_dir_midcap != out_dir_majors
+        assert out_dir_midcap == ".tmp/leadlag_midcap"
+
+    def test_midcap_predictors_in_symbol_set(self):
+        """BTC and ETH must appear in the midcap symbol set so predictor returns exist."""
+        predictors, symbols, _, _ = select_universe("midcap")
+        for pred in predictors:
+            assert pred in symbols, f"{pred} missing from midcap symbol set"
+
+    def test_midcap_targets_are_14_midcaps(self):
+        """symbols − predictors for midcap must equal exactly the 14 mid-cap alts."""
+        predictors, symbols, _, _ = select_universe("midcap")
+        targets = tuple(s for s in symbols if s not in predictors)
+        assert targets == _MIDCAP_ALTS
+        assert len(targets) == 14
+
+    def test_midcap_symbol_count(self):
+        """midcap symbol set must be exactly 16 (2 predictors + 14 mid-caps)."""
+        _, symbols, _, _ = select_universe("midcap")
+        assert len(symbols) == 16
+
+    def test_unknown_universe_raises(self):
+        """An unrecognised universe name must raise ValueError."""
+        with pytest.raises(ValueError, match="unknown universe"):
+            select_universe("unknown")
+
+    def test_majors_cache_path_under_out_dir(self):
+        """majors cache_path must live under majors out_dir and match iter-51 default."""
+        _, _, out_dir, cache_path = select_universe("majors")
+        assert cache_path == ".tmp/leadlag/1h_klines.parquet"
+        assert cache_path.startswith(out_dir + "/")
+
+    def test_midcap_cache_path_under_out_dir(self):
+        """midcap cache_path must live under midcap out_dir, distinct from majors."""
+        _, _, out_dir, cache_path = select_universe("midcap")
+        assert cache_path == ".tmp/leadlag_midcap/1h_klines.parquet"
+        assert cache_path.startswith(out_dir + "/")
+
+    def test_cache_paths_are_distinct(self):
+        """Each universe must use its own cache file — no collision."""
+        _, _, _, cache_majors = select_universe("majors")
+        _, _, _, cache_midcap = select_universe("midcap")
+        assert cache_majors != cache_midcap

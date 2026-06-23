@@ -52,6 +52,47 @@ _DEFAULT_H_GRID = (1, 2, 3, 4, 6)
 # Targets = all symbols except predictors
 # ---------------------------------------------------------------------------
 _ALL_MAJORS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOGEUSDT", "TRXUSDT")
+# iter-52: less-liquid mid-cap alts — the slow-diffusion hypothesis's best remaining shot; all listed before 2023
+_MIDCAP_ALTS = (
+    "LTCUSDT",
+    "BCHUSDT",
+    "ATOMUSDT",
+    "DOTUSDT",
+    "UNIUSDT",
+    "ETCUSDT",
+    "FILUSDT",
+    "ALGOUSDT",
+    "VETUSDT",
+    "NEARUSDT",
+    "AAVEUSDT",
+    "SANDUSDT",
+    "MANAUSDT",
+    "EOSUSDT",
+)
+
+
+def select_universe(name: str) -> tuple[tuple[str, ...], tuple[str, ...], str, str]:
+    """Map a universe name to (predictors, symbols, out_dir, cache_path).
+
+    Args:
+        name: "majors" (iter-51 default) or "midcap" (iter-52 re-run).
+
+    Returns:
+        (predictors, symbols, out_dir, cache_path) where:
+          - predictors: the BTC/ETH predictor tuple
+          - symbols: full symbol set to fetch (predictors must be included so their returns exist)
+          - out_dir: output directory for run_probe artifacts
+          - cache_path: per-universe parquet cache path (under out_dir)
+    """
+    _PREDS = ("BTCUSDT", "ETHUSDT")
+    if name == "majors":
+        out_dir = ".tmp/leadlag"
+        return _PREDS, _ALL_MAJORS, out_dir, f"{out_dir}/1h_klines.parquet"
+    if name == "midcap":
+        symbols = ("BTCUSDT", "ETHUSDT", *_MIDCAP_ALTS)
+        out_dir = ".tmp/leadlag_midcap"
+        return _PREDS, symbols, out_dir, f"{out_dir}/1h_klines.parquet"
+    raise ValueError(f"unknown universe {name!r}; choose 'majors' or 'midcap'")
 
 
 # ---------------------------------------------------------------------------
@@ -951,13 +992,14 @@ if __name__ == "__main__":
 
     from cli.research.leadlag.data import fetch_1h_klines
 
-    # Default symbols (10 curated majors from regime_equalweight_majors)
-    _SYMBOLS = list(_ALL_MAJORS)
     _START = dt.date(2023, 1, 1)
     _END = dt.date(2025, 12, 31)
 
-    logger.info("fetching 1h klines for %s .. %s", _START, _END)
-    frame = fetch_1h_klines(_SYMBOLS, _START, _END)
+    name = sys.argv[1] if len(sys.argv) > 1 else "majors"
+    predictors, symbols, out_dir, cache_path = select_universe(name)
 
-    v = run_probe(frame)
+    logger.info("fetching 1h klines for universe=%r (%d symbols) %s .. %s", name, len(symbols), _START, _END)
+    frame = fetch_1h_klines(list(symbols), _START, _END, cache_path=cache_path)
+
+    v = run_probe(frame, predictors=predictors, out_dir=out_dir)
     sys.exit(0 if v["go"] else 1)
