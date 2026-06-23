@@ -22,11 +22,14 @@ import pandas as pd
 import pytest
 
 from cli.research.leadlag.study import (
+    _ALL_MAJORS,
+    _MIDCAP_ALTS,
     analyze,
     build_returns_panel,
     deflated_ic,
     preregister_grid,
     run_cell,
+    select_universe,
     verdict,
 )
 
@@ -673,3 +676,52 @@ class TestLookAheadAssertion:
         # Should not raise
         result = run_cell(panel, "BTCUSDT", k=1, h=1)
         assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# select_universe — iter-52 parametrization
+# ---------------------------------------------------------------------------
+
+
+class TestSelectUniverse:
+    def test_majors_predictors_and_symbols(self):
+        """select_universe('majors') returns _DEFAULT_PREDICTORS, _ALL_MAJORS, and the default out_dir."""
+        predictors, symbols, out_dir = select_universe("majors")
+        assert predictors == ("BTCUSDT", "ETHUSDT")
+        assert symbols == _ALL_MAJORS
+        assert out_dir == ".tmp/leadlag"
+
+    def test_midcap_predictors(self):
+        """select_universe('midcap') returns BTC/ETH as predictors."""
+        predictors, symbols, out_dir = select_universe("midcap")
+        assert predictors == ("BTCUSDT", "ETHUSDT")
+
+    def test_midcap_out_dir_distinct(self):
+        """select_universe('midcap') uses a distinct out_dir from the majors default."""
+        _, _, out_dir_majors = select_universe("majors")
+        _, _, out_dir_midcap = select_universe("midcap")
+        assert out_dir_midcap != out_dir_majors
+        assert out_dir_midcap == ".tmp/leadlag_midcap"
+
+    def test_midcap_predictors_in_symbol_set(self):
+        """BTC and ETH must appear in the midcap symbol set so predictor returns exist."""
+        predictors, symbols, _ = select_universe("midcap")
+        for pred in predictors:
+            assert pred in symbols, f"{pred} missing from midcap symbol set"
+
+    def test_midcap_targets_are_14_midcaps(self):
+        """symbols − predictors for midcap must equal exactly the 14 mid-cap alts."""
+        predictors, symbols, _ = select_universe("midcap")
+        targets = tuple(s for s in symbols if s not in predictors)
+        assert targets == _MIDCAP_ALTS
+        assert len(targets) == 14
+
+    def test_midcap_symbol_count(self):
+        """midcap symbol set must be exactly 16 (2 predictors + 14 mid-caps)."""
+        _, symbols, _ = select_universe("midcap")
+        assert len(symbols) == 16
+
+    def test_unknown_universe_raises(self):
+        """An unrecognised universe name must raise ValueError."""
+        with pytest.raises(ValueError, match="unknown universe"):
+            select_universe("unknown")
