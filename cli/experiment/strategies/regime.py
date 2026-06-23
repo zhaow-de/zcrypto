@@ -361,6 +361,10 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
 
         df = pd.read_parquet(_resolve_onchain_path(self.onchain_path))
         nvm = df["nvm"].sort_index()
+        # Normalize to tz-naive so the strictly-prior lookup in _mult_for can compare
+        # against qlib's tz-naive trade-date Timestamps without raising TypeError.
+        if nvm.index.tz is not None:
+            nvm.index = nvm.index.tz_localize(None)
         w = getattr(self, "onchain_z_window", 365)
         roll_mean = nvm.rolling(w, min_periods=w).mean()
         roll_std = nvm.rolling(w, min_periods=w).std()
@@ -425,6 +429,11 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
             if self._onchain_signal is None:
                 self._onchain_signal = self._build_onchain_signal()
             s = self._onchain_signal
+            # Ensure tz-naive index so the comparison below never raises TypeError against
+            # qlib's tz-naive trade-date Timestamps (the parquet may be tz-aware UTC).
+            if s.index.tz is not None:
+                s = s.copy()
+                s.index = s.index.tz_localize(None)
             date_ts = pd.Timestamp(date).normalize()
             # Strictly-prior lookup: use the latest value STRICTLY BEFORE date (no look-ahead).
             prior_onchain = s.loc[s.index < date_ts]

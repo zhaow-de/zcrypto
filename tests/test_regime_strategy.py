@@ -1859,6 +1859,40 @@ def test_onchain_strictly_prior_no_lookahead():
     monkeypatch.undo()
 
 
+def test_onchain_signal_index_is_tz_naive():
+    """_mult_for must not raise TypeError when _onchain_signal has a tz-aware UTC index.
+
+    The NVM parquet is written with a tz-aware UTC DatetimeIndex (the fetcher uses
+    pd.to_datetime(..., utc=True)).  qlib trade dates are tz-naive Timestamps.
+    A tz-aware index compared to a tz-naive Timestamp raises TypeError.
+    This test injects a tz-aware UTC signal and verifies that _mult_for neither raises
+    nor silently skips the de-risk when the NVM z exceeds the threshold.
+    """
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_onchain_stub(onchain_regime=True, onchain_z_threshold=1.0, onchain_derisk_mult=0.0)
+
+    # tz-aware UTC index — mirrors what pd.read_parquet returns when the fetcher
+    # built the file with pd.to_datetime(..., utc=True).
+    idx_utc = pd.date_range("2025-01-01", periods=3, freq="D", tz="UTC")
+    # z=2.0 on day 1 → strictly-prior from day 2 should see day 1 → de-risk fires.
+    s._onchain_signal = pd.Series([0.5, 2.0, 0.3], index=idx_utc)
+
+    # Trade date is tz-naive (qlib convention).
+    trade_date = pd.Timestamp("2025-01-03")  # tz-naive
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _OnchainCal(trade_date)), raising=False
+    )
+    # Before the fix this raises TypeError; after the fix it must return 0.0 (de-risk fired).
+    result = s.get_risk_degree(0)
+    monkeypatch.undo()
+    assert result == 0.0, f"de-risk must fire when NVM z > threshold; got risk_degree={result}"
+
+
 def test_onchain_regime_false_byte_identical():
     """onchain_regime=False → _mult_for returns same result as without the overlay (regression).
 
