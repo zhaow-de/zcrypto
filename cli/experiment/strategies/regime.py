@@ -171,6 +171,8 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         oi_div_lookback: int = 14,
         oi_div_tilt_k: float = 1.0,
         oi_div_directional: bool = False,
+        smart_money: bool = False,
+        smart_money_tilt_k: float = 1.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -199,11 +201,14 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.oi_div_lookback = oi_div_lookback
         self.oi_div_tilt_k = oi_div_tilt_k
         self.oi_div_directional = oi_div_directional
+        self.smart_money = smart_money
+        self.smart_money_tilt_k = smart_money_tilt_k
         self._membership_schedule: dict | None = None  # lazy; injectable for tests
         self._close_panel: pd.DataFrame | None = None  # lazy; injectable for tests
         self._froth_signal: pd.Series | None = None  # lazy; injectable for tests
         self._crowding_panel: pd.DataFrame | None = None  # lazy; injectable for tests
         self._oi_div_signal: pd.DataFrame | None = None  # lazy; injectable for tests
+        self._smart_money_signal: pd.DataFrame | None = None  # lazy; injectable for tests
         self._exposure = self._build_exposure()
         self._vol_panel = self._build_vol_panel()
 
@@ -284,6 +289,23 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
             return oi_chg.where(price_chg > 0)
         # confirmation = sign(price_chg) * oi_chg; NaN where oi is NaN (or within warmup)
         return np.sign(price_chg) * oi_chg
+
+    def _build_smart_money_signal(self) -> pd.DataFrame:
+        """Build the smart-money L/S divergence panel (wide: date × instrument).
+
+        smart_div = $ls_top / $ls_global (element-wise): >1 means top-traders (smart money) are
+        relatively more long than the global (retail) crowd.  Non-finite results (zero $ls_global)
+        are replaced with NaN.  No lookback/shift — this is a positioning level; the no-look-ahead
+        discipline is enforced at lookup time (strictly-prior row in generate_target_weight_position).
+        """
+        from qlib.data import D
+
+        df = D.features(self.weight_universe, ["$ls_top", "$ls_global"], freq="day")
+        ls_top_wide = df["$ls_top"].unstack(level="instrument").sort_index()
+        ls_global_wide = df["$ls_global"].unstack(level="instrument").sort_index()
+        smart_div = ls_top_wide / ls_global_wide
+        # Guard: zero denominator produces inf; replace any non-finite value with NaN.
+        return smart_div.replace([float("inf"), float("-inf")], float("nan"))
 
     @staticmethod
     def _apply_cross_sectional_tilt(w: pd.Series, signal_row: pd.Series, k: float, sign: float) -> pd.Series:
@@ -425,5 +447,16 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
             if len(op_prior) > 0:
                 row = op_prior.iloc[-1]
                 k = getattr(self, "oi_div_tilt_k", 1.0)
+                w = self._apply_cross_sectional_tilt(w, row, k, sign=+1.0)
+        # Smart-money tilt: up-weight coins where top-traders are more long than the crowd (+k sign).
+        if getattr(self, "smart_money", False) and len(w) > 0:
+            # Lazily build (or use injected) smart-money signal panel.
+            if self._smart_money_signal is None:
+                self._smart_money_signal = self._build_smart_money_signal()
+            sp = self._smart_money_signal
+            sp_prior = sp.loc[sp.index < t]  # STRICTLY prior — no look-ahead
+            if len(sp_prior) > 0:
+                row = sp_prior.iloc[-1]
+                k = getattr(self, "smart_money_tilt_k", 1.0)
                 w = self._apply_cross_sectional_tilt(w, row, k, sign=+1.0)
         return {k: float(v) for k, v in w.items() if v > 0}
