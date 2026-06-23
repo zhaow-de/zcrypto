@@ -1301,3 +1301,185 @@ def test_oi_div_directional_false_regression():
 
     assert abs(w_iter41["A"] - w_false["A"]) < 1e-12, "directional=False must be byte-identical to iter-41"
     assert abs(w_iter41["B"] - w_false["B"]) < 1e-12, "directional=False must be byte-identical to iter-41"
+
+
+# ---------------------------------------------------------------------------
+# Smart-money L/S divergence tilt tests (iter-43)
+# ---------------------------------------------------------------------------
+
+
+def _make_smart_money_stub(smart_money=True, smart_money_tilt_k=1.0):
+    """Build a VolWeightedRegimeStrategy stub without calling __init__ (no qlib needed).
+
+    Sets up a 3-name equal-vol panel; tests inject _smart_money_signal themselves.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = object.__new__(rg.VolWeightedRegimeStrategy)
+    s._base_risk_degree = 0.95
+    # 5 days; equal vol for all names so plain inverse-vol gives equal weights
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._vol_panel = pd.DataFrame(
+        {"A": [0.1] * 5, "B": [0.1] * 5, "C": [0.1] * 5},
+        index=dates,
+    )
+    s.membership_top_n = None
+    s.membership_lookback_days = None
+    s._membership_schedule = None
+    s.trend_window = None
+    s._close_panel = None
+    s.crowding_field = None
+    s.crowding_tilt_k = 1.0
+    s._crowding_panel = None
+    s.oi_divergence = False
+    s.oi_div_lookback = 14
+    s.oi_div_tilt_k = 1.0
+    s.oi_div_directional = False
+    s._oi_div_signal = None
+    s.smart_money = smart_money
+    s.smart_money_tilt_k = smart_money_tilt_k
+    s._smart_money_signal = None  # injectable seam
+    return s
+
+
+def test_smart_money_signal_high_ratio_scores_high():
+    """_build_smart_money_signal: coin with high ls_top/ls_global ratio scores high.
+
+    Tests the formula directly without qlib by building the panels manually.
+    High ratio (A) > low ratio (B); NaN where either input is NaN (C); zero ls_global → inf → NaN (D).
+    """
+    import numpy as np
+
+    # Simulate the ratio computation from _build_smart_money_signal
+    dates = pd.date_range("2025-01-01", periods=3, freq="D")
+    ls_top = pd.DataFrame(
+        {"A": [2.0, 2.0, 2.0], "B": [0.5, 0.5, 0.5], "C": [float("nan"), float("nan"), float("nan")], "D": [1.0, 1.0, 1.0]},
+        index=dates,
+    )
+    ls_global = pd.DataFrame({"A": [1.0, 1.0, 1.0], "B": [1.0, 1.0, 1.0], "C": [1.0, 1.0, 1.0], "D": [0.0, 0.0, 0.0]}, index=dates)
+
+    smart_div = ls_top / ls_global
+    # Replace infinities with NaN (zero denominator case)
+    smart_div = smart_div.replace([float("inf"), float("-inf")], float("nan"))
+
+    # A: ls_top=2, ls_global=1 → ratio=2.0
+    assert smart_div["A"].iloc[-1] == 2.0, "high-ratio coin A must score 2.0"
+    # B: ls_top=0.5, ls_global=1 → ratio=0.5
+    assert smart_div["B"].iloc[-1] == 0.5, "low-ratio coin B must score 0.5"
+    # C: ls_top=NaN → ratio=NaN
+    assert smart_div["C"].iloc[-1] != smart_div["C"].iloc[-1], "NaN ls_top → ratio must be NaN"
+    # D: ls_global=0 → inf → NaN (non-finite guard)
+    assert smart_div["D"].iloc[-1] != smart_div["D"].iloc[-1], "zero ls_global → ratio must be NaN (not inf)"
+
+
+def test_smart_money_tilt_high_ratio_upweighted():
+    """Tilt behavior: high smart_div coin (z>0) is UP-weighted, low-ratio coin (z<0) DOWN-weighted.
+
+    Equal vols → equal inverse-vol weights. Tilt shifts distribution: high-ratio up, low-ratio down.
+    Weights must still sum to ~1.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_smart_money_stub(smart_money=True, smart_money_tilt_k=1.0)
+
+    # Signal panel: 4 prior dates + 1 future row that must NOT be used.
+    # Prior row (date 3): A=2.0 (high ratio, smart money more long), B=0.5 (low ratio, retail more long).
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._smart_money_signal = pd.DataFrame(
+        {"A": [2.0, 2.0, 2.0, 2.0, 0.1], "B": [0.5, 0.5, 0.5, 0.5, 99.0]},
+        index=dates,
+    )
+
+    trade_date = dates[4]  # use only rows strictly before dates[4] = rows 0-3
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert set(w.keys()) == {"A", "B"}, f"both names should be held; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9, f"weights must sum to 1; got {sum(w.values())}"
+    assert w["A"] > w["B"], "high-ratio coin A must be UP-weighted vs low-ratio coin B"
+
+
+def test_smart_money_tilt_nan_signal_neutral():
+    """A coin with NaN smart_div gets tilt=1.0 (neutral); others tilt among themselves.
+
+    Three names: A NaN (no perp / data gap), B high-ratio, C low-ratio.
+    After tilt: B's weight grows; C's weight shrinks; A stays at neutral share.
+    Weights sum to 1.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_smart_money_stub(smart_money=True, smart_money_tilt_k=1.0)
+
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    # A has NaN (no perp/data gap); B high-ratio; C low-ratio
+    s._smart_money_signal = pd.DataFrame(
+        {"A": [float("nan")] * 5, "B": [2.0] * 5, "C": [0.5] * 5},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0, "C": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert set(w.keys()) == {"A", "B", "C"}, f"all three names should be held; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9, "weights must sum to 1"
+    # B (high-ratio, z>0) must be UP-weighted vs C (low-ratio, z<0)
+    assert w["B"] > w["C"], "high-ratio B must be up-weighted vs low-ratio C"
+    # A (NaN → tilt 1.0) should not be penalised vs high-ratio B but should beat C
+    assert w["A"] > w["C"], "NaN-signal coin A should not be penalised vs low-ratio C"
+
+
+def test_smart_money_tilt_no_lookahead():
+    """The smart-money tilt at date t must use ONLY signal rows strictly before t.
+
+    Inject a panel where the future row (at trade_date) would invert the tilt if used.
+    Assert the inversion does NOT happen.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_smart_money_stub(smart_money=True, smart_money_tilt_k=1.0)
+
+    # Prior rows (dates 0-3): A high-ratio (+), B low-ratio (−) → A should be up-weighted.
+    # Future row (date 4 = trade_date): A=0.1 (low), B=99.0 (high) → if used, B would be up-weighted.
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._smart_money_signal = pd.DataFrame(
+        {"A": [2.0, 2.0, 2.0, 2.0, 0.1], "B": [0.5, 0.5, 0.5, 0.5, 99.0]},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    # Strictly prior rows say A is high-ratio → must be UP-weighted vs B
+    assert w["A"] > w["B"], "look-ahead guard failed: future smart-money row must not be used"
+
+
+def test_smart_money_false_regression():
+    """smart_money=False → weights byte-identical to plain inverse-vol (regression).
+
+    The OI-div and crowding tilts are also off in this test; checks the pure back-compat path.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s_no_tilt = _make_smart_money_stub(smart_money=False)
+    s_tilt = _make_smart_money_stub(smart_money=True, smart_money_tilt_k=1.0)
+
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s_tilt._smart_money_signal = pd.DataFrame(
+        {"A": [2.0, 2.0, 2.0, 2.0, 99.0], "B": [0.5, 0.5, 0.5, 0.5, 99.0], "C": [1.0, 1.0, 1.0, 1.0, 99.0]},
+        index=dates,
+    )
+
+    score = pd.Series({"A": 0.0, "B": 0.0, "C": 0.0})
+    trade_date = dates[4]
+    w_no_tilt = s_no_tilt.generate_target_weight_position(
+        score, current=None, trade_start_time=trade_date, trade_end_time=trade_date
+    )
+    w_tilt = s_tilt.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    # Without smart_money the equal-vol basket stays equal-weight.
+    for name in ["A", "B", "C"]:
+        assert abs(w_no_tilt[name] - 1.0 / 3) < 1e-9, f"smart_money=False: {name} must be equal-weighted"
+    # The tilted version must differ (A up-weighted, B down-weighted, C in between).
+    assert w_tilt["A"] > w_tilt["B"], "smart_money=True must shift weights"

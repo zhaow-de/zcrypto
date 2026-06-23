@@ -45,6 +45,11 @@ recipe are the apparatus for the variants below.
   worsened, so net unchanged. **Cross-iteration:** OI-confirmation **consistently helps 2024** (+0.31/+0.41)
   but is flat/negative in 2023/2025 → a real **strong-bull-regime** effect, not all-weather. Spec `00039`;
   the directional form supersedes iter-41's symmetric one. Still no CI-clearing edge.
+- iter-43: **smart-money L/S divergence** (`smart_money_tilt`: up-weight high `$ls_top/$ls_global` = top-traders
+  more long than retail) is **slightly NEGATIVE (−0.066)**. "Follow smart money" hurt in the 2024 bull (−0.24)
+  — the smart-money-long coins were the laggards (retail crowded the momentum winners). Account positioning
+  adds no edge. Spec `00040`. **Scorecard (5 signals):** basis ×2 (−0.21/−0.18 dead), OI ×2 (+0.008/+0.010
+  neutral/bull-only), L/S (−0.066) — no clear edge; OI's 2024 effect is the lone positive.
 
 ## Suggested next steps
 
