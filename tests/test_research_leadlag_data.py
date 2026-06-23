@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, call, patch
 import pandas as pd
 import pytest
 
-from cli.data.binance import _pool
+from cli.data.binance import HttpStatusError, _pool
 from cli.research.leadlag.data import _CONTRACT_COLS, fetch_1h_klines, parse_1h_kline_zip
 
 # ---------------------------------------------------------------------------
@@ -296,20 +296,25 @@ class TestFetch1hKlines:
         assert ts.tzinfo is not None and str(ts.tzinfo) == "UTC"
 
     def test_missing_404_day_skipped_not_fatal(self, tmp_path):
-        """A 404 response for a specific day must be skipped with a warning, not raise."""
+        """A 404 response for a specific day must be skipped with a warning, not raise.
+
+        Patches _retryable_request directly so the test explicitly exercises the
+        _fetch_one 404-catch block (HttpStatusError → skip + WARNING, not fatal).
+        """
         symbols = ["BTCUSDT"]
         cache = str(tmp_path / "1h.parquet")
 
-        call_count = {"n": 0}
+        date_a_str = self._DATE_A.strftime("%Y-%m-%d")
 
-        def _side_effect(method, url, **kwargs):
-            call_count["n"] += 1
-            if self._DATE_A.strftime("%Y-%m-%d") in url:
-                mock_404 = MagicMock(status=404)
-                return mock_404
-            return self._make_zip_response("BTCUSDT", self._DATE_B)
+        def _retryable_side_effect(method, url, **kwargs):
+            if date_a_str in url:
+                raise HttpStatusError(404, url)
+            raw = _make_1h_kline_zip(self._DATE_B, "BTCUSDT")
+            resp = MagicMock(status=200)
+            resp.data = raw
+            return resp
 
-        with patch.object(_pool, "request", side_effect=_side_effect):
+        with patch("cli.research.leadlag.data._retryable_request", side_effect=_retryable_side_effect):
             df = fetch_1h_klines(symbols, self._DATE_A, self._DATE_B, cache_path=cache)
 
         # DATE_A was 404 → skipped; DATE_B gives 24 rows.
