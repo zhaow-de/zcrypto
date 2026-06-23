@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 ---
 
 # BTC→altcoin lead-lag (intraday cross-coin predictability)
@@ -33,21 +33,34 @@ market-neutral spread.
 - Phase 1 caution carried forward: any "it stacks" assumption must be *tested* — funding did
   **not** stack with cross-asset features once gated (iters 25/26), so a lead-lag tilt must prove
   it adds value on top of the `T0019` trend core rather than being assumed additive.
+- **iter-51 (PR pending) — FEASIBILITY PROBE → NO-GO for the liquid majors at 1–6h.** Rather than
+  build the intraday harness blind, a cheap offline statistical probe (pre-registered 40-cell pooled
+  predictive regression, HAC + clustered SEs, BH-FDR, deflated-IC, bootstrap CI, per-year sign-
+  stability, economic decile-spread; spec `00045`) tested whether the signal exists on a free 1h pull
+  of the 10 majors 2023-2025. **Decisive NO-GO:** zero of 40 cells positive-and-significant; the
+  strongest effects are weak *negatives* (~−0.05 IC, all q≥0.62); sign-flips across years; economic
+  decile spread −4.7 bps. So BTC/ETH's recent return has **no exploitable positive lead** over the
+  liquid majors at 1–6h — they're efficiently priced. The probe is trustworthy (adversarial review:
+  no look-ahead, sound stats). **The multi-week harness build was correctly NOT triggered.**
+
+## Done so far
+
+- iter-51 (spec `00045`, PR pending): built the reusable offline lead-lag probe (`cli/research/leadlag/`:
+  1h fetcher-reader + pre-registered predictive-regression study + GO/NO-GO) and ran it on the 10 majors
+  → **NO-GO**. The expensive intraday-harness build (1h ingestion → harness → signal → OOS) is gated off.
+  The probe machinery is reusable for the residual variants below.
 
 ## Suggested next steps
 
-- **Ingest 1h klines** for the universe into the qlib dataset (new freq); verify
-  open-timestamp / lookahead discipline (a bar labeled 12:00 closes at 13:00 — only closed bars
-  are usable at decision time; this off-by-one silently inflates intraday backtests).
-- **Lead-lag features:** lagged BTC (and ETH) returns over the prior *k* hours as predictors of
-  each alt's next-*h*-hour return; a cross-coin lagged-return matrix; shrinkage / adaptive-LASSO
-  to avoid overfitting the cross-coin coefficients.
-- **Express as a long/cash tilt** (overweight alts whose next move BTC's recent move predicts up;
-  underweight/flat otherwise), composed with the regime gate; evaluate on the OOS stress harness
-  + bootstrap CIs.
-- **Success bar:** beats both the Stage-0 null *and* the `T0019` trend+vol-target core on the
-  CPCV distribution (not best-path), net of the higher intraday turnover cost. **Kill:** if the
-  edge doesn't survive realistic intraday costs, or doesn't stack on trend, keep it (if at all)
-  only as a minor overlay.
-- Be critical about turnover: an hourly-reacting signal churns; enforce a no-trade band / minimum
-  hold horizon so fees don't consume the edge (mirrors the roadmap §14 turnover discipline).
+The harness build stays gated (the majors showed no signal). The only residual, cheap variants — reuse the
+iter-51 probe, just change the inputs:
+
+- **Wider, less-liquid alt universe (the diffusion hypothesis's best remaining shot):** re-run the probe on
+  smaller / lower-cap alts, where cross-coin information may propagate *slower* than in the efficiently-priced
+  majors. If this is also null, `T0020` is refuted outright.
+- **Sub-hourly (15m) horizon:** a single confirmatory probe at 15m — but lower priority (an even-faster signal
+  needs an even-faster, higher-cost harness, so it must be far stronger to be tradeable; and the 1h majors
+  showed *negative* IC, so a sub-hourly positive lead is unlikely).
+- Only if a residual probe is GO does the full harness build (1h ingestion → intraday harness → lead-lag
+  feature → OOS net-of-cost, with a min-hold/no-trade-band for turnover) become justified, with the original
+  success bar (beats the Stage-0 null *and* the `T0019` trend core on the CPCV distribution net of intraday cost).
