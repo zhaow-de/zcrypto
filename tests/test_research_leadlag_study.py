@@ -396,6 +396,42 @@ class TestAnalyze:
         expected_net = best["gross_decile_spread_bps"] - results["roundtrip_cost_bps"]
         assert abs(results["net_edge_bps"] - expected_net) < 1e-9
 
+    def test_analyze_handles_missing_bars(self, tmp_path):
+        """Alts with different missing-bar gaps must not raise ValueError in analyze().
+
+        Before the alignment fix, np.nanmean([ragged...], axis=0) raised
+        ValueError: setting an array element with a sequence. The inhomogeneous shape
+        error fires when alts drop different rows, producing arrays of different lengths.
+        """
+        rng = np.random.default_rng(7)
+        n = 300
+        syms = ["BTCUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"]
+        ts = pd.date_range("2024-01-01", periods=n, freq="h", tz="UTC")
+
+        prices: dict[str, np.ndarray] = {}
+        for sym in syms:
+            rets = rng.normal(0, 0.01, n)
+            prices[sym] = np.exp(np.cumsum(rets))
+
+        frame = _make_contract_frame(prices)
+
+        # Build panel; then manually NaN out different rows per alt to create ragged gaps.
+        panel = build_returns_panel(frame)
+
+        # Drop different rows per alt (mimics missing bars in real 1h data)
+        panel = panel.copy()
+        panel.loc[panel.index[10:15], "BNBUSDT"] = float("nan")
+        panel.loc[panel.index[20:27], "SOLUSDT"] = float("nan")
+        panel.loc[panel.index[5:8], "XRPUSDT"] = float("nan")
+
+        grid = [{"predictor": "BTCUSDT", "k": 1, "h": 2}]
+        _, n_trials = preregister_grid(("BTCUSDT",), k_grid=(1,), h_grid=(2,), out_path=str(tmp_path / "p.json"))
+
+        # Must not raise; would have raised ValueError before the alignment fix.
+        results = analyze(panel, grid, n_trials=n_trials, n_bootstrap=10)
+        assert "cells" in results
+        assert len(results["cells"]) == 1
+
 
 # ---------------------------------------------------------------------------
 # verdict
@@ -549,6 +585,72 @@ class TestKnownNullRejection:
         result = run_cell(panel, "BTCUSDT", k=1, h=1)
         # beta should be small (no BTC signal, γ absorbs AR)
         assert abs(result["beta"]) < 0.3, f"beta={result['beta']} — γ control not absorbing AR(1)"
+
+    def test_gamma_absorbs_btc_correlated_ar(self):
+        """γ own-lag control must reduce |β| when alt autocorrelation is BTC-correlated.
+
+        Construction: alt return at t = ρ_own*alt(t-1) + θ_btc*btc(t) + noise.
+        Each alt has strong own AR(1), and the lagged alt value contains btc(t-1)
+        (because alt(t-1) = ρ_own*alt(t-2) + θ_btc*btc(t-1) + ...). So with k=1 the
+        predictor is btc(t-1), and the γ own-lag alt(t-1) partially absorbs it.
+
+        Comparison is pooled vs pooled: both run the same pooled OLS on the same
+        data matrix — one with the own_lag column, one without. This is a controlled
+        A/B that measures only the γ column's contribution.
+        """
+        rng = np.random.default_rng(17)
+        n = 2000
+        k, h = 1, 2
+
+        # BTC: pure random walk
+        btc = rng.normal(0, 0.01, n)
+
+        prices: dict[str, np.ndarray] = {"BTCUSDT": np.exp(np.cumsum(btc))}
+
+        rho_own = 0.7  # strong own AR(1) persistence
+        theta_btc = 0.5  # alt tracks BTC contemporaneously
+
+        alts_used = list(_ALTS[:4])
+        for sym in alts_used:
+            noise = rng.normal(0, 0.005, n)
+            alt = np.zeros(n)
+            for t in range(1, n):
+                alt[t] = rho_own * alt[t - 1] + theta_btc * btc[t] + noise[t]
+            prices[sym] = np.exp(np.cumsum(alt))
+
+        frame = _make_contract_frame(prices)
+        panel = build_returns_panel(frame)
+
+        # With γ own-lag control (default run_cell)
+        result_with_gamma = run_cell(panel, "BTCUSDT", k=k, h=h)
+        beta_with = result_with_gamma["beta"]
+
+        # Without γ: build the same pooled matrix but drop the own_lag column, then OLS.
+        # This is an apples-to-apples comparison — same data, same pooling, only γ differs.
+        pred_k = panel["BTCUSDT"].rolling(k).sum()
+        rows_list = []
+        for sym in alts_used:
+            fwd = panel[sym].shift(-1).rolling(h).sum().shift(-(h - 1))
+            own_lag = panel[sym].rolling(k).sum()
+            df_sym = pd.DataFrame({"fwd": fwd, "pred": pred_k, "own_lag": own_lag, "sym": sym}).dropna()
+            rows_list.append(df_sym)
+        pooled_no_gamma = pd.concat(rows_list, ignore_index=False).dropna()
+        # Per-alt demeaning of fwd and pred (same as run_cell)
+        pooled_no_gamma = pooled_no_gamma.copy()
+        for col in ("fwd", "pred"):
+            pooled_no_gamma[col] = pooled_no_gamma[col] - pooled_no_gamma.groupby("sym")[col].transform("mean")
+        y_ng = pooled_no_gamma["fwd"].values
+        x_ng = pooled_no_gamma["pred"].values.reshape(-1, 1)
+        beta_hat_ng, _, _, _ = np.linalg.lstsq(x_ng, y_ng, rcond=None)
+        beta_no_gamma = float(beta_hat_ng[0])
+
+        # γ must reduce |β| — the own-lag absorbs the BTC-correlated autocorrelation
+        assert abs(beta_with) < abs(beta_no_gamma), f"γ should reduce |β|: with_gamma={beta_with:.4f}, no_gamma={beta_no_gamma:.4f}"
+        # The reduction should be non-trivial (at least 10%)
+        reduction_frac = 1.0 - abs(beta_with) / max(abs(beta_no_gamma), 1e-9)
+        assert reduction_frac >= 0.10, (
+            f"γ reduces |β| by only {reduction_frac:.1%}: with={beta_with:.4f}, no_gamma={beta_no_gamma:.4f}"
+        )
 
 
 # ---------------------------------------------------------------------------

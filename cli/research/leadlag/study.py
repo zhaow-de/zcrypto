@@ -139,13 +139,15 @@ def deflated_ic(raw_ic: float, *, n_trials: int, n_obs: int = 400) -> float:
     same Euler-gamma formula as expected_max_sharpe (since IC is just a
     correlation statistic which under the null has the same EVT behaviour).
 
-    Under the null, IC ~ N(0, 1/sqrt(T)) where T = n_obs (number of time steps).
+    Under the null, IC ~ N(0, 1/sqrt(T)) where T = n_obs (pooled observation count = n_time_steps ×
+    n_alts). The code passes the pooled count, which is correct; n_obs here is NOT the number of
+    time steps alone but the total pooled row count across all alts.
     E[max IC over N_trials] = (1/sqrt(T)) * expected_max_normal_order_stat(N_trials).
 
     Args:
         raw_ic: headline rank IC value
         n_trials: total number of pre-registered cells (for multiple-testing correction)
-        n_obs: number of independent time-step observations (used for null IC std = 1/sqrt(n_obs))
+        n_obs: pooled observation count (n_time_steps × n_alts); used for null IC std = 1/sqrt(n_obs)
 
     When N_trials < 2 returns raw_ic unchanged.
     """
@@ -225,54 +227,6 @@ def _combine_vcov(vcov_hac: np.ndarray, vcov_cl: np.ndarray) -> np.ndarray:
     This follows the "double-cluster" spirit — use the larger SE from either approach.
     """
     return np.maximum(vcov_hac, vcov_cl)
-
-
-# ---------------------------------------------------------------------------
-# rank_ic: cross-sectional rank IC
-# ---------------------------------------------------------------------------
-
-
-def _rank_ic_series(predictor_roll: pd.Series, alt_returns: pd.DataFrame) -> pd.Series:
-    """Compute cross-sectional Spearman rank IC per time step.
-
-    Args:
-        predictor_roll: predictor k-period return per timestamp
-        alt_returns: alt h-period forward returns (n_timestamps × n_alts)
-
-    Returns:
-        Series of IC values indexed by timestamp (NaN for rows with <2 alts).
-    """
-    ic_vals = {}
-    for ts in predictor_roll.index:
-        if ts not in alt_returns.index:
-            continue
-        pred_val = predictor_roll.loc[ts]
-        alt_row = alt_returns.loc[ts]
-        if pd.isna(pred_val):
-            ic_vals[ts] = float("nan")
-            continue
-        valid = alt_row.dropna()
-        if len(valid) < 2:
-            ic_vals[ts] = float("nan")
-            continue
-        # Spearman: rank IC between the scalar pred and vector of alts
-        # For a scalar predictor: rank IC = sign correlation between pred and cross-section
-        # Implemented as the Spearman r of [pred]*n_alts vs alt_row ranks
-        rho, _ = stats.spearmanr(valid.values, valid.rank().values)
-        # That's degenerate since we're ranking alt returns vs themselves.
-        # Correct: rank IC = correlation(rank(pred_col), rank(alt_returns)) where
-        # pred_col is a scalar broadcast to each alt. But with a scalar predictor
-        # and vector target, the "cross-sectional rank IC" is the rank correlation
-        # between the predictor signal (same value for all alts — just the BTC return)
-        # and the cross-section of alt returns. For a scalar signal the usual cross-
-        # sectional IC is undefined (signal has no cross-sectional variation).
-        # We use the time-series formulation: IC(t) = Spearman_rho over alts of
-        # (sign(pred_at_t) broadcast × alt_return_at_t). Since sign(pred) is constant
-        # across alts, this simplifies to: positive IC when pred>0 and alts mostly go up.
-        # Standard approach for a single-predictor study: IC at t = sign(pred) * median(alt_rets)
-        # normalized. We use Pearson for this scalar case.
-        ic_vals[ts] = float(np.sign(pred_val) * np.mean(np.sign(valid.values)))
-    return pd.Series(ic_vals)
 
 
 # ---------------------------------------------------------------------------
@@ -519,16 +473,17 @@ def analyze(
         targets = [col for col in panel.columns if col != pred]
         pred_k = panel[pred].rolling(k).sum()
 
-        ic_ts_list = []
+        ic_ts_dict: dict[str, pd.Series] = {}
         for sym in targets:
             fwd = panel[sym].shift(-1).rolling(h).sum().shift(-(h - 1))
             df_pair = pd.DataFrame({"fwd": fwd, "pred": pred_k}).dropna()
             if len(df_pair) < 10:
                 continue
-            ic_ts_list.append(df_pair["fwd"].values * np.sign(df_pair["pred"].values))
+            ic_ts_dict[sym] = pd.Series(df_pair["fwd"].values * np.sign(df_pair["pred"].values), index=df_pair.index)
 
-        if ic_ts_list:
-            ic_series = np.nanmean(ic_ts_list, axis=0)
+        if ic_ts_dict:
+            ic_df = pd.DataFrame(ic_ts_dict)
+            ic_series = ic_df.mean(axis=1).dropna().values
             ci = stationary_bootstrap_ci(
                 ic_series,
                 block_len=max(h, 1),
