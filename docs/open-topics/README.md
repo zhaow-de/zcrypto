@@ -35,7 +35,6 @@ Topics worth follow-up are parked here, one file per topic. See `.claude/rules/o
 
 - [T0010 — Non-OHLCV features (funding-rate / on-chain / order-book)](T0010-non-ohlcv-features.md) — the **funding** stream landed in iter-15; on-chain + order-book remain — now the **prime R&D frontier** (per T0018: OHLCV-derived alpha is exhausted, so genuinely new information is the only untried lever for an OOS-surviving edge).
 - [T0021 — On-chain regime overlay vs the 200d-SMA gate](T0021-onchain-regime-vs-sma.md) — iter-46 built the keyless Coin Metrics fetcher + an on-chain regime overlay and refuted the keyless **NVM** proxy (−0.414, fades strength in bulls); DISCOVERED that the cycle-valuation metrics (MVRV-Z/NUPL/NVT) are NOT keyless → the real MVRV-Z-vs-SMA head-to-head is parked on credentialed data.
-- [T0020 — BTC→altcoin lead-lag (intraday cross-coin predictability)](T0020-btc-alt-lead-lag.md) — iter-51's cheap offline feasibility probe (reusable `cli/research/leadlag/`) returned a decisive **NO-GO** for the liquid majors at 1–6h (0/40 cells significant; weak negative IC) — so the multi-week intraday-harness build is correctly gated off; the only residual variants are re-running the probe on a less-liquid alt universe or at 15m.
 
 ### Resolved<a name="resolved"></a>
 
@@ -48,6 +47,7 @@ Topics worth follow-up are parked here, one file per topic. See `.claude/rules/o
 - [T0008 — Pluggable feature handler](archive/T0008-pluggable-feature-handler.md) — the `feature_config` seam shipped + was exercised (iter-13); the remaining feature axes are OHLCV-derived (closed by T0018), and the only live feature frontier — non-OHLCV data — lives in T0010.
 - [T0012 — Prediction-ensemble (seed-averaged signal)](archive/T0012-prediction-ensemble.md) — a stability lever for a *selected* ML signal, but ML cross-sectional selection is net-harmful OOS (iter-29) and the deployable is no-ML, so there is no signal to ensemble.
 - [T0016 — First-class market-neutral long/short strategy / recipe](archive/T0016-market-neutral-ls-strategy.md) — hard-gated on an L/S edge surviving OOS; that gate failed (iter-22, steady L/S mean −0.10) and the OHLCV alpha axis is exhausted, so there is nothing to promote — reopen only if T0010 yields an OOS-surviving L/S edge.
+- [T0020 — BTC→altcoin lead-lag (intraday cross-coin predictability)](archive/T0020-btc-alt-lead-lag.md) — a reusable offline feasibility probe (`cli/research/leadlag/`) refuted the slow-diffusion lead-lag at 1–6h across BOTH the liquid majors (iter-51) and a less-liquid mid-cap universe (iter-52): 0/40 cells positive-and-significant in either, weak negative IC, sign-flips across years — so the multi-week intraday-harness build is not justified; the orientation's "top relative-alpha idea" is dead at this horizon.
 
 ## Live trading preparation<a name="live-trading-preparation"></a>
 
