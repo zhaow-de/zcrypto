@@ -56,6 +56,12 @@ recipe are the apparatus for the variants below.
   sweep COMPLETE (6 signals): no robust edge; best ~neutral (directional OI +0.010). Shelve-call now
   well-evidenced (parked).** Next genuinely-untried reversible angle: an **ML model combining all the
   derivatives fields as features** (vs hand-crafted single-factor tilts) — `$taker_ratio` folds in as one feature.
+- iter-45: **derivatives ML features** (`DerivativesProcessor` + `derivatives_steady` = `steady` + the 26 leak-safe
+  derivatives feature columns) is **MARGINAL vs steady (+0.049, only 2023 CI clears 0) but SUB-PASSIVE** — its own
+  long-only OOS Sharpes (−0.95/1.52/0.76/−0.58, mean ≈ −0.06) are far below `beta_null`'s ~0.38. The features
+  carry a weak, regime-specific (2023) ML signal but don't rescue the sub-passive `steady` base. Spec `00042`.
+  **Derivatives channel COMPREHENSIVELY TAPPED (single-factor tilts + multi-factor ML): nothing beats `beta_null`.
+  Shelve-call comprehensively evidenced — parked for the human.** `DerivativesProcessor` is reusable for future ML.
 
 ## Suggested next steps
 
