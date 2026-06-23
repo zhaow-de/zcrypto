@@ -1128,3 +1128,75 @@ def test_momentum_tilt_non_lever_fields_match_beta_null():
     assert mt.reference_instruments == bn.reference_instruments
     assert mt.handler_kwargs == bn.handler_kwargs
     assert mt.feature_config == bn.feature_config
+
+
+# --- momentum_tilt_l14/l60/l90 recipes: iter-48 lookback-robustness sweep ---
+
+
+import pytest
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_lookback",
+    [
+        ("momentum_tilt_l14", 14),
+        ("momentum_tilt_l60", 60),
+        ("momentum_tilt_l90", 90),
+    ],
+)
+def test_momentum_tilt_lookback_variant_resolves(recipe_name, expected_lookback):
+    r = resolve_recipe(recipe_name)
+    assert r.name == recipe_name
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_lookback",
+    [
+        ("momentum_tilt_l14", 14),
+        ("momentum_tilt_l60", 60),
+        ("momentum_tilt_l90", 90),
+    ],
+)
+def test_momentum_tilt_lookback_variant_params(recipe_name, expected_lookback):
+    sc = resolve_recipe(recipe_name).strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["momentum_tilt"] is True
+    assert sc["kwargs"]["momentum_lookback"] == expected_lookback
+    assert sc["kwargs"]["momentum_tilt_k"] == 1.0
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_lookback",
+    [
+        ("momentum_tilt_l14", 14),
+        ("momentum_tilt_l60", 60),
+        ("momentum_tilt_l90", 90),
+    ],
+)
+def test_momentum_tilt_lookback_variant_only_momentum_keys_differ_from_beta_null(recipe_name, expected_lookback):
+    """The ONLY strategy-kwargs delta vs beta_null is the three momentum keys (drift guard)."""
+    variant_kw = resolve_recipe(recipe_name).strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in variant_kw.items() if k not in _MOMENTUM_KEYS} == bn_kw
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_lookback",
+    [
+        ("momentum_tilt_l14", 14),
+        ("momentum_tilt_l60", 60),
+        ("momentum_tilt_l90", 90),
+    ],
+)
+def test_momentum_tilt_lookback_variant_non_lever_fields_match_beta_null(recipe_name, expected_lookback):
+    variant, bn = resolve_recipe(recipe_name), resolve_recipe("beta_null")
+    assert variant.universe == bn.universe
+    assert variant.segments == bn.segments
+    assert variant.fee_preset == bn.fee_preset
+    assert variant.label_horizon_days == bn.label_horizon_days
+    assert variant.account == bn.account
+    assert variant.benchmark == bn.benchmark
+    assert variant.reference_instruments == bn.reference_instruments
+    assert variant.handler_kwargs == bn.handler_kwargs
+    assert variant.feature_config == bn.feature_config
