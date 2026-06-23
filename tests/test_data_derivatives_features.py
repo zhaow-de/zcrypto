@@ -112,6 +112,21 @@ def test_smart_div_zero_denominator_is_nan():
     assert not np.isfinite(val) or np.isnan(val)
 
 
+def test_change_zero_denominator_is_nan():
+    panels = _panels()
+    # force a zero in $oi at t-chg_window so x/x.shift(chg_window)-1 would be inf
+    chg_window = 5
+    t_idx = 60
+    t = panels["$oi"].index[t_idx]
+    t_prev = panels["$oi"].index[t_idx - chg_window]
+    panels["$oi"].loc[t_prev, "BTCUSDT"] = 0.0
+    # ensure the value at t is non-zero so division is attempted
+    panels["$oi"].loc[t, "BTCUSDT"] = 1e9
+    f = derivatives_features(panels, chg_window=chg_window)
+    val = f.xs(t, level="datetime").loc["BTCUSDT", "oi_change"]
+    assert np.isnan(val), f"Expected NaN for zero denominator, got {val}"
+
+
 def test_oi_confirm_sign():
     """oi_confirm = sign(close_chg) * oi_chg — check sign relationship."""
     panels = _panels()

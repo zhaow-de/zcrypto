@@ -66,7 +66,8 @@ def derivatives_features(
         std = x.rolling(z_window).std()
 
         families.append(_stack(x, f"{name}_level"))
-        families.append(_stack(x / x.shift(chg_window) - 1, f"{name}_change"))
+        raw_chg = x / x.shift(chg_window) - 1
+        families.append(_stack(raw_chg.where(np.isfinite(raw_chg)), f"{name}_change"))
         families.append(_stack(x.rank(axis=1, pct=True), f"{name}_csrank"))
         families.append(_stack((x - mean) / std, f"{name}_z"))
 
