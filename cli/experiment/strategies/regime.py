@@ -175,6 +175,11 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         oi_div_strong_trend_margin: float = 0.25,
         smart_money: bool = False,
         smart_money_tilt_k: float = 1.0,
+        onchain_regime: bool = False,
+        onchain_path: str | None = None,
+        onchain_z_window: int = 365,
+        onchain_z_threshold: float = 1.0,
+        onchain_derisk_mult: float = 0.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -207,6 +212,11 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.oi_div_strong_trend_margin = oi_div_strong_trend_margin
         self.smart_money = smart_money
         self.smart_money_tilt_k = smart_money_tilt_k
+        self.onchain_regime = onchain_regime
+        self.onchain_path = onchain_path
+        self.onchain_z_window = onchain_z_window
+        self.onchain_z_threshold = onchain_z_threshold
+        self.onchain_derisk_mult = onchain_derisk_mult
         self._membership_schedule: dict | None = None  # lazy; injectable for tests
         self._close_panel: pd.DataFrame | None = None  # lazy; injectable for tests
         self._froth_signal: pd.Series | None = None  # lazy; injectable for tests
@@ -214,6 +224,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self._oi_div_signal: pd.DataFrame | None = None  # lazy; injectable for tests
         self._smart_money_signal: pd.DataFrame | None = None  # lazy; injectable for tests
         self._strong_trend_signal: pd.Series | None = None  # lazy; injectable for tests
+        self._onchain_signal: pd.Series | None = None  # lazy; injectable for tests
         self._exposure = self._build_exposure()
         self._vol_panel = self._build_vol_panel()
 
@@ -327,6 +338,21 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         sma = close.rolling(window).mean()
         return close / sma - 1
 
+    def _build_onchain_signal(self) -> pd.Series:
+        """Build the NVM trailing z-score series from the on-chain parquet cache.
+
+        Reads ``onchain_path`` → ``nvm`` series; computes a causal rolling z-score over
+        ``onchain_z_window`` days. Returns a date-indexed Series of z-scores (NaN during warmup).
+        """
+        import pandas as pd
+
+        df = pd.read_parquet(self.onchain_path)
+        nvm = df["nvm"].sort_index()
+        w = getattr(self, "onchain_z_window", 365)
+        roll_mean = nvm.rolling(w, min_periods=w).mean()
+        roll_std = nvm.rolling(w, min_periods=w).std()
+        return (nvm - roll_mean) / roll_std
+
     @staticmethod
     def _apply_cross_sectional_tilt(w: pd.Series, signal_row: pd.Series, k: float, sign: float) -> pd.Series:
         """Apply a multiplicative cross-sectional tilt to weights.
@@ -377,6 +403,22 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
                 z = prior_froth.iloc[-1]
                 threshold = getattr(self, "froth_z_threshold", 1.5)
                 derisk_mult = getattr(self, "froth_derisk_mult", 0.0)
+                if not (z != z) and z > threshold:  # NaN check: NaN != NaN is True
+                    m *= derisk_mult
+
+        # On-chain NVM overlay: if NVM-z > threshold → de-risk by onchain_derisk_mult.
+        if getattr(self, "onchain_regime", False):
+            # Lazily build (or use injected) onchain signal.
+            if self._onchain_signal is None:
+                self._onchain_signal = self._build_onchain_signal()
+            s = self._onchain_signal
+            date_ts = pd.Timestamp(date).normalize()
+            # Strictly-prior lookup: use the latest value STRICTLY BEFORE date (no look-ahead).
+            prior_onchain = s.loc[s.index < date_ts]
+            if len(prior_onchain):
+                z = prior_onchain.iloc[-1]
+                threshold = getattr(self, "onchain_z_threshold", 1.0)
+                derisk_mult = getattr(self, "onchain_derisk_mult", 0.0)
                 if not (z != z) and z > threshold:  # NaN check: NaN != NaN is True
                     m *= derisk_mult
 

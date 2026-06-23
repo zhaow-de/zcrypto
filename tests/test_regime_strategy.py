@@ -1712,3 +1712,155 @@ def test_build_strong_trend_signal_formula():
     assert abs(pct_above.iloc[4] - expected_4) < 1e-9, f"row 4: expected {expected_4}; got {pct_above.iloc[4]}"
     # Causal: the last row does NOT use future closes
     assert not math.isnan(pct_above.iloc[4]), "last row must be valid (causal)"
+
+
+# ---------------------------------------------------------------------------
+# On-chain NVM overlay tests (iter-46)
+# ---------------------------------------------------------------------------
+
+
+def _make_onchain_stub(onchain_regime=True, onchain_z_threshold=1.0, onchain_derisk_mult=0.0):
+    """Build a VolWeightedRegimeStrategy stub without calling __init__ (no qlib needed).
+
+    Injects a bullish exposure series and onchain params; tests inject _onchain_signal themselves.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = object.__new__(rg.VolWeightedRegimeStrategy)
+    s._base_risk_degree = 0.95
+    idx = pd.date_range("2025-01-01", periods=5, freq="D")
+    # Bullish BTC exposure throughout
+    s._exposure = pd.Series([1.0, 1.0, 1.0, 1.0, 1.0], index=idx)
+    s.trend_window = None
+    s.compose_market_gate = False
+    s.froth_field = None
+    s.froth_lookback = 90
+    s.froth_z_threshold = 1.5
+    s.froth_derisk_mult = 0.0
+    s.onchain_regime = onchain_regime
+    s.onchain_path = None  # never read in tests (signal is injected)
+    s.onchain_z_window = 365
+    s.onchain_z_threshold = onchain_z_threshold
+    s.onchain_derisk_mult = onchain_derisk_mult
+    s._onchain_signal = None  # injectable seam
+    return s
+
+
+class _OnchainCal:
+    """Minimal trade_calendar stub for onchain overlay tests."""
+
+    def __init__(self, d):
+        self._d = d
+
+    def get_trade_step(self):
+        return 0
+
+    def get_step_time(self, step, shift=0):
+        return (self._d, self._d)
+
+
+def test_onchain_above_threshold_zeroes_exposure():
+    """NVM z > threshold at prior date → exposure = regime_mult × onchain_derisk_mult (0.0 → cash)."""
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_onchain_stub(onchain_regime=True, onchain_z_threshold=1.0, onchain_derisk_mult=0.0)
+    idx = pd.date_range("2025-01-01", periods=3, freq="D")
+    # z=2.0 on day 1 → strictly-prior lookup from day 2 sees day 1 z=2.0 > 1.0 → de-risk
+    s._onchain_signal = pd.Series([0.5, 2.0, 0.3], index=idx)
+
+    monkeypatch = pytest.MonkeyPatch()
+    # Trade on day 2: strictly prior lookup at day < day 2 → uses day 1 (z=2.0)
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _OnchainCal(idx[2])), raising=False)
+    assert s.get_risk_degree(0) == 0.0, "above-threshold NVM must zero exposure"
+    monkeypatch.undo()
+
+
+def test_onchain_below_threshold_regime_multiplier_unchanged():
+    """NVM z below threshold → regime multiplier applies; onchain overlay does not fire."""
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_onchain_stub(onchain_regime=True, onchain_z_threshold=1.0, onchain_derisk_mult=0.0)
+    idx = pd.date_range("2025-01-01", periods=3, freq="D")
+    s._onchain_signal = pd.Series([0.5, 0.8, 0.3], index=idx)  # all below 1.0
+
+    monkeypatch = pytest.MonkeyPatch()
+    # Trade on day 2: prior z = 0.8 ≤ 1.0 → no de-risk → 0.95 * 1.0 (regime, bullish) = 0.95
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _OnchainCal(idx[2])), raising=False)
+    assert abs(s.get_risk_degree(0) - 0.95) < 1e-9, "below-threshold NVM must not alter risk_degree"
+    monkeypatch.undo()
+
+
+def test_onchain_nan_z_does_not_derisk():
+    """NaN NVM z (warmup / missing data) → overlay does NOT de-risk (treat NaN as 'no signal')."""
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_onchain_stub(onchain_regime=True, onchain_z_threshold=1.0, onchain_derisk_mult=0.0)
+    idx = pd.date_range("2025-01-01", periods=3, freq="D")
+    # NaN on days 0 and 1 (warmup)
+    s._onchain_signal = pd.Series([float("nan"), float("nan"), 0.5], index=idx)
+
+    monkeypatch = pytest.MonkeyPatch()
+    # Trade on day 2: prior z = NaN → no de-risk → full regime mult applies
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _OnchainCal(idx[2])), raising=False)
+    assert abs(s.get_risk_degree(0) - 0.95) < 1e-9, "NaN NVM z must not trigger de-risk"
+    monkeypatch.undo()
+
+
+def test_onchain_strictly_prior_no_lookahead():
+    """Strictly-prior lookup: only dates BEFORE the query date are used (no look-ahead).
+
+    Inject an onchain_signal with only a future row (date AFTER the trade date) → assert no de-risk.
+    """
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_onchain_stub(onchain_regime=True, onchain_z_threshold=1.0, onchain_derisk_mult=0.0)
+    idx = pd.date_range("2025-01-01", periods=3, freq="D")
+    trade_date = idx[0]  # 2025-01-01
+
+    # Signal only has entries on day 1 and day 2 — both strictly AFTER trade_date day 0.
+    # The strictly-prior slice (index < trade_date) is empty → no de-risk.
+    s._onchain_signal = pd.Series([2.0, 3.0], index=idx[1:])
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _OnchainCal(trade_date)), raising=False
+    )
+    # Prior slice is empty → overlay skips → full regime mult applies
+    assert abs(s.get_risk_degree(0) - 0.95) < 1e-9, "future-only signal must not trigger de-risk (no look-ahead)"
+    monkeypatch.undo()
+
+
+def test_onchain_regime_false_byte_identical():
+    """onchain_regime=False → _mult_for returns same result as without the overlay (regression).
+
+    Instantiate with onchain_regime=False, same exposure → verify the multiplier matches the non-onchain result.
+    """
+    import pytest
+
+    from cli.experiment.strategies import regime as rg
+
+    s_with = _make_onchain_stub(onchain_regime=False)
+    s_without = object.__new__(rg.VolWeightedRegimeStrategy)
+    s_without._base_risk_degree = 0.95
+    idx = pd.date_range("2025-01-01", periods=5, freq="D")
+    s_without._exposure = pd.Series([1.0, 1.0, 1.0, 1.0, 1.0], index=idx)
+    s_without.trend_window = None
+    s_without.compose_market_gate = False
+    s_without.froth_field = None
+    # No onchain attrs at all — getattr guards must handle this.
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(rg.VolWeightedRegimeStrategy, "trade_calendar", property(lambda self: _OnchainCal(idx[2])), raising=False)
+    rd_with = s_with.get_risk_degree(0)
+    rd_without = s_without.get_risk_degree(0)
+    monkeypatch.undo()
+    assert abs(rd_with - rd_without) < 1e-9, "onchain_regime=False must not alter risk_degree vs no-onchain stub"
+    assert abs(rd_with - 0.95) < 1e-9
