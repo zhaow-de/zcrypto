@@ -55,7 +55,7 @@ def fetch_btc_onchain(start: str, end: str | None = None) -> pd.DataFrame:
         next_token = payload.get("next_page_token")
         if not next_token:
             break
-        params["page_token"] = next_token
+        params["next_page_token"] = next_token
 
     if not rows:
         return pd.DataFrame(columns=["market_cap", "active_addr"])

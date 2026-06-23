@@ -38,9 +38,16 @@ def _mock_resp(payload: dict) -> MagicMock:
     return r
 
 
+_captured_urls: list[str] = []
+_call_count = 0
+
+
 def _two_page_side_effect(method, url, **kwargs):
-    """Return page-1 on first call, page-2 on second."""
-    if "page_token" not in url:
+    """Return page-1 on first call, page-2 on second; record URLs for assertion."""
+    global _call_count
+    _captured_urls.append(url)
+    _call_count += 1
+    if _call_count == 1:
         return _mock_resp(_PAGE1)
     return _mock_resp(_PAGE2)
 
@@ -50,11 +57,33 @@ def _two_page_side_effect(method, url, **kwargs):
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _reset_two_page_state():
+    """Reset shared side-effect state before each test."""
+    global _call_count
+    _captured_urls.clear()
+    _call_count = 0
+    yield
+
+
 def test_pagination_all_three_rows():
     """All 3 rows from both pages are present in the result."""
     with patch.object(oc._pool, "request", side_effect=_two_page_side_effect):
         df = oc.fetch_btc_onchain("2023-01-01", "2023-01-03")
     assert len(df) == 3
+
+
+def test_pagination_uses_next_page_token_param():
+    """Second page request must carry next_page_token=<token>, not bare page_token=."""
+    with patch.object(oc._pool, "request", side_effect=_two_page_side_effect):
+        oc.fetch_btc_onchain("2023-01-01", "2023-01-03")
+    assert len(_captured_urls) == 2, "expected exactly 2 HTTP requests (two pages)"
+    second_url = _captured_urls[1]
+    assert "next_page_token=token123" in second_url, f"second request must use next_page_token param; got: {second_url}"
+    # Ensure the wrong param name is not present (bare page_token without 'next_')
+    assert "page_token=token123" not in second_url.replace("next_page_token=token123", ""), (
+        f"second request must NOT use bare page_token param; got: {second_url}"
+    )
 
 
 def test_date_parsing_utc_normalized():
