@@ -1200,3 +1200,72 @@ def test_momentum_tilt_lookback_variant_non_lever_fields_match_beta_null(recipe_
     assert variant.reference_instruments == bn.reference_instruments
     assert variant.handler_kwargs == bn.handler_kwargs
     assert variant.feature_config == bn.feature_config
+
+
+# --- momentum_tilt_hicost / beta_null_hicost recipes: iter-49 cost-sensitivity A/B ---
+
+_HICOST_MAKER_FILL = 0.00043309643984270344
+
+
+def test_momentum_tilt_hicost_resolves():
+    r = resolve_recipe("momentum_tilt_hicost")
+    assert r.name == "momentum_tilt_hicost"
+
+
+def test_momentum_tilt_hicost_maker_fill_haircut():
+    r = resolve_recipe("momentum_tilt_hicost")
+    assert r.maker_fill_haircut == _HICOST_MAKER_FILL
+
+
+def test_momentum_tilt_hicost_only_name_and_haircut_differ_from_momentum_tilt():
+    """momentum_tilt_hicost differs from momentum_tilt ONLY by name + maker_fill_haircut."""
+    hc = resolve_recipe("momentum_tilt_hicost")
+    mt = resolve_recipe("momentum_tilt")
+    assert hc.strategy_config == mt.strategy_config
+    assert hc.model_config == mt.model_config
+    assert hc.universe == mt.universe
+    assert hc.segments == mt.segments
+    assert hc.fee_preset == mt.fee_preset
+    assert hc.label_horizon_days == mt.label_horizon_days
+    assert hc.feature_lookback_days == mt.feature_lookback_days
+    assert hc.account == mt.account
+    assert hc.benchmark == mt.benchmark
+    assert hc.reference_instruments == mt.reference_instruments
+    assert hc.handler_kwargs == mt.handler_kwargs
+    assert hc.feature_config == mt.feature_config
+    assert hc.impact_cost == mt.impact_cost
+    assert hc.fees_only == mt.fees_only
+    assert hc.cv_n_groups == mt.cv_n_groups
+    assert hc.cv_test_groups == mt.cv_test_groups
+
+
+def test_beta_null_hicost_resolves():
+    r = resolve_recipe("beta_null_hicost")
+    assert r.name == "beta_null_hicost"
+
+
+def test_beta_null_hicost_maker_fill_haircut():
+    r = resolve_recipe("beta_null_hicost")
+    assert r.maker_fill_haircut == _HICOST_MAKER_FILL
+
+
+def test_beta_null_hicost_only_name_and_haircut_differ_from_beta_null():
+    """beta_null_hicost differs from beta_null ONLY by name + maker_fill_haircut."""
+    hc = resolve_recipe("beta_null_hicost")
+    bn = resolve_recipe("beta_null")
+    assert hc.strategy_config == bn.strategy_config
+    assert hc.model_config == bn.model_config
+    assert hc.universe == bn.universe
+    assert hc.segments == bn.segments
+    assert hc.fee_preset == bn.fee_preset
+    assert hc.label_horizon_days == bn.label_horizon_days
+    assert hc.feature_lookback_days == bn.feature_lookback_days
+    assert hc.account == bn.account
+    assert hc.benchmark == bn.benchmark
+    assert hc.reference_instruments == bn.reference_instruments
+    assert hc.handler_kwargs == bn.handler_kwargs
+    assert hc.feature_config == bn.feature_config
+    assert hc.impact_cost == bn.impact_cost
+    assert hc.fees_only == bn.fees_only
+    assert hc.cv_n_groups == bn.cv_n_groups
+    assert hc.cv_test_groups == bn.cv_test_groups
