@@ -1048,3 +1048,44 @@ def test_derivatives_steady_non_lever_fields_match_steady():
     assert ds.feature_lookback_days == steady.feature_lookback_days
     assert ds.cv_n_groups == steady.cv_n_groups
     assert ds.cv_test_groups == steady.cv_test_groups
+
+
+# --- onchain_regime recipe: beta_null + NVM on-chain de-risk overlay (iter-46 Stage-2) ---
+
+_ONCHAIN_KEYS = {"onchain_regime", "onchain_path", "onchain_z_threshold", "onchain_derisk_mult", "onchain_z_window"}
+
+
+def test_onchain_regime_resolves():
+    r = resolve_recipe("onchain_regime")
+    assert r.name == "onchain_regime"
+
+
+def test_onchain_regime_has_onchain_kwargs():
+    sc = resolve_recipe("onchain_regime").strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["onchain_regime"] is True
+    assert sc["kwargs"]["onchain_path"] == "data/onchain/btc_nvm.parquet"
+    assert sc["kwargs"]["onchain_z_threshold"] == 1.0
+    assert sc["kwargs"]["onchain_derisk_mult"] == 0.0
+    assert sc["kwargs"]["onchain_z_window"] == 365
+
+
+def test_onchain_regime_only_onchain_keys_differ_from_beta_null():
+    """The ONLY strategy-kwargs delta vs beta_null is the five onchain_* keys (drift guard)."""
+    oc_kw = resolve_recipe("onchain_regime").strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in oc_kw.items() if k not in _ONCHAIN_KEYS} == bn_kw
+
+
+def test_onchain_regime_non_lever_fields_match_beta_null():
+    oc, bn = resolve_recipe("onchain_regime"), resolve_recipe("beta_null")
+    assert oc.universe == bn.universe
+    assert oc.segments == bn.segments
+    assert oc.fee_preset == bn.fee_preset
+    assert oc.label_horizon_days == bn.label_horizon_days
+    assert oc.account == bn.account
+    assert oc.benchmark == bn.benchmark
+    assert oc.reference_instruments == bn.reference_instruments
+    assert oc.handler_kwargs == bn.handler_kwargs
+    assert oc.feature_config == bn.feature_config
