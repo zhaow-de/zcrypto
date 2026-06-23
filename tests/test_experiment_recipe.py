@@ -1089,3 +1089,42 @@ def test_onchain_regime_non_lever_fields_match_beta_null():
     assert oc.reference_instruments == bn.reference_instruments
     assert oc.handler_kwargs == bn.handler_kwargs
     assert oc.feature_config == bn.feature_config
+
+
+# --- momentum_tilt recipe: beta_null + cross-sectional momentum tilt (iter-47 Stage-2) ---
+
+_MOMENTUM_KEYS = {"momentum_tilt", "momentum_lookback", "momentum_tilt_k"}
+
+
+def test_momentum_tilt_resolves():
+    r = resolve_recipe("momentum_tilt")
+    assert r.name == "momentum_tilt"
+
+
+def test_momentum_tilt_params():
+    sc = resolve_recipe("momentum_tilt").strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["momentum_tilt"] is True
+    assert sc["kwargs"]["momentum_lookback"] == 30
+    assert sc["kwargs"]["momentum_tilt_k"] == 1.0
+
+
+def test_momentum_tilt_only_momentum_keys_differ_from_beta_null():
+    """The ONLY strategy-kwargs delta vs beta_null is the three momentum keys (drift guard)."""
+    mt_kw = resolve_recipe("momentum_tilt").strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in mt_kw.items() if k not in _MOMENTUM_KEYS} == bn_kw
+
+
+def test_momentum_tilt_non_lever_fields_match_beta_null():
+    mt, bn = resolve_recipe("momentum_tilt"), resolve_recipe("beta_null")
+    assert mt.universe == bn.universe
+    assert mt.segments == bn.segments
+    assert mt.fee_preset == bn.fee_preset
+    assert mt.label_horizon_days == bn.label_horizon_days
+    assert mt.account == bn.account
+    assert mt.benchmark == bn.benchmark
+    assert mt.reference_instruments == bn.reference_instruments
+    assert mt.handler_kwargs == bn.handler_kwargs
+    assert mt.feature_config == bn.feature_config
