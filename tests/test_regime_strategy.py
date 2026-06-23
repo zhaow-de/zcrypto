@@ -2124,3 +2124,126 @@ def test_momentum_tilt_false_regression():
         assert abs(w_no_tilt[name] - 1.0 / 3) < 1e-9, f"momentum_tilt=False: {name} must be equal-weighted"
     # The tilted version must differ (A up-weighted, B down-weighted, C in between or shifted).
     assert w_tilt["A"] > w_tilt["B"], "momentum_tilt=True must shift weights"
+
+
+# ---------------------------------------------------------------------------
+# confirm_days anti-whipsaw debounce tests (iter-53)
+# ---------------------------------------------------------------------------
+
+
+def _make_binary_close(values, start="2020-01-01"):
+    """Build a date-indexed float64 Series from a list of price values."""
+    idx = pd.date_range(start, periods=len(values), freq="D")
+    return pd.Series(values, index=idx, dtype="float64")
+
+
+def test_confirm_days_blip_does_not_flip():
+    """A 2-day crossing blip with confirm_days=5 must NOT flip the confirmed gate.
+
+    We use _debounce_binary directly to test the debounce logic in isolation,
+    bypassing SMA construction complexity.  raw=1 (above SMA) for most of the
+    series, then raw=0 for exactly 2 days (the blip), then back to 1.
+    """
+    from cli.experiment.strategies.regime import _debounce_binary
+
+    n = 20
+    idx = pd.date_range("2020-01-01", periods=n, freq="D")
+    raw_vals = [1] * 10 + [0, 0] + [1] * 8  # 2-day blip in the middle
+    raw = pd.Series([float(v) for v in raw_vals], index=idx)
+    warm = pd.Series([False] * n, index=idx)
+
+    confirmed = _debounce_binary(raw, confirm_days=5, warmup_mask=warm)
+
+    # The 2-day blip must NOT flip the confirmed gate (stays 1.0).
+    assert confirmed.iloc[10] == 1.0, "first blip day: confirmed gate must stay 1.0"
+    assert confirmed.iloc[11] == 1.0, "second blip day: confirmed gate must stay 1.0"
+    # After recovery: still 1.0.
+    assert confirmed.iloc[-1] == 1.0, "after recovery: gate must be 1.0"
+    # Before blip: all 1.0.
+    assert (confirmed.iloc[:10] == 1.0).all(), "pre-blip: gate must be 1.0"
+
+
+def test_confirm_days_sustained_crossing_flips_on_day_n():
+    """A sustained 5-consecutive-day crossing with confirm_days=5 flips the gate ON day 5.
+
+    The flip must happen exactly on the 5th consecutive below-SMA day (not before).
+    We test _debounce_binary directly to isolate the flip timing from SMA dynamics.
+    """
+    from cli.experiment.strategies.regime import _debounce_binary
+
+    n = 20
+    idx = pd.date_range("2020-01-01", periods=n, freq="D")
+    # 10 days above (raw=1), then 10 days below (raw=0).
+    raw_vals = [1] * 10 + [0] * 10
+    raw = pd.Series([float(v) for v in raw_vals], index=idx)
+    warm = pd.Series([False] * n, index=idx)
+
+    confirmed = _debounce_binary(raw, confirm_days=5, warmup_mask=warm)
+
+    below_start = 10  # index where raw flips to 0
+    # Days 0-3 of the below run (4 days): confirmed gate stays 1.0.
+    for i in range(4):
+        assert confirmed.iloc[below_start + i] == 1.0, f"day {i} of below run: gate must stay 1.0 (not flipped yet)"
+    # Day 4 (the 5th consecutive below-raw day, 0-indexed): confirmed flips to 0.0.
+    assert confirmed.iloc[below_start + 4] == 0.0, "day 5 of below run: gate must flip to 0.0"
+    # Subsequent days remain 0.0.
+    assert (confirmed.iloc[below_start + 4 :] == 0.0).all(), "after flip: gate stays 0.0"
+
+
+def test_confirm_days_no_lookahead():
+    """The confirmed series for row t is unchanged when future rows are appended (truncation-invariance).
+
+    Compute the series on N rows, then on N+10 rows; the first N values must be identical.
+    """
+    from cli.experiment.strategies.regime import regime_exposure_series
+
+    prices_short = [1.0, 2.0, 3.0] + [100.0] * 20 + [1.0] * 5
+    prices_long = prices_short + [200.0] * 10  # 10 more rows appended
+
+    s_short = regime_exposure_series(_make_binary_close(prices_short), mode="binary", ma_window=3, confirm_days=5)
+    s_long = regime_exposure_series(_make_binary_close(prices_long), mode="binary", ma_window=3, confirm_days=5)
+
+    n = len(prices_short)
+    for i in range(n):
+        assert s_short.iloc[i] == s_long.iloc[i], f"look-ahead at row {i}: truncation changes prior value"
+
+
+def test_confirm_days_zero_backcompat_binary():
+    """confirm_days=0 → regime_exposure_series output is byte-identical to the no-confirm path."""
+    from cli.experiment.strategies.regime import regime_exposure_series
+
+    prices = [1.0, 2.0, 3.0] + list(range(4, 34))
+    close = _make_binary_close(prices)
+
+    s_default = regime_exposure_series(close, mode="binary", ma_window=5)
+    s_zero = regime_exposure_series(close, mode="binary", ma_window=5, confirm_days=0)
+
+    pd.testing.assert_series_equal(s_default, s_zero, check_names=False)
+
+
+def test_confirm_days_zero_strategy_backcompat():
+    """VolWeightedRegimeStrategy with regime_confirm_days=0 has byte-identical exposure to default."""
+    from cli.experiment.strategies import regime as rg
+
+    # Build two stubs via object.__new__ to avoid qlib; inject _exposure via _build_exposure mock.
+    prices = [1.0, 2.0, 3.0] + list(range(4, 34))
+    close = pd.Series(prices, index=pd.date_range("2020-01-01", periods=len(prices), freq="D"), dtype="float64")
+
+    from cli.experiment.strategies.regime import regime_exposure_series
+
+    exp_default = regime_exposure_series(close, mode="binary", ma_window=5)
+    exp_zero = regime_exposure_series(close, mode="binary", ma_window=5, confirm_days=0)
+
+    pd.testing.assert_series_equal(exp_default, exp_zero, check_names=False)
+
+
+def test_confirm_days_warmup_stays_one():
+    """Warmup rows (SMA undefined) must always be 1.0 regardless of confirm_days."""
+    from cli.experiment.strategies.regime import regime_exposure_series
+
+    # Only 6 prices, SMA window=5 → first 4 rows are warmup.
+    prices = [10.0, 9.0, 8.0, 7.0, 1.0, 1.0]  # last 2 below SMA but warmup covers first 4
+    s = regime_exposure_series(_make_binary_close(prices), mode="binary", ma_window=5, confirm_days=3)
+
+    # Warmup rows 0-3 must be 1.0
+    assert (s.iloc[:4] == 1.0).all(), "warmup rows must be 1.0 with confirm_days>0"

@@ -1338,3 +1338,40 @@ def test_beta_null_hicost_only_name_and_haircut_differ_from_beta_null():
     assert hc.fees_only == bn.fees_only
     assert hc.cv_n_groups == bn.cv_n_groups
     assert hc.cv_test_groups == bn.cv_test_groups
+
+
+# --- beta_null_confirm5 recipe: beta_null + 5-day anti-whipsaw confirmation filter (iter-53) ---
+
+_CONFIRM5_KEY = "regime_confirm_days"
+
+
+def test_beta_null_confirm5_resolves():
+    r = resolve_recipe("beta_null_confirm5")
+    assert r.name == "beta_null_confirm5"
+
+
+def test_beta_null_confirm5_confirm_days_param():
+    sc = resolve_recipe("beta_null_confirm5").strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"][_CONFIRM5_KEY] == 5
+
+
+def test_beta_null_confirm5_only_confirm_key_differs_from_beta_null():
+    """The ONLY strategy-kwargs delta vs beta_null is regime_confirm_days=5 (drift guard)."""
+    c5_kw = resolve_recipe("beta_null_confirm5").strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in c5_kw.items() if k != _CONFIRM5_KEY} == bn_kw
+
+
+def test_beta_null_confirm5_non_lever_fields_match_beta_null():
+    c5, bn = resolve_recipe("beta_null_confirm5"), resolve_recipe("beta_null")
+    assert c5.universe == bn.universe
+    assert c5.segments == bn.segments
+    assert c5.fee_preset == bn.fee_preset
+    assert c5.label_horizon_days == bn.label_horizon_days
+    assert c5.account == bn.account
+    assert c5.benchmark == bn.benchmark
+    assert c5.reference_instruments == bn.reference_instruments
+    assert c5.handler_kwargs == bn.handler_kwargs
+    assert c5.feature_config == bn.feature_config

@@ -27,6 +27,36 @@ def _resolve_onchain_path(path: str) -> Path:
     return p if p.is_absolute() else _REPO_ROOT / p
 
 
+def _debounce_binary(raw: pd.Series, confirm_days: int, warmup_mask: pd.Series) -> pd.Series:
+    """Causal confirmation/debounce filter for a binary (0/1) gate signal.
+
+    The held state flips to the opposite side only after ``raw`` has been on that
+    opposite side for ``confirm_days`` consecutive days.  Day t uses only raw[<=t]
+    (no look-ahead).  Warmup rows (where warmup_mask is True) are skipped — the
+    caller will force them to 1.0 afterward.
+
+    Seeding: the held state is initialised from the first non-warmup raw value.
+    """
+    out = raw.copy()
+    non_warm_idx = raw.index[~warmup_mask]
+    if len(non_warm_idx) == 0:
+        return out
+    # Seed from the first non-warmup raw value.
+    held = int(raw.loc[non_warm_idx[0]])
+    run = 0  # consecutive days raw has equaled the NOT-held value
+    for i, idx in enumerate(non_warm_idx):
+        r = int(raw.loc[idx])
+        if r != held:
+            run += 1
+            if run >= confirm_days:
+                held = r
+                run = 0
+        else:
+            run = 0
+        out.loc[idx] = float(held)
+    return out
+
+
 def regime_exposure_series(
     close: pd.Series,
     *,
@@ -37,6 +67,7 @@ def regime_exposure_series(
     chop_exposure: float = 0.5,
     vol_target: float | None = None,
     vol_lookback: int = 30,
+    confirm_days: int = 0,
 ) -> pd.Series:
     close = close.astype("float64").sort_index()
     sma = close.rolling(ma_window).mean()
@@ -55,6 +86,9 @@ def regime_exposure_series(
         raise ValueError(f"unknown regime mode: {mode!r}")
     # Warmup (any SMA NaN) -> cannot gate -> stay fully invested.
     warm = sma.isna() | (close.rolling(ma_fast).mean().isna() if mode == "cross" else False)
+    # Apply debounce to binary gate BEFORE warmup override and vol-target scale.
+    if confirm_days > 0 and mode == "binary":
+        mult = _debounce_binary(mult, confirm_days, warm)
     mult[warm] = 1.0
     if vol_target is not None:
         realized = close.pct_change().rolling(vol_lookback).std() * np.sqrt(_TRADING_DAYS)
@@ -170,6 +204,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         chop_exposure=0.5,
         vol_target=None,
         vol_lookback=30,
+        regime_confirm_days: int = 0,
         membership_top_n: int | None = None,
         membership_lookback_days: int | None = None,
         trend_window: int | None = None,
@@ -210,6 +245,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.chop_exposure = chop_exposure
         self.vol_target = vol_target
         self.vol_lookback = vol_lookback
+        self.regime_confirm_days = regime_confirm_days
         self.membership_top_n = membership_top_n
         self.membership_lookback_days = membership_lookback_days
         self.trend_window = trend_window
@@ -261,6 +297,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
             chop_exposure=self.chop_exposure,
             vol_target=self.vol_target,
             vol_lookback=self.vol_lookback,
+            confirm_days=getattr(self, "regime_confirm_days", 0),
         )
 
     def _build_vol_panel(self) -> pd.DataFrame:
