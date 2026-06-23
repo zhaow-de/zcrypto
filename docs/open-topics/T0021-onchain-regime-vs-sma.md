@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 ---
 
 # On-chain regime overlay vs the 200d-SMA gate (BTC/ETH market-timing)
@@ -32,21 +32,41 @@ it resolves the `T0010` on-chain question without recurring spend.
 - Coverage reality: BTC's UTXO model gives the richest metrics (SOPR / HODL waves / realized cap
   / MVRV); ETH and account-based chains give fewer; alts/memecoins give ~none → on-chain is a
   BTC/ETH-level signal applied across the basket, never a clean per-alt signal.
+- **iter-46 DATA DISCOVERY (corrects the plan):** the keyless Coin Metrics **community** API does
+  NOT serve the cycle-valuation metrics — `CapRealUSD` (→ MVRV-Z/NUPL) and `TxTfrValAdjUSD` (→ NVT)
+  return `forbidden`. So MVRV-Z/NUPL/NVT need a **credentialed** plan → **parked** (the credentialed-
+  data item, not auto-set-up). Keyless BTC metrics that ARE available: `CapMrktCurUSD` (market cap),
+  `AdrActCnt` (active addresses), `TxCnt`, `HashRate`, `SplyCur`.
+- **iter-46 result (keyless NVM proxy):** the best keyless valuation proxy, NVM =
+  `log(CapMrktCurUSD / AdrActCnt²)`, as a de-risk regime overlay (cash when NVM-z extreme-high) is
+  **REFUTED (mean delta-vs-`beta_null` −0.414)** — it cashed during 2023's recovery (−1.155) and the
+  2024 bull (−0.528); high NVM during a bull is momentum, not a top. This fits the night's broader
+  finding that **fade-strength signals lose** in the momentum-dominated 2022-2025 sample (see
+  iterations-history iter-46). The keyless-NVM failure does **not** condemn credentialed MVRV-Z (a
+  better metric); that head-to-head remains the open question.
+
+## Done so far
+
+- iter-46 (spec `00043`, PR pending): built `cli/data/onchain.py` (keyless Coin Metrics fetcher + NVM
+  cache) + an `onchain_regime` de-risk overlay on `VolWeightedRegimeStrategy` + the `onchain_regime`
+  recipe; A/B vs `beta_null` → **NVM regime REFUTED (−0.414)**. The reusable fetcher/overlay remains for
+  any future on-chain work. **Discovered** that the strong cycle-valuation metrics (MVRV-Z/NUPL/NVT) are
+  NOT keyless → the credentialed head-to-head is parked.
 
 ## Suggested next steps
 
-- **Data (free-first):** Coin Metrics Community (pre-computed BTC/ETH metrics, CSV, no key) +
-  Google BigQuery public blockchain datasets (raw chains, CC-BY, offline-reusable) + Flipside;
-  build a reusable historical on-chain panel offline. Pay for **one month of CryptoQuant
-  Professional (~$109 — NOT the $39 Advanced, which lacks the bulk Data API)** ONLY if a specific
-  entity-adjusted metric is missing *and* shows preliminary promise; cancel before renewal.
-- **On-chain regime signal:** combine MVRV-Z + NUPL (cycle valuation) + exchange-reserve trend +
-  stablecoin dry-powder (SSR / stablecoin net-inflows) into a BTC exposure signal.
-- **Three-way A/B on the `zcrypto stress` harness, net of costs:** (i) on-chain gate alone,
-  (ii) 200d-SMA gate alone (the Phase 1 baseline), (iii) AND-combination / exposure-scaling
-  hybrid.
-- **Success bar (adopt on-chain):** beats the SMA on OOS Calmar / Sharpe by a margin that
-  survives walk-forward *and* is not explained by a handful of cycle turning points. **Kill:** if
-  it only ties the SMA, keep the simpler SMA and do **not** pay to re-pull on-chain data.
-- Wire on-chain metrics as qlib fields / a feature handler via the existing pluggable seam (as
-  *inputs* to a spot long/cash strategy, never as traded instruments).
+Still open (the keyless NVM probe is done/refuted above; the real cycle-valuation head-to-head needs
+credentialed data → **parked for an attended session**):
+
+- **PARKED (credentialed-data step):** obtain MVRV-Z / NUPL — either Coin Metrics PRO, CryptoQuant
+  Professional (~$109/mo, cancel before renewal), or compute realized-cap from Google BigQuery public
+  blockchain datasets (free but heavy). This is the credentialed-data item the loop does NOT set up
+  autonomously. The `onchain_regime` overlay + fetcher already exist (iter-46) — only the *better
+  metric* (realized-cap-based MVRV-Z) is missing.
+- **Then the real head-to-head:** MVRV-Z + NUPL (+ exchange-reserve / stablecoin flows) regime vs the
+  200d-SMA gate — three-way A/B (on-chain alone, SMA alone, AND-combination) on `zcrypto stress`.
+- **Success bar (adopt on-chain):** beats the SMA on OOS Calmar / Sharpe by a margin that survives
+  walk-forward AND is not a handful of cycle turning points. **Kill:** if it only ties, keep the SMA.
+- **Lower-priority keyless variant (reversible, no spend):** the available keyless metrics (active-address
+  momentum, hash-rate, tx-count) as a *confirmation* (not fade-strength) signal — but the iter-46 refutation
+  + the momentum-dominance finding make this low-EV; prefer the credentialed MVRV-Z head-to-head.
