@@ -1202,6 +1202,75 @@ def test_momentum_tilt_lookback_variant_non_lever_fields_match_beta_null(recipe_
     assert variant.feature_config == bn.feature_config
 
 
+# --- momentum_tilt_k05/k15/k20 recipes: iter-50 k-strength dose-response sweep ---
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_k",
+    [
+        ("momentum_tilt_k05", 0.5),
+        ("momentum_tilt_k15", 1.5),
+        ("momentum_tilt_k20", 2.0),
+    ],
+)
+def test_momentum_tilt_k_variant_resolves(recipe_name, expected_k):
+    r = resolve_recipe(recipe_name)
+    assert r.name == recipe_name
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_k",
+    [
+        ("momentum_tilt_k05", 0.5),
+        ("momentum_tilt_k15", 1.5),
+        ("momentum_tilt_k20", 2.0),
+    ],
+)
+def test_momentum_tilt_k_variant_params(recipe_name, expected_k):
+    sc = resolve_recipe(recipe_name).strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"]["momentum_tilt"] is True
+    assert sc["kwargs"]["momentum_lookback"] == 30
+    assert sc["kwargs"]["momentum_tilt_k"] == expected_k
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_k",
+    [
+        ("momentum_tilt_k05", 0.5),
+        ("momentum_tilt_k15", 1.5),
+        ("momentum_tilt_k20", 2.0),
+    ],
+)
+def test_momentum_tilt_k_variant_only_momentum_keys_differ_from_beta_null(recipe_name, expected_k):
+    """The ONLY strategy-kwargs delta vs beta_null is the three momentum keys (drift guard)."""
+    variant_kw = resolve_recipe(recipe_name).strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in variant_kw.items() if k not in _MOMENTUM_KEYS} == bn_kw
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_k",
+    [
+        ("momentum_tilt_k05", 0.5),
+        ("momentum_tilt_k15", 1.5),
+        ("momentum_tilt_k20", 2.0),
+    ],
+)
+def test_momentum_tilt_k_variant_non_lever_fields_match_beta_null(recipe_name, expected_k):
+    variant, bn = resolve_recipe(recipe_name), resolve_recipe("beta_null")
+    assert variant.universe == bn.universe
+    assert variant.segments == bn.segments
+    assert variant.fee_preset == bn.fee_preset
+    assert variant.label_horizon_days == bn.label_horizon_days
+    assert variant.account == bn.account
+    assert variant.benchmark == bn.benchmark
+    assert variant.reference_instruments == bn.reference_instruments
+    assert variant.handler_kwargs == bn.handler_kwargs
+    assert variant.feature_config == bn.feature_config
+
+
 # --- momentum_tilt_hicost / beta_null_hicost recipes: iter-49 cost-sensitivity A/B ---
 
 _HICOST_MAKER_FILL = 0.00043309643984270344
