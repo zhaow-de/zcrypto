@@ -7,11 +7,24 @@ wrapper that applies it through ``get_risk_degree``. See docs/specs/00011.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 from qlib.contrib.strategy.signal_strategy import TopkDropoutStrategy, WeightStrategyBase
 
 _TRADING_DAYS = 365  # crypto trades 24/7
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _resolve_onchain_path(path: str) -> Path:
+    """Return *path* as an absolute Path, resolving relative paths against the repo root.
+
+    Backtest workers (qlib/multiprocessing) may run with a different CWD, so relative
+    paths must be anchored to the repo root rather than the current working directory.
+    """
+    p = Path(path)
+    return p if p.is_absolute() else _REPO_ROOT / p
 
 
 def regime_exposure_series(
@@ -346,7 +359,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         """
         import pandas as pd
 
-        df = pd.read_parquet(self.onchain_path)
+        df = pd.read_parquet(_resolve_onchain_path(self.onchain_path))
         nvm = df["nvm"].sort_index()
         w = getattr(self, "onchain_z_window", 365)
         roll_mean = nvm.rolling(w, min_periods=w).mean()

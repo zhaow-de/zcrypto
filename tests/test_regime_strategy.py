@@ -158,6 +158,27 @@ def test_inverse_vol_weights_basics():
     assert abs(w3.sum() - 1.0) < 1e-9 and abs(w3["A"] - 0.5) < 1e-9
 
 
+def test_onchain_path_resolved_against_repo_root():
+    """_resolve_onchain_path returns absolute paths, resolving relative ones against the repo root."""
+    from pathlib import Path
+
+    from cli.experiment.strategies.regime import _resolve_onchain_path
+
+    repo_root = Path(__file__).resolve().parents[1]  # tests/ -> repo root
+    assert (repo_root / "pyproject.toml").exists(), "sanity: repo_root is wrong"
+
+    # Absolute path is returned unchanged
+    abs_path = Path("/tmp/some/absolute.parquet")
+    assert _resolve_onchain_path(str(abs_path)) == abs_path
+
+    # Relative path is resolved against repo root, not CWD
+    rel = "data/onchain/btc_nvm.parquet"
+    result = _resolve_onchain_path(rel)
+    assert result.is_absolute()
+    assert str(result).endswith("data/onchain/btc_nvm.parquet")
+    assert result == repo_root / rel
+
+
 def test_volweight_strategy_no_lookahead(monkeypatch):
     """Cardinal: the weights for date t use the vol row STRICTLY BEFORE t, never t's own row."""
     import numpy as np
