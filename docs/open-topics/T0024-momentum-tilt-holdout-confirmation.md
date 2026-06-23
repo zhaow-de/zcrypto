@@ -34,6 +34,10 @@ candidate to date to spend it on.
   per-window source rotates (short→2023+2024, long→2024+2025) but every lookback's mean is positive.
 - iter-49 (PR #101): **cost-robust** — +0.194 at 2× the turnover-scaling maker-fill haircut (vs +0.200 at 1×;
   −0.006 erosion). Momentum's extra turnover is modest (re-weights the monthly basket, doesn't re-select).
+- iter-50 (PR #102): **clean dose-response** — delta scales monotonically with tilt strength k and plateaus:
+  k0.5 +0.107, k1.0 +0.200, k1.5 +0.221, k2.0 +0.223. The signature of a real signal. k1.0 stays the robust
+  default (positive in all windows); higher k lifts the mean to ~+0.22 but turns 2023 slightly negative
+  (over-concentration). So the candidate is confirmed on **four axes** — direction, lookback, cost, strength.
 - **Standing caveats:** deflated Sharpe `nan` (the in-sample multiple-testing adjustment is uncomputable from a
   single-trial register — which is *why* the reserved holdout matters); per-window daily-delta bootstrap CIs
   mostly straddle 0; the magnitude leans on 2024 (though positive in all windows); ~8 overlays were tried
