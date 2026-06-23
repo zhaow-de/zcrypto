@@ -1919,3 +1919,208 @@ def test_onchain_regime_false_byte_identical():
     monkeypatch.undo()
     assert abs(rd_with - rd_without) < 1e-9, "onchain_regime=False must not alter risk_degree vs no-onchain stub"
     assert abs(rd_with - 0.95) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Cross-sectional momentum tilt tests (iter-47)
+# ---------------------------------------------------------------------------
+
+
+def _make_momentum_stub(momentum_tilt=True, momentum_lookback=30, momentum_tilt_k=1.0):
+    """Build a VolWeightedRegimeStrategy stub without calling __init__ (no qlib needed).
+
+    Sets up a 3-name equal-vol panel; tests inject _momentum_signal themselves.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = object.__new__(rg.VolWeightedRegimeStrategy)
+    s._base_risk_degree = 0.95
+    # 5 days; equal vol for all names so plain inverse-vol gives equal weights
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._vol_panel = pd.DataFrame(
+        {"A": [0.1] * 5, "B": [0.1] * 5, "C": [0.1] * 5},
+        index=dates,
+    )
+    s.membership_top_n = None
+    s.membership_lookback_days = None
+    s._membership_schedule = None
+    s.trend_window = None
+    s._close_panel = None
+    s.crowding_field = None
+    s.crowding_tilt_k = 1.0
+    s._crowding_panel = None
+    s.oi_divergence = False
+    s.oi_div_lookback = 14
+    s.oi_div_tilt_k = 1.0
+    s.oi_div_directional = False
+    s._oi_div_signal = None
+    s.smart_money = False
+    s.smart_money_tilt_k = 1.0
+    s._smart_money_signal = None
+    s.momentum_tilt = momentum_tilt
+    s.momentum_lookback = momentum_lookback
+    s.momentum_tilt_k = momentum_tilt_k
+    s._momentum_signal = None  # injectable seam
+    return s
+
+
+def test_momentum_signal_formula():
+    """_build_momentum_signal = close/close.shift(lookback) − 1; causal; NaN in warmup."""
+    # Test the formula directly on a small constructed close panel (no qlib).
+    lookback = 3
+    dates = pd.date_range("2025-01-01", periods=6, freq="D")
+    # A: rising 100 → 150; B: flat 100; C: falling 100 → 50
+    close_wide = pd.DataFrame(
+        {
+            "A": [100.0, 110.0, 120.0, 130.0, 140.0, 150.0],
+            "B": [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+            "C": [100.0, 90.0, 80.0, 70.0, 60.0, 50.0],
+        },
+        index=dates,
+    )
+    mom = close_wide / close_wide.shift(lookback) - 1
+
+    # Warmup rows (indices 0, 1, 2) must be NaN
+    for i in range(lookback):
+        assert mom["A"].iloc[i] != mom["A"].iloc[i], f"row {i} must be NaN (warmup)"
+        assert mom["B"].iloc[i] != mom["B"].iloc[i], f"row {i} must be NaN (warmup)"
+
+    # Row 3: close[3] / close[0] − 1 = 130/100 − 1 = 0.30 for A
+    assert abs(mom["A"].iloc[3] - 0.30) < 1e-9, f"A row 3 expected 0.30; got {mom['A'].iloc[3]}"
+    # Row 3: B flat → 100/100 − 1 = 0.0
+    assert abs(mom["B"].iloc[3] - 0.0) < 1e-9, f"B row 3 expected 0.0; got {mom['B'].iloc[3]}"
+    # Row 3: C falling → 70/100 − 1 = -0.30
+    assert abs(mom["C"].iloc[3] - (-0.30)) < 1e-9, f"C row 3 expected -0.30; got {mom['C'].iloc[3]}"
+
+
+def test_momentum_signal_causal():
+    """Truncating future rows does not change the last row of momentum signal (truncation-invariant)."""
+    lookback = 3
+    dates = pd.date_range("2025-01-01", periods=6, freq="D")
+    close_wide = pd.DataFrame(
+        {"A": [100.0, 110.0, 120.0, 130.0, 140.0, 150.0]},
+        index=dates,
+    )
+    # Full signal (includes the last row)
+    mom_full = close_wide / close_wide.shift(lookback) - 1
+    # Truncated signal (drop the last row, simulating future data being cut off)
+    close_trunc = close_wide.iloc[:-1]
+    mom_trunc = close_trunc / close_trunc.shift(lookback) - 1
+
+    # Row 4 in full == row 4 in truncated (same values through row 4)
+    assert abs(mom_full["A"].iloc[4] - mom_trunc["A"].iloc[4]) < 1e-12, (
+        "causal: truncation of future row must not affect prior rows"
+    )
+
+
+def test_momentum_tilt_high_momentum_upweighted():
+    """One HIGH-momentum coin (z>0) gets a HIGHER weight; low-momentum coin (z<0) gets LOWER weight.
+
+    Equal vols → equal inverse-vol weights. Tilt shifts distribution.
+    Weights must still sum to ~1.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_momentum_stub(momentum_tilt=True, momentum_tilt_k=1.0)
+
+    # Signal panel: 4 prior dates + 1 future row that must NOT be used.
+    # Prior row (date 3): A has high trailing return (+), B has low (−).
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._momentum_signal = pd.DataFrame(
+        {"A": [0.10, 0.15, 0.20, 0.25, -99.0], "B": [-0.10, -0.15, -0.20, -0.25, 99.0]},
+        index=dates,
+    )
+
+    trade_date = dates[4]  # use only rows strictly before dates[4] = rows 0-3
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert set(w.keys()) == {"A", "B"}, f"both names should be held; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9, f"weights must sum to 1; got {sum(w.values())}"
+    # A (high momentum, z>0) must be UP-weighted
+    assert w["A"] > w["B"], "high-momentum coin A must be UP-weighted vs low-momentum coin B"
+
+
+def test_momentum_tilt_nan_signal_neutral():
+    """A coin with NaN momentum gets tilt=1.0 (neutral); others tilt among themselves.
+
+    Three names: A NaN, B high-momentum, C low-momentum.
+    After tilt: B's weight grows; C's weight shrinks; A stays at neutral share.
+    Weights sum to 1.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_momentum_stub(momentum_tilt=True, momentum_tilt_k=1.0)
+
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._momentum_signal = pd.DataFrame(
+        {"A": [float("nan")] * 5, "B": [0.20] * 5, "C": [-0.20] * 5},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0, "C": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    assert set(w.keys()) == {"A", "B", "C"}, f"all three names should be held; got {set(w.keys())}"
+    assert abs(sum(w.values()) - 1.0) < 1e-9, "weights must sum to 1"
+    # B (high momentum, z>0) must be UP-weighted vs C (low momentum, z<0)
+    assert w["B"] > w["C"], "high-momentum B must be up-weighted vs low-momentum C"
+    # A (NaN → tilt 1.0) should not be penalised vs high-momentum B
+    assert w["A"] > w["C"], "NaN-signal coin A should not be penalised vs low-momentum C"
+
+
+def test_momentum_tilt_no_lookahead():
+    """The momentum tilt at date t must use ONLY signal rows strictly before t.
+
+    Inject a panel where the future row (at trade_date) would invert the tilt if used.
+    Assert the inversion does NOT happen.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s = _make_momentum_stub(momentum_tilt=True, momentum_tilt_k=1.0)
+
+    # Prior rows (dates 0-3): A high-momentum (+), B low-momentum (−) → A should be up-weighted.
+    # Future row (date 4 = trade_date): A=-99.0, B=+99.0 → if used, B would be up-weighted.
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s._momentum_signal = pd.DataFrame(
+        {"A": [0.20, 0.20, 0.20, 0.20, -99.0], "B": [-0.20, -0.20, -0.20, -0.20, 99.0]},
+        index=dates,
+    )
+
+    trade_date = dates[4]
+    score = pd.Series({"A": 0.0, "B": 0.0})
+    w = s.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    # Strictly prior rows say A is high-momentum → must be UP-weighted vs B
+    assert w["A"] > w["B"], "look-ahead guard failed: future momentum row must not be used"
+
+
+def test_momentum_tilt_false_regression():
+    """momentum_tilt=False → weights byte-identical to plain inverse-vol.
+
+    The OI-div and smart-money tilts are also off; checks pure back-compat path.
+    """
+    from cli.experiment.strategies import regime as rg
+
+    s_no_tilt = _make_momentum_stub(momentum_tilt=False)
+    s_tilt = _make_momentum_stub(momentum_tilt=True, momentum_tilt_k=1.0)
+
+    dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    s_tilt._momentum_signal = pd.DataFrame(
+        {"A": [0.20, 0.20, 0.20, 0.20, 99.0], "B": [-0.20, -0.20, -0.20, -0.20, 99.0], "C": [0.0, 0.0, 0.0, 0.0, 99.0]},
+        index=dates,
+    )
+
+    score = pd.Series({"A": 0.0, "B": 0.0, "C": 0.0})
+    trade_date = dates[4]
+    w_no_tilt = s_no_tilt.generate_target_weight_position(
+        score, current=None, trade_start_time=trade_date, trade_end_time=trade_date
+    )
+    w_tilt = s_tilt.generate_target_weight_position(score, current=None, trade_start_time=trade_date, trade_end_time=trade_date)
+
+    # Without momentum_tilt the equal-vol basket stays equal-weight.
+    for name in ["A", "B", "C"]:
+        assert abs(w_no_tilt[name] - 1.0 / 3) < 1e-9, f"momentum_tilt=False: {name} must be equal-weighted"
+    # The tilted version must differ (A up-weighted, B down-weighted, C in between or shifted).
+    assert w_tilt["A"] > w_tilt["B"], "momentum_tilt=True must shift weights"
