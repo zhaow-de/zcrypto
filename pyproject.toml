@@ -30,7 +30,7 @@ omit = ["cli/example/scripts/*", "cli/experiment/data/scripts/*"]
 
 [dependency-groups]
 dev = [
-    "coverage>=7.14.1",
+    "coverage>=7.14.3",
     "pre-commit>=4.6.0",
     "pytest>=9.1.0",
     "ruff>=0.15.18",
