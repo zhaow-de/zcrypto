@@ -188,6 +188,9 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         oi_div_strong_trend_margin: float = 0.25,
         smart_money: bool = False,
         smart_money_tilt_k: float = 1.0,
+        momentum_tilt: bool = False,
+        momentum_lookback: int = 30,
+        momentum_tilt_k: float = 1.0,
         onchain_regime: bool = False,
         onchain_path: str | None = None,
         onchain_z_window: int = 365,
@@ -225,6 +228,9 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self.oi_div_strong_trend_margin = oi_div_strong_trend_margin
         self.smart_money = smart_money
         self.smart_money_tilt_k = smart_money_tilt_k
+        self.momentum_tilt = momentum_tilt
+        self.momentum_lookback = momentum_lookback
+        self.momentum_tilt_k = momentum_tilt_k
         self.onchain_regime = onchain_regime
         self.onchain_path = onchain_path
         self.onchain_z_window = onchain_z_window
@@ -236,6 +242,7 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         self._crowding_panel: pd.DataFrame | None = None  # lazy; injectable for tests
         self._oi_div_signal: pd.DataFrame | None = None  # lazy; injectable for tests
         self._smart_money_signal: pd.DataFrame | None = None  # lazy; injectable for tests
+        self._momentum_signal: pd.DataFrame | None = None  # lazy; injectable for tests
         self._strong_trend_signal: pd.Series | None = None  # lazy; injectable for tests
         self._onchain_signal: pd.Series | None = None  # lazy; injectable for tests
         self._exposure = self._build_exposure()
@@ -335,6 +342,19 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
         smart_div = ls_top_wide / ls_global_wide
         # Guard: zero denominator produces inf; replace any non-finite value with NaN.
         return smart_div.replace([float("inf"), float("-inf")], float("nan"))
+
+    def _build_momentum_signal(self) -> pd.DataFrame:
+        """Build the cross-sectional trailing-return momentum panel (wide: date × instrument).
+
+        mom = $close / $close.shift(momentum_lookback) − 1.
+        Causal: row d uses closes ≤ d (shift looks backward only). NaN during warmup / where close is NaN.
+        """
+        from qlib.data import D
+
+        close = D.features(self.weight_universe, ["$close"], freq="day")["$close"]
+        close_wide = close.unstack(level="instrument").sort_index()
+        L = getattr(self, "momentum_lookback", 30)
+        return close_wide / close_wide.shift(L) - 1
 
     def _build_strong_trend_signal(self) -> pd.Series:
         """Build the BTC pct-above-200d SMA series (date-indexed).
@@ -558,5 +578,16 @@ class VolWeightedRegimeStrategy(WeightStrategyBase):
             if len(sp_prior) > 0:
                 row = sp_prior.iloc[-1]
                 k = getattr(self, "smart_money_tilt_k", 1.0)
+                w = self._apply_cross_sectional_tilt(w, row, k, sign=+1.0)
+        # Momentum tilt: up-weight recent relative winners (+k sign → exp(+k*z)).
+        if getattr(self, "momentum_tilt", False) and len(w) > 0:
+            # Lazily build (or use injected) momentum signal panel.
+            if self._momentum_signal is None:
+                self._momentum_signal = self._build_momentum_signal()
+            mp = self._momentum_signal
+            mp_prior = mp.loc[mp.index < t]  # STRICTLY prior — no look-ahead
+            if len(mp_prior) > 0:
+                row = mp_prior.iloc[-1]
+                k = getattr(self, "momentum_tilt_k", 1.0)
                 w = self._apply_cross_sectional_tilt(w, row, k, sign=+1.0)
         return {k: float(v) for k, v in w.items() if v > 0}
