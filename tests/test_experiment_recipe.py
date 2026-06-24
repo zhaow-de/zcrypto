@@ -1444,3 +1444,78 @@ def test_beta_null_confirm_sweep_non_lever_fields_match_beta_null(recipe_name, e
     assert variant.reference_instruments == bn.reference_instruments
     assert variant.handler_kwargs == bn.handler_kwargs
     assert variant.feature_config == bn.feature_config
+
+
+# --- beta_null_vt40/vt45/vt55/vt60 recipes: iter-55 vol_target fine-sweep ---
+
+_VT_KEY = "vol_target"
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_vt",
+    [
+        ("beta_null_vt40", 0.40),
+        ("beta_null_vt45", 0.45),
+        ("beta_null_vt55", 0.55),
+        ("beta_null_vt60", 0.60),
+    ],
+)
+def test_beta_null_vt_sweep_resolves(recipe_name, expected_vt):
+    r = resolve_recipe(recipe_name)
+    assert r.name == recipe_name
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_vt",
+    [
+        ("beta_null_vt40", 0.40),
+        ("beta_null_vt45", 0.45),
+        ("beta_null_vt55", 0.55),
+        ("beta_null_vt60", 0.60),
+    ],
+)
+def test_beta_null_vt_sweep_vol_target_param(recipe_name, expected_vt):
+    sc = resolve_recipe(recipe_name).strategy_config
+    assert sc["class"] == "VolWeightedRegimeStrategy"
+    assert sc["module_path"] == "cli.experiment.strategies.regime"
+    assert sc["kwargs"][_VT_KEY] == expected_vt
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_vt",
+    [
+        ("beta_null_vt40", 0.40),
+        ("beta_null_vt45", 0.45),
+        ("beta_null_vt55", 0.55),
+        ("beta_null_vt60", 0.60),
+    ],
+)
+def test_beta_null_vt_sweep_only_vol_target_differs_from_beta_null(recipe_name, expected_vt):
+    """The ONLY strategy-kwargs delta vs beta_null is vol_target (drift guard)."""
+    variant_kw = resolve_recipe(recipe_name).strategy_config["kwargs"]
+    bn_kw = resolve_recipe("beta_null").strategy_config["kwargs"]
+    assert {k: v for k, v in variant_kw.items() if k != _VT_KEY} == {k: v for k, v in bn_kw.items() if k != _VT_KEY}
+    assert variant_kw[_VT_KEY] == expected_vt
+    assert bn_kw[_VT_KEY] == 0.50
+
+
+@pytest.mark.parametrize(
+    "recipe_name,expected_vt",
+    [
+        ("beta_null_vt40", 0.40),
+        ("beta_null_vt45", 0.45),
+        ("beta_null_vt55", 0.55),
+        ("beta_null_vt60", 0.60),
+    ],
+)
+def test_beta_null_vt_sweep_non_lever_fields_match_beta_null(recipe_name, expected_vt):
+    variant, bn = resolve_recipe(recipe_name), resolve_recipe("beta_null")
+    assert variant.universe == bn.universe
+    assert variant.segments == bn.segments
+    assert variant.fee_preset == bn.fee_preset
+    assert variant.label_horizon_days == bn.label_horizon_days
+    assert variant.account == bn.account
+    assert variant.benchmark == bn.benchmark
+    assert variant.reference_instruments == bn.reference_instruments
+    assert variant.handler_kwargs == bn.handler_kwargs
+    assert variant.feature_config == bn.feature_config
