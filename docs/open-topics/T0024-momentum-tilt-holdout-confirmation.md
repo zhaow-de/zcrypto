@@ -2,7 +2,17 @@
 status: open
 ---
 
-# `momentum_tilt` candidate — reserved-holdout confirmation (the project's first edge)
+# `momentum_tilt` candidate — downgraded (failed its in-sample significance bar)
+
+> **Correction (2026-06-25).** This topic originally framed `momentum_tilt` as "the project's first
+> edge," teed up for a reserved-holdout look. That framing is withdrawn. The +0.200 was promoted past a
+> **broken deflated-Sharpe check** (the trial register had lost its history → deflated Sharpe `NaN`; see
+> [`T0025`](T0025-trial-register-durability.md)). Assessed properly on the saved paired daily-delta
+> bootstraps, momentum's edge over the null pools to **`t ≈ 1.3`** — below the naive `t > 2`, far below
+> the pre-registered `t > 3` multiple-testing bar. The reserved-holdout look is **moot**: momentum is not
+> a confirmable edge on the data already seen, and the 2025 `test` segment is not pristine anyway (it
+> overlaps the `oos_2025` stress window already inside the +0.200). The candidate is **not** a confirmed
+> edge; the deployable answer remains `beta_null` / `regime_voltarget` (~0.31 OOS).
 
 ## Context — what
 
@@ -45,13 +55,12 @@ candidate to date to spend it on.
 
 ## Suggested next steps
 
-- **DECISIVE (human-ratified, PARKED — not autonomous):** ratify spending the **reserved-holdout look** on
-  `momentum_tilt` (30d, the representative lookback) — the one-shot, un-peeked confirmation. Pre-register the
-  trial budget / the exact recipe before peeking. This is the step the loop must not take.
-- **Optional reversible pre-checks the loop CAN still run** (each adds in-sample trials, so lower-priority than
-  the holdout): a `momentum_tilt_k` strength dose-response (does the edge scale sensibly with tilt strength?);
-  sub-period stability beyond the walk-forward windows; `momentum × universe-size` (top-5/top-15) and
-  `momentum × vol-target` interactions.
-- **If the holdout confirms:** promote `momentum_tilt` to a deployable recipe and hand to the
-  live-trading-prep open-topics; if it fails, record that the in-sample +0.200 did not survive the un-peeked
-  holdout (multiple-testing / overfitting) and the passive-beta null stands.
+- **Do NOT spend a reserved-holdout look on the 2025 segment.** It is moot on two independent grounds:
+  momentum fails its in-sample significance bar (pooled daily-delta `t≈1.3`), and the 2025 `test` segment
+  is not pristine (it overlaps the `oos_2025` stress window already inside the +0.200). A "look" there
+  would confirm seen data, not test the candidate.
+- **Fix the measurement first** ([`T0025`](T0025-trial-register-durability.md)) — repair the trial register
+  / deflated-Sharpe integrity so any future candidate (momentum or otherwise) is judged against a real bar.
+- **Only genuine confirmation path:** retest momentum on **out-of-time data the search never saw**
+  (forward-walk / paper validation, ties to `T0006`). That is the sole way an in-sample signal like this
+  could be confirmed; treat momentum as a low-conviction prior until then.
