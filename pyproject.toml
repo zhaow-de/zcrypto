@@ -33,5 +33,5 @@ dev = [
     "coverage>=7.14.1",
     "pre-commit>=4.6.0",
     "pytest>=9.1.0",
-    "ruff>=0.15.18",
+    "ruff>=0.15.20",
 ]
